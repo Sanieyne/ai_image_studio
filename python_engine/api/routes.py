@@ -58,6 +58,15 @@ def _resolve_aspect(req: GenerateRequest) -> str:
 @router.post("/generate", response_model=GenerateResponse)
 def generate_image(req: GenerateRequest) -> GenerateResponse:
     pipeline = get_pipeline()
+    engine = getattr(pipeline, "engine", None)
+    if (engine is not None
+            and not getattr(engine, "mock_mode", False)
+            and getattr(engine, "pipe", None) is None):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Engine has no model loaded (a previous model switch "
+                   "failed). Pick a model such as RealVisXL and try again.",
+        )
     start_time = time.perf_counter()
     transient_loras = bool(req.loras)
     # Snapshot persistent adapters so transient cleanup restores them.
@@ -224,8 +233,20 @@ def switch_model_endpoint(req: ModelSwitchRequest):
         }
     except Exception as e:
         log.exception("Failed to switch model: %s", e)
+        msg = str(e)
+        # Gated/private HF repos (e.g. FLUX.1-schnell) need login, not a
+        # retry: answer 403 with a human message instead of a bare 500.
+        if ("gated" in msg.lower() or "401" in msg
+                or "must have access" in msg.lower()
+                or "restricted" in msg.lower()):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Model '{req.model_id}' is gated on HuggingFace and "
+                       f"needs login (HF_TOKEN). The previous model is still "
+                       f"loaded. Details: {e}",
+            )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to switch model: {e}",
+            detail=f"Failed to switch model (previous model still loaded): {e}",
         )
 

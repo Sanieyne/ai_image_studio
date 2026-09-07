@@ -161,18 +161,35 @@ class SDXLEngine:
             return model_id
 
         import gc
-        if self.img2img_pipe is not None:
-            del self.img2img_pipe
-            self.img2img_pipe = None
-        if self.pipe is not None:
-            del self.pipe
-            self.pipe = None
-            if torch is not None and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
-
+        # Keep the working pipes alive until the new model loads: on
+        # failure we roll back instead of leaving pipe=None (which used
+        # to turn every later generate into "'NoneType' object" 500s).
+        old_pipe, old_img2img = self.pipe, self.img2img_pipe
+        old_id = self.current_model_id
+        old_family = getattr(self, "family", "sdxl")
+        old_loras = dict(self.active_loras)
+        self.img2img_pipe = None
+        try:
+            self._load_pipeline(model_id)
+        except Exception:
+            self.pipe = old_pipe
+            self.img2img_pipe = old_img2img
+            self.current_model_id = old_id
+            self.family = old_family
+            self.active_loras.clear()
+            self.active_loras.update(old_loras)
+            print(f"[WARN] Switch to '{model_id}' failed; "
+                  f"rolled back to '{old_id}'.")
+            raise
+        # New pipe is live: free the old weights now.
+        if old_pipe is not None and old_pipe is not self.pipe:
+            del old_pipe
+        if old_img2img is not None:
+            del old_img2img
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
         self.active_loras.clear()
-        self._load_pipeline(model_id)
         return model_id
 
 
