@@ -5,7 +5,9 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'lora_manager.dart';
 
 typedef PromptGenerateCallback = void Function(
   String prompt,
@@ -15,14 +17,17 @@ typedef PromptGenerateCallback = void Function(
   String? imageBase64,
   double strength,
   Uint8List? referenceBytes,
+  int steps,
+  double cfgScale,
 );
 
 /// Floating frosted prompt bar: dropdown selector pills on top, pill
 /// text field with upload/camera actions and a Generate button below.
 class PromptInputBar extends StatefulWidget {
   final PromptGenerateCallback? onGenerate;
+  final ApiService? apiService;
 
-  const PromptInputBar({super.key, this.onGenerate});
+  const PromptInputBar({super.key, this.onGenerate, this.apiService});
 
   /// Display label -> HF repo id. Single source of truth for home_screen too.
   static const modelIds = {
@@ -54,6 +59,9 @@ class _PromptInputBarState extends State<PromptInputBar> {
   String? _referenceName;
   String? _referenceBase64;
   double _strength = 0.65;
+  bool _showTune = false;
+  int _steps = 30;
+  double _cfg = 7.0;
 
   static const _ratios = [
     _MenuOption('16:9', 'Landscape', Icons.crop_landscape),
@@ -127,6 +135,8 @@ class _PromptInputBarState extends State<PromptInputBar> {
       _referenceBase64,
       _strength,
       _referenceBytes,
+      _steps,
+      _cfg,
     );
     setState(() {
       _controller.clear();
@@ -200,8 +210,20 @@ class _PromptInputBarState extends State<PromptInputBar> {
                       border: border,
                       // 5 options: spawn above the pill.
                       menuOffset: const Offset(0, -370),
-                      onSelected: (v) =>
-                          setState(() => _model = v),
+                      onSelected: (v) => setState(() {
+                        _model = v;
+                        // Family defaults so FLUX isn't run with SDXL numbers.
+                        if (v == 'FLUX.1-schnell') {
+                          _steps = 4;
+                          _cfg = 0.0;
+                        } else if (v == 'FLUX.1-dev') {
+                          _steps = 28;
+                          _cfg = 3.5;
+                        } else {
+                          _steps = 30;
+                          _cfg = 7.0;
+                        }
+                      }),
                     ),
                     _SelectorMenu(
                       options: _modes,
@@ -214,7 +236,86 @@ class _PromptInputBarState extends State<PromptInputBar> {
                           setState(() => _mode = v),
                     ),
                     _buildNegativePromptToggle(dark, border, muted),
+                    _buildTuneToggle(dark, border, muted),
+                    _buildLoraPill(dark, border, muted),
                   ],
+                ),
+                // Optional expandable tune sliders (steps / CFG).
+                AnimatedCrossFade(
+                  duration: const Duration(milliseconds: 200),
+                  crossFadeState: _showTune
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  firstChild: const SizedBox.shrink(),
+                  secondChild: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: dark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : Colors.black.withValues(alpha: 0.03),
+                        borderRadius:
+                            BorderRadius.circular(LuminaColors.pillRadius),
+                        border: Border.all(color: border),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              const Text('Steps'),
+                              Expanded(
+                                child: Slider(
+                                  min: 1,
+                                  max: 60,
+                                  divisions: 59,
+                                  value: _steps.toDouble(),
+                                  label: '$_steps',
+                                  onChanged: (v) => setState(
+                                      () => _steps = v.round()),
+                                ),
+                              ),
+                              SizedBox(
+                                  width: 36,
+                                  child: Text('$_steps',
+                                      textAlign: TextAlign.end)),
+                            ],
+                          ),
+                          Row(
+                            children: [
+                              const Text('CFG'),
+                              Expanded(
+                                child: Slider(
+                                  min: 0.0,
+                                  max: 15.0,
+                                  divisions: 150,
+                                  value: _cfg,
+                                  label: _cfg.toStringAsFixed(1),
+                                  onChanged: (v) =>
+                                      setState(() => _cfg = v),
+                                ),
+                              ),
+                              SizedBox(
+                                  width: 36,
+                                  child: Text(_cfg.toStringAsFixed(1),
+                                      textAlign: TextAlign.end)),
+                            ],
+                          ),
+                          if (_model == 'FLUX.1-schnell')
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 4),
+                              child: Text(
+                                'Schnell is distilled: CFG is ignored, 4 steps is enough.',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    fontStyle: FontStyle.italic),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
                 // Optional Expandable Negative Prompt Field
                 AnimatedCrossFade(
@@ -433,6 +534,104 @@ class _PromptInputBarState extends State<PromptInputBar> {
                     : Icons.keyboard_arrow_down,
                 size: 14,
                 color: isActive ? Colors.redAccent : muted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoraPill(bool dark, Color border, Color muted) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => LoraManagerDialog.show(
+            context, widget.apiService ?? ApiService()),
+        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: dark
+                ? Colors.white.withValues(alpha: 0.05)
+                : Colors.white.withValues(alpha: 0.8),
+            borderRadius:
+                BorderRadius.circular(LuminaColors.pillRadius),
+            border: Border.all(color: border, width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.style_outlined, size: 14, color: muted),
+              const SizedBox(width: 6),
+              Text(
+                'LoRA',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: dark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTuneToggle(bool dark, Color border, Color muted) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _showTune = !_showTune),
+        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: _showTune
+                ? LuminaColors.primaryGlow.withValues(alpha: 0.15)
+                : (dark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.white.withValues(alpha: 0.8)),
+            borderRadius:
+                BorderRadius.circular(LuminaColors.pillRadius),
+            border: Border.all(
+              color: _showTune
+                  ? LuminaColors.primaryGlow.withValues(alpha: 0.5)
+                  : border,
+              width: 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.tune_outlined,
+                size: 14,
+                color:
+                    _showTune ? LuminaColors.primaryGlow : muted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Tune ($_steps / ${_cfg.toStringAsFixed(1)})',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      _showTune ? FontWeight.w600 : FontWeight.w500,
+                  color: dark ? Colors.white70 : Colors.black87,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _showTune
+                    ? Icons.keyboard_arrow_up
+                    : Icons.keyboard_arrow_down,
+                size: 14,
+                color:
+                    _showTune ? LuminaColors.primaryGlow : muted,
               ),
             ],
           ),

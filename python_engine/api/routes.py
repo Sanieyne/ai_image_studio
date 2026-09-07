@@ -176,6 +176,7 @@ def load_lora_endpoint(req: LoraConfig):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     except Exception as e:
+        log.exception("LoRA load failed for %s", req.path_or_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),

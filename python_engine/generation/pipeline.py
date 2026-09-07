@@ -221,30 +221,86 @@ class SDXLEngine:
             raise RuntimeError(
                 "torch/diffusers are required for real LoRA loading. "
                 "Run: pip install -r requirements.txt")
-        if os.path.isfile(lora_path_or_id):
-            lora_dir = os.path.dirname(lora_path_or_id) or "."
-            weight_name = os.path.basename(lora_path_or_id)
-            self.pipe.load_lora_weights(
-                lora_dir, weight_name=weight_name,
-                adapter_name=adapter_name)
-        else:
-            self.pipe.load_lora_weights(
-                lora_path_or_id, adapter_name=adapter_name)
+        # Replace (not collide) when this name is already resident from a
+        # half-finished earlier load.
+        if hasattr(self.pipe, "delete_adapters"):
+            try:
+                self.pipe.delete_adapters([adapter_name])
+            except Exception:
+                pass
+        try:
+            if os.path.isfile(lora_path_or_id):
+                lora_dir = os.path.dirname(lora_path_or_id) or "."
+                weight_name = os.path.basename(lora_path_or_id)
+                self.pipe.load_lora_weights(
+                    lora_dir, weight_name=weight_name,
+                    adapter_name=adapter_name)
+            else:
+                self.pipe.load_lora_weights(
+                    lora_path_or_id, adapter_name=adapter_name)
+        except IndexError:
+            # UNet-only LoRA (no text-encoder weights, e.g. add-detail-xl):
+            # the stock loader crashes inferring the text-encoder rank, so
+            # load the UNet part directly and skip the text encoders.
+            log.info("[*] Full LoRA load failed; retrying UNet-only for "
+                     "'%s'.", adapter_name)
+            self._load_lora_unet_only(
+                lora_path_or_id, adapter_name)
         self.active_loras[adapter_name] = {
             "path": lora_path_or_id, "weight": weight}
         self._apply_adapter_weights()
         print(f"[OK] LoRA '{adapter_name}' loaded (weight: {weight}).")
         return adapter_name
 
+    def _load_lora_unet_only(
+        self, lora_path_or_id: str, adapter_name: str) -> None:
+        """Load just the UNet part of a LoRA checkpoint.
+
+        Used when the file carries no text-encoder weights and the stock
+        loader dies with `IndexError: list index out of range` while
+        inferring the text-encoder rank.
+        """
+        state_dict, network_alphas, metadata = self.pipe.lora_state_dict(
+            lora_path_or_id,
+            unet_config=self.pipe.unet.config,
+            return_lora_metadata=True,
+        )
+        unet_keys = [k for k in state_dict
+                     if "text_encoder" not in k and "text_enc" not in k]
+        if not unet_keys:
+            raise ValueError(
+                f"LoRA '{lora_path_or_id}' has no UNet weights; cannot load.")
+        # The failed full attempt already parked the UNet half under this
+        # name: drop it so the retry below doesn't collide with itself.
+        if hasattr(self.pipe, "delete_adapters"):
+            try:
+                self.pipe.delete_adapters([adapter_name])
+            except Exception:
+                pass
+        unet_state = {k: state_dict[k] for k in unet_keys}
+        self.pipe.load_lora_into_unet(
+            unet_state,
+            network_alphas=network_alphas,
+            unet=self.pipe.unet,
+            adapter_name=adapter_name,
+            metadata=metadata,
+            _pipeline=self.pipe,
+        )
+
     def unload_loras(self) -> None:
         if self.mock_mode:
             print("[*] [MOCK] Unloading all LoRAs.")
             self.active_loras.clear()
             return
-        if self.pipe is not None and self.active_loras:
-            self.pipe.unload_lora_weights()
-            self.active_loras.clear()
-            print("[OK] All LoRAs unloaded.")
+        # Always unload the pipe: the dict can be empty while an adapter
+        # from a half-finished load is still resident (orphan).
+        if self.pipe is not None:
+            try:
+                self.pipe.unload_lora_weights()
+            except Exception as e:
+                print(f"[WARN] unload_lora_weights: {e}")
+        self.active_loras.clear()
+        print("[OK] All LoRAs unloaded.")
 
     def set_lora_scale(self, adapter_name: str, weight: float) -> None:
         if adapter_name not in self.active_loras:

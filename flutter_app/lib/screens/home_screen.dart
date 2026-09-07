@@ -204,7 +204,9 @@ class _HomeScreenState extends State<HomeScreen> {
       String model,
       String? imageBase64,
       double strength,
-      Uint8List? referenceBytes) async {
+      Uint8List? referenceBytes,
+      int steps,
+      double cfgScale) async {
     if (_activeProject == null) {
       final newProj = ProjectItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -264,6 +266,8 @@ class _HomeScreenState extends State<HomeScreen> {
         prompt: prompt,
         negativePrompt: effectiveNeg,
         aspectRatio: ratio,
+        steps: steps,
+        guidanceScale: cfgScale,
         imageBase64: imageBase64,
         strength: strength,
       ),
@@ -444,10 +448,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       constraints:
                           const BoxConstraints(maxWidth: 760),
                       child: PromptInputBar(
+                        apiService: _api,
                         onGenerate: (prompt, negativePrompt, ratio, model,
-                                imageBase64, strength, referenceBytes) =>
-                            _handlePromptSubmit(prompt, negativePrompt, ratio,
-                                model, imageBase64, strength, referenceBytes),
+                                imageBase64, strength, referenceBytes,
+                                steps, cfgScale) =>
+                            _handlePromptSubmit(
+                                prompt,
+                                negativePrompt,
+                                ratio,
+                                model,
+                                imageBase64,
+                                strength,
+                                referenceBytes,
+                                steps,
+                                cfgScale),
                       ),
                     ),
                   ),
