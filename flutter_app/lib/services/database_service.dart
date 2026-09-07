@@ -16,6 +16,18 @@ class DatabaseService {
   static final DatabaseService instance = DatabaseService._internal();
   DatabaseService._internal();
 
+  /// Legacy popup labels (e.g. 'SDXL 1.0 (Live RTX 3090)') -> current model names.
+  static String normalizeModelName(String raw) {
+    const legacy = {
+      'SDXL 1.0 (Live RTX 3090)': 'RealVisXL V4.0',
+      'SDXL 0.9 (Research)': 'SDXL Base 1.0',
+      'Stable Diffusion XL': 'SDXL Base 1.0',
+    };
+    if (legacy.containsKey(raw)) return legacy[raw]!;
+    if (raw.contains('RTX 3090') || raw.contains('Vast')) return 'RealVisXL V4.0';
+    return raw;
+  }
+
   Database? _db;
   Directory? _imagesDir;
 
@@ -66,6 +78,22 @@ class DatabaseService {
         await db.execute(
           'CREATE INDEX idx_generations_project ON generations(project_id)',
         );
+      },
+      onOpen: (db) async {
+        // One-time cleanup of legacy model labels from the old popup.
+        const legacy = {
+          'SDXL 1.0 (Live RTX 3090)': 'RealVisXL V4.0',
+          'SDXL 0.9 (Research)': 'SDXL Base 1.0',
+          'Stable Diffusion XL': 'SDXL Base 1.0',
+        };
+        for (final e in legacy.entries) {
+          await db.update(
+            'generations',
+            {'model_name': e.value},
+            where: 'model_name = ?',
+            whereArgs: [e.key],
+          );
+        }
       },
     );
   }
@@ -177,7 +205,7 @@ class DatabaseService {
         prompt: r['prompt'] as String,
         negativePrompt: r['negative_prompt'] as String? ?? '',
         aspectRatio: r['aspect_ratio'] as String? ?? '9:16',
-        modelName: r['model_name'] as String? ?? '',
+        modelName: DatabaseService.normalizeModelName(r['model_name'] as String? ?? ''),
         timestamp: DateTime.fromMillisecondsSinceEpoch(
             (r['timestamp'] as int?) ?? 0),
         status: status,

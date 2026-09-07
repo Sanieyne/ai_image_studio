@@ -24,6 +24,16 @@ class PromptInputBar extends StatefulWidget {
 
   const PromptInputBar({super.key, this.onGenerate});
 
+  /// Display label -> HF repo id. Single source of truth for home_screen too.
+  static const modelIds = {
+    'RealVisXL V4.0': 'SG161222/RealVisXL_V4.0',
+    'Juggernaut XL v9': 'RunDiffusion/Juggernaut-XL-v9',
+    'DreamShaper XL': 'Lykon/dreamshaper-xl-1-0',
+    'SDXL Base 1.0': 'stabilityai/stable-diffusion-xl-base-1.0',
+    'FLUX.1-schnell': 'black-forest-labs/FLUX.1-schnell',
+    'FLUX.1-dev': 'black-forest-labs/FLUX.1-dev',
+  };
+
   @override
   State<PromptInputBar> createState() => _PromptInputBarState();
 }
@@ -52,11 +62,15 @@ class _PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('4:5', 'Social', Icons.crop_5_4),
   ];
   static const _models = [
-    _MenuOption('SDXL 1.0 (Live RTX 3090)', 'Vast.ai GPU', Icons.bolt_rounded),
-    _MenuOption('SDXL 0.9 (Research)', 'Gated Weights', Icons.science_outlined),
-    _MenuOption('Stable Diffusion XL', 'Base 1024', Icons.auto_awesome),
+    _MenuOption('RealVisXL V4.0', 'Photoreal', Icons.bolt_rounded),
+    _MenuOption('Juggernaut XL v9', 'Detailed', Icons.auto_awesome),
+    _MenuOption('DreamShaper XL', 'Creative', Icons.brush_outlined),
+    _MenuOption('SDXL Base 1.0', 'Neutral base', Icons.science_outlined),
+    _MenuOption('FLUX.1-schnell', 'Fast 4-step', Icons.flash_on),
+    _MenuOption('FLUX.1-dev', 'Quality', Icons.hd),
     _MenuOption('Offline Mock Mode', 'Test Only', Icons.laptop_chromebook),
   ];
+
   static const _modes = [
     _MenuOption('Image Mode', 'Single frame', Icons.image_outlined),
     _MenuOption('Video Mode', 'Multi frame', Icons.videocam_outlined),
@@ -64,7 +78,7 @@ class _PromptInputBarState extends State<PromptInputBar> {
   ];
 
   String _ratio = '9:16';
-  String _model = 'SDXL 1.0 (Live RTX 3090)';
+  String _model = 'RealVisXL V4.0';
   String _mode = 'Image Mode';
 
   @override
@@ -184,8 +198,8 @@ class _PromptInputBarState extends State<PromptInputBar> {
                       value: _model,
                       muted: muted,
                       border: border,
-                      // 4 options: spawn above the pill.
-                      menuOffset: const Offset(0, -225),
+                      // 5 options: spawn above the pill.
+                      menuOffset: const Offset(0, -370),
                       onSelected: (v) =>
                           setState(() => _model = v),
                     ),

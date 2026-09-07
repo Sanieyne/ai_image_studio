@@ -29,7 +29,18 @@ class _GenerationBubbleState extends State<GenerationBubble> {
     Clipboard.setData(ClipboardData(text: widget.item.prompt));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Prompt copied to clipboard'),
+        content: Text('Prompt copied'),
+        duration: Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _copyNegative(BuildContext context) {
+    Clipboard.setData(ClipboardData(text: widget.item.negativePrompt));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Negative prompt copied'),
         duration: Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
       ),
@@ -203,9 +214,9 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                                 color: Colors.green
                                     .withValues(alpha: 0.4)),
                           ),
-                          child: const Text(
-                            '⚡ Live RTX 3090',
-                            style: TextStyle(
+                          child: Text(
+                            item.modelName,
+                            style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: Colors.green),
@@ -228,29 +239,46 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    item.prompt,
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark
-                          ? Colors.white.withValues(alpha: 0.9)
-                          : const Color(0xFF14181F),
+                  Tooltip(
+                    message: 'Click to copy prompt',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () => _copyPrompt(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 2),
+                        child: Text(
+                          item.prompt,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.9)
+                                : const Color(0xFF14181F),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   if (item.negativePrompt.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.redAccent.withValues(alpha: 0.08),
+                    Tooltip(
+                      message: 'Click to copy negative prompt',
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: Colors.redAccent.withValues(alpha: 0.25),
-                        ),
-                      ),
-                      child: Row(
+                        onTap: () => _copyNegative(context),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: Colors.redAccent
+                                  .withValues(alpha: 0.25),
+                            ),
+                          ),
+                          child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(
@@ -271,8 +299,10 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                                     : Colors.redAccent.shade700,
                               ),
                             ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ],

@@ -29,6 +29,7 @@ except ImportError:  # mock mode works without torch installed
 from PIL import Image, ImageDraw
 
 from config.config import settings
+from generation.model_registry import defaults_for, family_for
 
 log = logging.getLogger(__name__)
 
@@ -58,6 +59,7 @@ class SDXLEngine:
         )
         self.pipe = None
         self.img2img_pipe = None
+        self.family = family_for(model_id)
         # State tracking: {adapter_name: {"path": str, "weight": float}}
         self.active_loras: Dict[str, dict] = {}
         self.current_model_id = model_id
@@ -74,11 +76,19 @@ class SDXLEngine:
         self._load_pipeline(model_id)
 
     def _load_pipeline(self, model_id: str) -> None:
+        self.family = family_for(model_id)
+        hf_token = os.environ.get("HF_TOKEN") or None
+        if self.family == "flux":
+            self._load_flux_pipeline(model_id, hf_token)
+        else:
+            self._load_sdxl_pipeline(model_id, hf_token)
+        self.current_model_id = model_id
+
+    def _load_sdxl_pipeline(self, model_id: str, hf_token=None) -> None:
         from diffusers import StableDiffusionXLPipeline
 
         print(f"[*] Loading SDXL model '{model_id}' onto "
               f"{self.device} ({self.torch_dtype})...")
-        hf_token = os.environ.get("HF_TOKEN") or None
 
         if os.path.isfile(model_id):
             print(f"[*] Loading single-file checkpoint from disk: {model_id}")
@@ -115,8 +125,29 @@ class SDXLEngine:
         else:
             self.pipe.to("cpu")
 
-        self.current_model_id = model_id
         print(f"[OK] SDXL pipeline ready with '{model_id}'.")
+
+    def _load_flux_pipeline(self, model_id: str, hf_token=None) -> None:
+        """FLUX.1 (12B) needs bfloat16 + CPU offload to fit 24GB VRAM."""
+        from diffusers import FluxPipeline
+
+        dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+        print(f"[*] Loading FLUX model '{model_id}' ({dtype})...")
+        if os.path.isfile(model_id):
+            self.pipe = FluxPipeline.from_single_file(
+                model_id, torch_dtype=dtype, use_safetensors=True)
+        else:
+            self.pipe = FluxPipeline.from_pretrained(
+                model_id, torch_dtype=dtype, token=hf_token)
+        if self.device == "cuda":
+            # 12B params: offload is mandatory on 24GB, tiling for 4K.
+            self.pipe.enable_model_cpu_offload()
+            try:
+                self.pipe.vae.enable_tiling()
+                self.pipe.vae.enable_slicing()
+            except Exception:
+                pass
+        print(f"[OK] FLUX pipeline ready with '{model_id}'.")
 
     def switch_model(self, model_id: str) -> str:
         """Dynamically unload current model and load a new one."""
@@ -243,6 +274,32 @@ class SDXLEngine:
         generator = None
         if seed != -1:
             generator = torch.Generator(device=self.device).manual_seed(seed)
+
+        # FLUX family: pipeline takes no negative prompt; schnell ignores
+        # guidance (distilled 4-step), dev uses ~3.5.
+        if getattr(self, "family", "sdxl") == "flux":
+            kwargs = dict(
+                prompt=prompt,
+                width=width,
+                height=height,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generator=generator,
+            )
+            if init_image is not None:
+                if self.img2img_pipe is None:
+                    from diffusers import AutoPipelineForImage2Image
+                    log.info("[*] Creating img2img pipe from FLUX pipe (sharing weights)...")
+                    self.img2img_pipe = AutoPipelineForImage2Image.from_pipe(
+                        self.pipe)
+                init_img = init_image.convert("RGB").resize(
+                    (width, height), Image.Resampling.LANCZOS
+                )
+                result = self.img2img_pipe(
+                    image=init_img, strength=strength, **kwargs)
+                return result.images[0]
+            result = self.pipe(**kwargs)
+            return result.images[0]
 
         if init_image is not None:
             if self.img2img_pipe is None:

@@ -249,6 +249,16 @@ class _HomeScreenState extends State<HomeScreen> {
     await _db.insertGeneration(item);
     _scrollToBottom();
 
+    // Switch the backend to the picked checkpoint (label -> HF id).
+    // Must match _models in prompt_input_bar.dart.
+    const modelIds = PromptInputBar.modelIds;
+    final wasForceMock = ApiService.forceMockMode;
+    ApiService.forceMockMode = (model == 'Offline Mock Mode');
+    final modelId = modelIds[model];
+    if (modelId != null && !ApiService.forceMockMode) {
+      await _api.switchModel(modelId);
+    }
+
     final result = await _api.generateImage(
       GenerationRequest(
         prompt: prompt,
@@ -258,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
         strength: strength,
       ),
     );
+    ApiService.forceMockMode = wasForceMock;
     if (!mounted) return;
     if (result.success) {
       await _db.updateGenerationResult(

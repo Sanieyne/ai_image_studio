@@ -165,6 +165,39 @@ class ApiService {
     }
   }
 
+  /// POST /models/switch -> true when engine loads it.
+  Future<bool> switchModel(String modelId) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/models/switch'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'model_id': modelId}),
+          )
+          .timeout(const Duration(seconds: 120));
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('[ApiService] Failed to switch model: $e');
+      return false;
+    }
+  }
+
+  /// GET /models/current -> model_id or null when offline.
+  Future<String?> getCurrentModel() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/models/current'))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return data['model_id'] as String?;
+      }
+    } catch (e) {
+      debugPrint('[ApiService] Failed to fetch current model: $e');
+    }
+    return null;
+  }
+
   /// Offline stand-in: delay + prompt-seeded picsum image at bucket size.
   Future<GenerationResult> _mockFallback(GenerationRequest req) async {
     await Future.delayed(const Duration(milliseconds: 1800));
