@@ -22,7 +22,10 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Warm up pipeline (loads SDXL or falls back to mock) so /health is honest.
-    get_pipeline()
+    try:
+        get_pipeline()
+    except Exception as e:
+        logging.getLogger(__name__).warning("[!] Pipeline warmup deferred (%s). Models will load on demand.", e)
     yield
 
 

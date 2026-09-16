@@ -7,53 +7,55 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-# family: "sdxl" | "flux"
+# family: "sdxl" | "flux" | "zimage"
 MODELS: Dict[str, dict] = {
-    # --- SDXL family (current live set) ---
+    "Tongyi-MAI/Z-Image-Turbo": {
+        "family": "zimage",
+        "label": "Z-Image Turbo",
+        "default_steps": 9,
+        "default_guidance": 0.0,
+        "gated": False,
+        "note": "Z-Image Turbo 6B single-stream DiT. 8 NFE, sub-second on H800, fits 16GB VRAM.",
+    },
+    "black-forest-labs/FLUX.1-Kontext-dev": {
+        "family": "flux",
+        "label": "FLUX.1 Kontext [dev]",
+        "default_steps": 28,
+        "default_guidance": 3.5,
+        "gated": True,
+        "note": "Instruction-guided image-to-image editing (12B). Active on RTX 3090.",
+    },
     "stabilityai/stable-diffusion-xl-base-1.0": {
         "family": "sdxl",
         "label": "SDXL Base 1.0",
         "default_steps": 30,
         "default_guidance": 7.0,
         "gated": False,
+        "note": "SDXL base foundation model (6.6GB). Cached on GPU.",
     },
-    "SG161222/RealVisXL_V4.0": {
-        "family": "sdxl",
-        "label": "RealVisXL V4.0",
-        "default_steps": 30,
-        "default_guidance": 7.0,
+    "ResembleAI/chatterbox": {
+        "family": "chatterbox",
+        "label": "Chatterbox TTS",
+        "default_steps": 1,
+        "default_guidance": 0.5,
         "gated": False,
+        "note": "Resemble AI Chatterbox 500M TTS with exaggeration & voice cloning.",
     },
-    "RunDiffusion/Juggernaut-XL-v9": {
-        "family": "sdxl",
-        "label": "Juggernaut XL v9",
-        "default_steps": 30,
-        "default_guidance": 7.0,
+    "ResembleAI/chatterbox-multilingual": {
+        "family": "chatterbox",
+        "label": "Chatterbox Multilingual V3",
+        "default_steps": 1,
+        "default_guidance": 0.5,
         "gated": False,
+        "note": "Chatterbox Multilingual V3 (23+ languages) with cross-lingual voice cloning.",
     },
-    "Lykon/dreamshaper-xl-1-0": {
-        "family": "sdxl",
-        "label": "DreamShaper XL",
+    "fashn-ai/fashn-vton-1.5": {
+        "family": "tryon",
+        "label": "FASHN VTON 1.5",
         "default_steps": 30,
-        "default_guidance": 7.0,
+        "default_guidance": 1.5,
         "gated": False,
-    },
-    # --- FLUX family (new) ---
-    "black-forest-labs/FLUX.1-schnell": {
-        "family": "flux",
-        "label": "FLUX.1-schnell",
-        "default_steps": 4,
-        "default_guidance": 0.0,  # distilled: guidance not used
-        "gated": False,  # open weights
-        "note": "Fast 4-step. Best first FLUX to download (~23GB).",
-    },
-    "black-forest-labs/FLUX.1-dev": {
-        "family": "flux",
-        "label": "FLUX.1-dev",
-        "default_steps": 28,
-        "default_guidance": 3.5,
-        "gated": True,  # needs HF_TOKEN + license acceptance on HF
-        "note": "Higher quality, slower. Accept license at the HF repo page.",
+        "note": "FASHN VTON v1.5 pixel-space virtual try-on MMDiT (972M). Tops, bottoms, and one-pieces.",
     },
 }
 

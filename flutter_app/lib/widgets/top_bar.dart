@@ -21,12 +21,15 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.workspaceLabel = 'Creative Studio',
     this.credits = 2450,
     required this.engineOnline,
+    this.deviceName,
     required this.isDark,
     required this.onThemeToggle,
     this.onBuyCredits,
     this.sidebarCollapsed = false,
     this.onMenuToggle,
   });
+
+  final String? deviceName;
 
   @override
   Size get preferredSize => const Size.fromHeight(64);
@@ -131,7 +134,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
               const Spacer(),
               // Engine status (compact dot + label).
-              _StatusChip(online: engineOnline),
+              _StatusChip(online: engineOnline, deviceName: deviceName),
               const SizedBox(width: 10),
               // Credits pill.
               Container(
@@ -214,20 +217,29 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
 
 class _StatusChip extends StatelessWidget {
   final bool online;
-  const _StatusChip({required this.online});
+  final String? deviceName;
+  const _StatusChip({required this.online, this.deviceName});
 
   @override
   Widget build(BuildContext context) {
     final dark = LuminaTheme.isDark(context);
     final muted = dark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
+    final label = online
+        ? (deviceName != null && deviceName!.isNotEmpty
+            ? deviceName!
+            : 'Online')
+        : 'Offline';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(Icons.circle,
             size: 10, color: online ? Colors.green : Colors.red),
         const SizedBox(width: 6),
-        Text(online ? 'Online' : 'Offline',
-            style: TextStyle(fontSize: 12.5, color: muted)),
+        Text(label,
+            style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: muted)),
       ],
     );
   }

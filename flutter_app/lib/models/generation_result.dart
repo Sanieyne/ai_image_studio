@@ -16,6 +16,13 @@ class GenerationResult {
   final Map<String, LoraInfo> activeLoras;
   final String? error;
   final bool isMock;
+  final bool isVideo;
+  final Uint8List? videoBytes;
+  final String? videoPath;
+  final bool isAudio;
+  final Uint8List? audioBytes;
+  final String? audioPath;
+  final int? sampleRate;
 
   const GenerationResult({
     required this.success,
@@ -29,6 +36,13 @@ class GenerationResult {
     required this.activeLoras,
     this.error,
     this.isMock = false,
+    this.isVideo = false,
+    this.videoBytes,
+    this.videoPath,
+    this.isAudio = false,
+    this.audioBytes,
+    this.audioPath,
+    this.sampleRate,
   });
 
   factory GenerationResult.failure(String message) => GenerationResult(
@@ -42,6 +56,30 @@ class GenerationResult {
         aspectRatio: '9:16',
         activeLoras: const {},
         error: message,
+      );
+
+  factory GenerationResult.audio(
+    Uint8List audioBytes, {
+    String? audioPath,
+    int sampleRate = 24000,
+    int inferenceTimeMs = 0,
+    bool isMock = false,
+  }) =>
+      GenerationResult(
+        success: true,
+        imageBytes: Uint8List(0),
+        rawBase64: '',
+        seed: 0,
+        inferenceTimeMs: inferenceTimeMs,
+        width: 0,
+        height: 0,
+        aspectRatio: '1:1',
+        activeLoras: const {},
+        isAudio: true,
+        audioBytes: audioBytes,
+        audioPath: audioPath,
+        sampleRate: sampleRate,
+        isMock: isMock,
       );
 }
 

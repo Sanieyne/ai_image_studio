@@ -24,6 +24,16 @@ class GenerationItem {
   String? errorMessage;
   bool isMock;
   Uint8List? referenceImageBytes;
+  bool isVideo;
+  String? videoPath;
+  Uint8List? referenceVideoBytes;
+  String? referenceVideoName;
+  bool isAudio;
+  String? audioPath;
+  Uint8List? referenceAudioBytes;
+  String? referenceAudioName;
+  int? sampleRate;
+  String? language;
 
   GenerationItem({
     required this.id,
@@ -44,5 +54,15 @@ class GenerationItem {
     this.errorMessage,
     this.isMock = false,
     this.referenceImageBytes,
+    this.isVideo = false,
+    this.videoPath,
+    this.referenceVideoBytes,
+    this.referenceVideoName,
+    this.isAudio = false,
+    this.audioPath,
+    this.referenceAudioBytes,
+    this.referenceAudioName,
+    this.sampleRate,
+    this.language,
   });
 }

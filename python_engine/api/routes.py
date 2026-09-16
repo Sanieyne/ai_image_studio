@@ -17,6 +17,15 @@ from api.schemas import (
     LoraConfig,
     LoraScaleRequest,
     ModelSwitchRequest,
+    VideoRequest,
+    VideoResponse,
+    AnimateRequest,
+    VoiceRequest,
+    VoiceResponse,
+    MiniMaxRequest,
+    TryOnRequest,
+    TryOnResponse,
+    Wan2_1Request,
 )
 from generation.pipeline import (
     ASPECT_RATIO_BUCKETS,
@@ -31,9 +40,11 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     pipe = get_pipeline()
+    from generation.device import get_device_name
     return HealthResponse(
         status="ok" if pipe.model_loaded else "ok-mock",
         device=pipe.device,
+        device_name=get_device_name(),
         model_loaded=pipe.model_loaded,
         current_model=pipe.current_model,
     )
@@ -138,6 +149,7 @@ def generate_image(req: GenerateRequest) -> GenerateResponse:
     except HTTPException:
         raise
     except Exception as e:
+        log.exception("Generation failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Generation failed: {e}",
@@ -249,5 +261,354 @@ def switch_model_endpoint(req: ModelSwitchRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to switch model (previous model still loaded): {e}",
+        )
+
+
+
+@router.post("/video", response_model=VideoResponse)
+def generate_video(req: VideoRequest) -> VideoResponse:
+    """Image-to-video (or text-to-video) via local LTX 2B distilled."""
+    from generation.video_pipeline import get_video_engine
+
+    raw = None
+    if req.image_base64:
+        b64 = req.image_base64
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid image_base64: {e}",
+            )
+    try:
+        mp4, seed_used = get_video_engine().generate_mp4(
+            prompt=req.prompt,
+            init_image=raw,
+            num_frames=req.num_frames,
+            num_inference_steps=req.steps,
+            seed=req.seed if req.seed is not None else -1,
+            width=req.width,
+            height=req.height,
+            fps=req.fps,
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        log.exception("Video generate failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Video generate failed: {e}",
+        )
+    return VideoResponse(
+        success=True,
+        video_base64=base64.b64encode(mp4).decode(),
+        seed=seed_used,
+        num_frames=req.num_frames,
+        fps=req.fps,
+    )
+
+
+@router.post("/animate", response_model=VideoResponse)
+def animate_character(req: AnimateRequest) -> VideoResponse:
+    """Wan 2.2 Animate 14B Character Motion Animation endpoint."""
+    from generation.video_pipeline import get_wan_engine
+
+    ref_b64 = req.image_base64
+    if "," in ref_b64:
+        ref_b64 = ref_b64.split(",", 1)[1]
+    try:
+        ref_bytes = base64.b64decode(ref_b64)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image_base64: {e}",
+        )
+
+    tpl_bytes = None
+    if req.template_video_base64:
+        tpl_b64 = req.template_video_base64
+        if "," in tpl_b64:
+            tpl_b64 = tpl_b64.split(",", 1)[1]
+        try:
+            tpl_bytes = base64.b64decode(tpl_b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid template_video_base64: {e}",
+            )
+
+    try:
+        engine = get_wan_engine()
+        mp4, seed_used = engine.animate(
+            refer_image_bytes=ref_bytes,
+            template_video_bytes=tpl_bytes,
+            prompt=req.prompt or "",
+            width=req.width,
+            height=req.height,
+            clip_len=17,
+            num_frames=req.num_frames,
+            steps=req.steps,
+            sample_guide_scale=req.sample_guide_scale,
+            seed=req.seed if req.seed is not None else -1,
+            fps=req.fps,
+        )
+    except Exception as e:
+        log.exception("Wan Animate failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Wan Animate failed: {e}",
+        )
+
+    return VideoResponse(
+        success=True,
+        video_base64=base64.b64encode(mp4).decode(),
+        seed=seed_used,
+        num_frames=req.num_frames,
+        fps=req.fps,
+    )
+
+
+@router.post("/wan2_1", response_model=VideoResponse)
+def generate_wan2_1(req: Wan2_1Request) -> VideoResponse:
+    """Wan 2.1 Foundation Video Generation (T2V 1.3B/14B, I2V 14B, FLF2V)."""
+    from generation.video_pipeline import get_wan2_1_engine
+
+    init_bytes = None
+    if req.image_base64:
+        raw_b64 = req.image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            init_bytes = base64.b64decode(raw_b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid image_base64: {e}",
+            )
+
+    end_bytes = None
+    if req.end_image_base64:
+        raw_b64 = req.end_image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            end_bytes = base64.b64decode(raw_b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid end_image_base64: {e}",
+            )
+
+    try:
+        engine = get_wan2_1_engine()
+        mp4_bytes, seed_used = engine.generate(
+            prompt=req.prompt,
+            negative_prompt=req.negative_prompt or "",
+            init_image_bytes=init_bytes,
+            end_image_bytes=end_bytes,
+            task=req.task,
+            width=req.width,
+            height=req.height,
+            num_frames=req.num_frames,
+            fps=req.fps,
+            steps=req.steps,
+            guidance_scale=req.guidance_scale,
+            flow_shift=req.flow_shift,
+            seed=req.seed if req.seed is not None else -1,
+        )
+    except Exception as e:
+        log.exception("Wan 2.1 generation failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Wan 2.1 generation failed: {e}",
+        )
+
+    return VideoResponse(
+        success=True,
+        video_base64=base64.b64encode(mp4_bytes).decode(),
+        seed=seed_used,
+        num_frames=req.num_frames,
+        fps=req.fps,
+    )
+
+
+@router.post("/minimax", response_model=VideoResponse)
+def generate_minimax(req: MiniMaxRequest) -> VideoResponse:
+    """MiniMax-H3 Omni Video+Audio generation endpoint."""
+    from generation.video_pipeline import get_minimax_engine
+
+    init_bytes = None
+    if req.image_base64:
+        raw_b64 = req.image_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            init_bytes = base64.b64decode(raw_b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid image_base64: {e}",
+            )
+
+    try:
+        engine = get_minimax_engine()
+        mp4_bytes, seed_used = engine.generate(
+            prompt=req.prompt,
+            init_image_bytes=init_bytes,
+            duration_seconds=req.duration_seconds,
+            fps=req.fps,
+            steps=req.steps,
+            aspect_ratio=req.aspect_ratio,
+            seed=req.seed if req.seed is not None else -1,
+        )
+    except Exception as e:
+        log.exception("MiniMax generation failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"MiniMax-H3 generation failed: {e}",
+        )
+
+    num_frames = int(req.duration_seconds * req.fps)
+    return VideoResponse(
+        success=True,
+        video_base64=base64.b64encode(mp4_bytes).decode(),
+        seed=seed_used,
+        num_frames=num_frames,
+        fps=req.fps,
+    )
+
+
+@router.post("/voice", response_model=VoiceResponse)
+def generate_voice(req: VoiceRequest) -> VoiceResponse:
+    """Chatterbox TTS voice generation and zero-shot voice cloning endpoint."""
+    from generation.voice_pipeline import get_voice_engine
+
+    ref_audio_bytes = None
+    if req.audio_prompt_base64:
+        raw_b64 = req.audio_prompt_base64
+        if "," in raw_b64:
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            ref_audio_bytes = base64.b64decode(raw_b64)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid audio_prompt_base64: {e}",
+            )
+
+    t0 = time.perf_counter()
+    try:
+        engine = get_voice_engine()
+        wav_bytes, sample_rate, seed_used = engine.generate_audio(
+            prompt=req.prompt,
+            language=req.language,
+            model_name=req.model_name,
+            audio_prompt_bytes=ref_audio_bytes,
+            exaggeration=req.exaggeration,
+            cfg_weight=req.cfg_weight,
+            seed=req.seed if req.seed is not None else -1,
+            instruction=req.instruction,
+            ref_text=req.ref_text,
+        )
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+        # Estimate duration from bytes (16-bit mono PCM in standard WAV: ~sample_rate * 2 bytes/sec)
+        est_duration = None
+        if len(wav_bytes) > 44 and sample_rate > 0:
+            data_bytes = len(wav_bytes) - 44
+            est_duration = round(data_bytes / (sample_rate * 2), 2)
+
+        return VoiceResponse(
+            success=True,
+            audio_base64=base64.b64encode(wav_bytes).decode(),
+            sample_rate=sample_rate,
+            seed=seed_used,
+            inference_time_ms=elapsed_ms,
+            language=req.language,
+            model_name=req.model_name,
+            duration_seconds=est_duration,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("Voice generation failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Voice generation failed: {e}",
+        )
+
+
+@router.post("/tryon", response_model=TryOnResponse)
+def virtual_tryon(req: TryOnRequest) -> TryOnResponse:
+    """FASHN VTON v1.5 virtual try-on endpoint."""
+    from generation.tryon_pipeline import get_tryon_engine
+
+    # Parse person image
+    raw_person = req.person_image_base64
+    if "," in raw_person:
+        raw_person = raw_person.split(",", 1)[1]
+    try:
+        person_bytes = base64.b64decode(raw_person)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid person_image_base64 attachment: {e}",
+        )
+
+    # Parse garment image
+    raw_garment = req.garment_image_base64
+    if "," in raw_garment:
+        raw_garment = raw_garment.split(",", 1)[1]
+    try:
+        garment_bytes = base64.b64decode(raw_garment)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid garment_image_base64 attachment: {e}",
+        )
+
+    t0 = time.perf_counter()
+    try:
+        engine = get_tryon_engine()
+        png_bytes, seed_used = engine.generate(
+            person_image_bytes=person_bytes,
+            garment_image_bytes=garment_bytes,
+            category=req.category,
+            garment_photo_type=req.garment_photo_type,
+            steps=req.steps,
+            guidance_scale=req.guidance_scale,
+            seed=req.seed if req.seed is not None else -1,
+            segmentation_free=req.segmentation_free,
+        )
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+        img_b64 = base64.b64encode(png_bytes).decode("utf-8")
+        if not img_b64.startswith("data:image"):
+            img_b64 = f"data:image/png;base64,{img_b64}"
+
+        return TryOnResponse(
+            success=True,
+            image_base64=img_b64,
+            seed=seed_used,
+            inference_time_ms=elapsed_ms,
+            width=576,
+            height=864,
+            category=req.category,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        log.exception("Virtual try-on failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Virtual try-on failed: {e}",
         )
 

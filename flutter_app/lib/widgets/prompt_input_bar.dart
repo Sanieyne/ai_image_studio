@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -9,7 +11,7 @@ import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'lora_manager.dart';
 
-typedef PromptGenerateCallback = void Function(
+typedef PromptGenerateCallback = FutureOr<void> Function(
   String prompt,
   String negativePrompt,
   String ratio,
@@ -18,8 +20,26 @@ typedef PromptGenerateCallback = void Function(
   double strength,
   Uint8List? referenceBytes,
   int steps,
-  double cfgScale,
-);
+  double cfgScale, {
+  String? videoBase64,
+  Uint8List? referenceVideoBytes,
+  String? referenceVideoName,
+  String? audioBase64,
+  Uint8List? referenceAudioBytes,
+  String? referenceAudioName,
+  String? language,
+  double? exaggeration,
+  String? instruction,
+  String? refText,
+  String? garmentBase64,
+  Uint8List? garmentBytes,
+  String? garmentName,
+  String? tryonCategory,
+  String? garmentPhotoType,
+  String? endImageBase64,
+  Uint8List? endImageBytes,
+  String? endImageName,
+});
 
 /// Floating frosted prompt bar: dropdown selector pills on top, pill
 /// text field with upload/camera actions and a Generate button below.
@@ -31,12 +51,18 @@ class PromptInputBar extends StatefulWidget {
 
   /// Display label -> HF repo id. Single source of truth for home_screen too.
   static const modelIds = {
-    'RealVisXL V4.0': 'SG161222/RealVisXL_V4.0',
-    'Juggernaut XL v9': 'RunDiffusion/Juggernaut-XL-v9',
-    'DreamShaper XL': 'Lykon/dreamshaper-xl-1-0',
+    'Chatterbox TTS': 'ResembleAI/chatterbox',
+    'Chatterbox Multilingual V3': 'ResembleAI/chatterbox-multilingual',
+    'Breeze TTS 2': 'BreezeBlue/Breeze-TTS-2',
+    'MiniMax-H3 Video+Audio': 'MiniMaxAI/MiniMax-H3',
+    'Wan 2.1 T2V 1.3B': 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers',
+    'Wan 2.1 I2V 14B': 'Wan-AI/Wan2.1-I2V-14B-480P-Diffusers',
+    'Wan 2.1 FLF2V 14B': 'Wan-AI/Wan2.1-FLF2V-14B-720P-Diffusers',
+    'Wan 2.2 Animate 14B': 'Wan-AI/Wan2.2-Animate-14B',
+    'FLUX.1 Kontext [dev]': 'black-forest-labs/FLUX.1-Kontext-dev',
     'SDXL Base 1.0': 'stabilityai/stable-diffusion-xl-base-1.0',
-    'FLUX.1-schnell': 'black-forest-labs/FLUX.1-schnell',
-    'FLUX.1-dev': 'black-forest-labs/FLUX.1-dev',
+    'Z-Image Turbo': 'Tongyi-MAI/Z-Image-Turbo',
+    'FASHN VTON 1.5': 'fashn-ai/fashn-vton-1.5',
   };
 
   @override
@@ -53,15 +79,46 @@ class _MenuOption {
 class _PromptInputBarState extends State<PromptInputBar> {
   final _controller = TextEditingController();
   final _negController = TextEditingController();
+  final _instructionController = TextEditingController();
+  final _refTextController = TextEditingController();
   bool _showNegativePrompt = false;
+
+  bool get _isVoiceModel =>
+      _model.contains('Chatterbox') || _model.contains('Breeze');
+  bool get _isMiniMaxModel => _model.contains('MiniMax');
+  bool get _isWan21T2V => _model == 'Wan 2.1 T2V 1.3B';
+  bool get _isWan21I2V => _model == 'Wan 2.1 I2V 14B';
+  bool get _isWan21FLF2V => _model == 'Wan 2.1 FLF2V 14B';
+  bool get _isWan21Model => _isWan21T2V || _isWan21I2V || _isWan21FLF2V;
+  bool get _isVideoModel =>
+      _model == 'Wan 2.2 Animate 14B' || _isWan21Model || _isMiniMaxModel;
+  bool get _isTryOnModel => _model.contains('FASHN');
+  bool get _isTryOnMode => _mode == 'Virtual Try-On' || _isTryOnModel;
 
   Uint8List? _referenceBytes;
   String? _referenceName;
   String? _referenceBase64;
+  Uint8List? _endImageBytes;
+  String? _endImageName;
+  String? _endImageBase64;
+  Uint8List? _garmentBytes;
+  String? _garmentName;
+  String? _garmentBase64;
+  String _tryonCategory = 'tops';
+  String _garmentPhotoType = 'model';
+  Uint8List? _referenceVideoBytes;
+  String? _referenceVideoName;
+  String? _referenceVideoBase64;
+  Uint8List? _videoThumbnailBytes;
+  Uint8List? _referenceAudioBytes;
+  String? _referenceAudioName;
+  String? _referenceAudioBase64;
   double _strength = 0.65;
   bool _showTune = false;
-  int _steps = 30;
-  double _cfg = 7.0;
+  int _steps = 16;
+  double _cfg = 3.5;
+  double _exaggeration = 0.5;
+  String _language = 'en';
 
   static const _ratios = [
     _MenuOption('16:9', 'Landscape', Icons.crop_landscape),
@@ -69,30 +126,68 @@ class _PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('1:1', 'Square', Icons.crop_square),
     _MenuOption('4:5', 'Social', Icons.crop_5_4),
   ];
+  static const _tryonCategories = [
+    _MenuOption('tops', 'Tops (Shirts/Jackets)', Icons.checkroom),
+    _MenuOption('bottoms', 'Bottoms (Pants/Skirts)', Icons.accessibility_new),
+    _MenuOption('one-pieces', 'One-Pieces (Dresses/Suits)', Icons.dry_cleaning),
+  ];
+  static const _garmentPhotoTypes = [
+    _MenuOption('model', 'Worn by Model', Icons.person_outline),
+    _MenuOption('flat-lay', 'Flat-Lay Product Shot', Icons.layers_outlined),
+  ];
   static const _models = [
-    _MenuOption('RealVisXL V4.0', 'Photoreal', Icons.bolt_rounded),
-    _MenuOption('Juggernaut XL v9', 'Detailed', Icons.auto_awesome),
-    _MenuOption('DreamShaper XL', 'Creative', Icons.brush_outlined),
-    _MenuOption('SDXL Base 1.0', 'Neutral base', Icons.science_outlined),
-    _MenuOption('FLUX.1-schnell', 'Fast 4-step', Icons.flash_on),
-    _MenuOption('FLUX.1-dev', 'Quality', Icons.hd),
+    _MenuOption('Chatterbox TTS', 'Resemble AI Voice (500M)', Icons.record_voice_over_rounded),
+    _MenuOption('Chatterbox Multilingual V3', '23+ Languages TTS', Icons.language_rounded),
+    _MenuOption('Breeze TTS 2', 'BreezeBlue Voice Design (3.4B)', Icons.graphic_eq_rounded),
+    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+    _MenuOption('Wan 2.1 T2V 1.3B', 'Fast Text-to-Video (1.3B)', Icons.videocam_rounded),
+    _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
+    _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
+    _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
+    _MenuOption('FLUX.1 Kontext [dev]', 'Img2Img / Edit (12B)', Icons.auto_fix_high),
+    _MenuOption('FASHN VTON 1.5', 'Virtual Try-On (972M)', Icons.checkroom_rounded),
+    _MenuOption('Z-Image Turbo', 'Fast 6B DiT · 8 steps', Icons.bolt_rounded),
+    _MenuOption('SDXL Base 1.0', 'Base Model', Icons.science_outlined),
     _MenuOption('Offline Mock Mode', 'Test Only', Icons.laptop_chromebook),
   ];
 
   static const _modes = [
     _MenuOption('Image Mode', 'Single frame', Icons.image_outlined),
+    _MenuOption('Virtual Try-On', 'Outfit & Garment Swap', Icons.checkroom_rounded),
+    _MenuOption('Motion Animate', 'Video & Motion (Wan / MiniMax)', Icons.animation),
     _MenuOption('Video Mode', 'Multi frame', Icons.videocam_outlined),
-    _MenuOption('Motion Animate', 'Animate stills', Icons.animation),
+    _MenuOption('Voice Studio', 'TTS & Voice Cloning', Icons.record_voice_over_rounded),
+  ];
+
+  static const _languages = [
+    _MenuOption('en', 'English', Icons.language),
+    _MenuOption('es', 'Spanish (Español)', Icons.language),
+    _MenuOption('fr', 'French (Français)', Icons.language),
+    _MenuOption('de', 'German (Deutsch)', Icons.language),
+    _MenuOption('zh', 'Chinese (中文)', Icons.language),
+    _MenuOption('ja', 'Japanese (日本語)', Icons.language),
+    _MenuOption('ko', 'Korean (한국어)', Icons.language),
+    _MenuOption('it', 'Italian (Italiano)', Icons.language),
+    _MenuOption('pt', 'Portuguese (Português)', Icons.language),
+    _MenuOption('hi', 'Hindi (हिन्दी)', Icons.language),
+    _MenuOption('ar', 'Arabic (العربية)', Icons.language),
+    _MenuOption('ru', 'Russian (Русский)', Icons.language),
+    _MenuOption('nl', 'Dutch (Nederlands)', Icons.language),
+    _MenuOption('tr', 'Turkish (Türkçe)', Icons.language),
+    _MenuOption('sv', 'Swedish (Svenska)', Icons.language),
+    _MenuOption('pl', 'Polish (Polski)', Icons.language),
   ];
 
   String _ratio = '9:16';
-  String _model = 'RealVisXL V4.0';
-  String _mode = 'Image Mode';
+  String _model = 'Wan 2.2 Animate 14B';
+  String _mode = 'Motion Animate';
 
   @override
   void dispose() {
     _controller.dispose();
     _negController.dispose();
+    _instructionController.dispose();
+    _refTextController.dispose();
     super.dispose();
   }
 
@@ -123,28 +218,264 @@ class _PromptInputBarState extends State<PromptInputBar> {
     }
   }
 
+  Future<void> _pickEndImage() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+      );
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _endImageBytes = bytes;
+          _endImageName = file.name;
+          _endImageBase64 = base64Encode(bytes);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load end frame image: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickGarmentImage() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+      );
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _garmentBytes = bytes;
+          _garmentName = file.name;
+          _garmentBase64 = base64Encode(bytes);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load garment image: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickTemplateVideo() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['mp4', 'mov', 'webm'],
+      );
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final bytes = await file.readAsBytes();
+        Uint8List? thumbBytes;
+        try {
+          final tempDir = Directory.systemTemp;
+          final tmpVideo = File(
+              '${tempDir.path}/tmp_vid_${DateTime.now().millisecondsSinceEpoch}.mp4');
+          await tmpVideo.writeAsBytes(bytes);
+          final tmpThumb = File(
+              '${tempDir.path}/tmp_thumb_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await Process.run('ffmpeg', [
+            '-y',
+            '-ss',
+            '00:00:00',
+            '-i',
+            tmpVideo.path,
+            '-vframes',
+            '1',
+            tmpThumb.path,
+          ]);
+          if (await tmpThumb.exists()) {
+            thumbBytes = await tmpThumb.readAsBytes();
+            await tmpThumb.delete();
+          }
+          if (await tmpVideo.exists()) await tmpVideo.delete();
+        } catch (_) {}
+
+        setState(() {
+          _referenceVideoBytes = bytes;
+          _referenceVideoName = file.name;
+          _referenceVideoBase64 = base64Encode(bytes);
+          _videoThumbnailBytes = thumbBytes;
+          _model = 'Wan 2.2 Animate 14B';
+          _mode = 'Motion Animate';
+          _steps = 4;
+          _cfg = 1.0;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load template video: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _pickReferenceAudio() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['wav', 'mp3', 'm4a', 'ogg', 'flac'],
+      );
+      if (files.isNotEmpty) {
+        final file = files.first;
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _referenceAudioBytes = bytes;
+          _referenceAudioName = file.name;
+          _referenceAudioBase64 = base64Encode(bytes);
+          if (_mode != 'Voice Studio') {
+            _mode = 'Voice Studio';
+            _model = 'Chatterbox TTS';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load reference voice clip: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   void _submit() {
+    if (_isTryOnMode) {
+      if (_referenceBytes == null && _garmentBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Virtual Try-On requires both a Person photo (Slot 1) and a Garment photo (Slot 2).'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+        _pickReferenceImage();
+        return;
+      }
+      if (_referenceBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please attach a Person photo (Slot 1) to dress.'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+        _pickReferenceImage();
+        return;
+      }
+      if (_garmentBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please attach a Garment photo (Slot 2) for the outfit.'),
+            backgroundColor: Colors.orangeAccent,
+          ),
+        );
+        _pickGarmentImage();
+        return;
+      }
+    }
+
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty &&
+        _referenceBytes == null &&
+        _garmentBytes == null &&
+        _referenceVideoBytes == null &&
+        _referenceAudioBytes == null) {
+      return;
+    }
+    final promptText = text.isEmpty
+        ? (_isTryOnMode
+            ? 'Virtual try-on outfit swap ($_tryonCategory)'
+            : (_referenceVideoBytes != null && _referenceBytes != null
+                ? 'Animate character using driving motion video'
+                : (_referenceVideoBytes != null
+                    ? 'Animate video motion'
+                    : (_referenceAudioBytes != null
+                        ? 'Voice generation sample'
+                        : 'Animate character with dynamic motion'))))
+        : text;
     final neg = _negController.text.trim();
+
+    // If user provided video only (no separate image), use the video's first frame as character image
+    final effectiveImageBase64 = _referenceBase64 ??
+        (_videoThumbnailBytes != null
+            ? base64Encode(_videoThumbnailBytes!)
+            : null);
+    final effectiveImageBytes = _referenceBytes ?? _videoThumbnailBytes;
+
+    final inst = _instructionController.text.trim();
+    final refT = _refTextController.text.trim();
+
     widget.onGenerate?.call(
-      text,
+      promptText,
       neg,
       _ratio,
       _model,
-      _referenceBase64,
+      effectiveImageBase64,
       _strength,
-      _referenceBytes,
+      effectiveImageBytes,
       _steps,
       _cfg,
+      videoBase64: _referenceVideoBase64,
+      referenceVideoBytes: _referenceVideoBytes,
+      referenceVideoName: _referenceVideoName,
+      audioBase64: _referenceAudioBase64,
+      referenceAudioBytes: _referenceAudioBytes,
+      referenceAudioName: _referenceAudioName,
+      language: _language,
+      exaggeration: _exaggeration,
+      instruction: inst.isNotEmpty ? inst : null,
+      refText: refT.isNotEmpty ? refT : null,
+      garmentBase64: _garmentBase64,
+      garmentBytes: _garmentBytes,
+      garmentName: _garmentName,
+      tryonCategory: _tryonCategory,
+      garmentPhotoType: _garmentPhotoType,
+      endImageBase64: _endImageBase64,
+      endImageBytes: _endImageBytes,
+      endImageName: _endImageName,
     );
     setState(() {
       _controller.clear();
       _negController.clear();
+      _instructionController.clear();
+      _refTextController.clear();
       _showNegativePrompt = false;
       _referenceBytes = null;
       _referenceName = null;
       _referenceBase64 = null;
+      _endImageBytes = null;
+      _endImageName = null;
+      _endImageBase64 = null;
+      _garmentBytes = null;
+      _garmentName = null;
+      _garmentBase64 = null;
+      _referenceVideoBytes = null;
+      _referenceVideoName = null;
+      _referenceVideoBase64 = null;
+      _videoThumbnailBytes = null;
+      _referenceAudioBytes = null;
+      _referenceAudioName = null;
+      _referenceAudioBase64 = null;
       _strength = 0.65;
     });
   }
@@ -208,18 +539,49 @@ class _PromptInputBarState extends State<PromptInputBar> {
                       value: _model,
                       muted: muted,
                       border: border,
-                      // 5 options: spawn above the pill.
-                      menuOffset: const Offset(0, -370),
+                      menuOffset: const Offset(0, -220),
                       onSelected: (v) => setState(() {
                         _model = v;
-                        // Family defaults so FLUX isn't run with SDXL numbers.
-                        if (v == 'FLUX.1-schnell') {
+                        if (v == 'FASHN VTON 1.5') {
+                          _mode = 'Virtual Try-On';
+                          _steps = 30;
+                          _cfg = 1.5;
+                        } else if (v == 'Wan 2.1 T2V 1.3B') {
+                          _mode = 'Video Mode';
+                          _steps = 30;
+                          _cfg = 5.0;
+                        } else if (v == 'Wan 2.1 I2V 14B') {
+                          _mode = 'Video Mode';
+                          _steps = 30;
+                          _cfg = 5.0;
+                        } else if (v == 'Wan 2.1 FLF2V 14B') {
+                          _mode = 'Video Mode';
+                          _steps = 30;
+                          _cfg = 5.0;
+                        } else if (v == 'Wan 2.2 Animate 14B') {
+                          _mode = 'Motion Animate';
                           _steps = 4;
-                          _cfg = 0.0;
-                        } else if (v == 'FLUX.1-dev') {
-                          _steps = 28;
+                          _cfg = 1.0;
+                        } else if (v == 'MiniMax-H3 Video+Audio') {
+                          _mode = 'Motion Animate';
+                          _steps = 30;
+                          _cfg = 6.0;
+                        } else if (v == 'Chatterbox TTS' ||
+                            v == 'Chatterbox Multilingual V3' ||
+                            v == 'Breeze TTS 2') {
+                          _mode = 'Voice Studio';
+                          _cfg = (v == 'Breeze TTS 2') ? 4.0 : 0.5;
+                          _exaggeration = 0.5;
+                        } else if (v == 'FLUX.1 Kontext [dev]') {
+                          _mode = 'Image Mode';
+                          _steps = 16;
                           _cfg = 3.5;
+                        } else if (v == 'Z-Image Turbo') {
+                          _mode = 'Image Mode';
+                          _steps = 9;
+                          _cfg = 0.0;
                         } else {
+                          _mode = 'Image Mode';
                           _steps = 30;
                           _cfg = 7.0;
                         }
@@ -230,17 +592,66 @@ class _PromptInputBarState extends State<PromptInputBar> {
                       value: _mode,
                       muted: muted,
                       border: border,
-                      // 3 options: spawn above the pill.
-                      menuOffset: const Offset(0, -150),
-                      onSelected: (v) =>
-                          setState(() => _mode = v),
+                      menuOffset: const Offset(0, -180),
+                      onSelected: (v) => setState(() {
+                        _mode = v;
+                        if (v == 'Virtual Try-On') {
+                          _model = 'FASHN VTON 1.5';
+                          _steps = 30;
+                          _cfg = 1.5;
+                        } else if (v == 'Voice Studio') {
+                          if (!_isVoiceModel) {
+                            _model = 'Breeze TTS 2';
+                          }
+                          _cfg = _model.contains('Breeze') ? 4.0 : 0.5;
+                          _exaggeration = 0.5;
+                        } else if (v == 'Motion Animate' || v == 'Video Mode') {
+                          if (!_isVideoModel) {
+                            _model = 'MiniMax-H3 Video+Audio';
+                          }
+                          _steps = _isMiniMaxModel ? 30 : 4;
+                          _cfg = _isMiniMaxModel ? 6.0 : 1.0;
+                        } else if (_isVideoModel || _isVoiceModel || _isTryOnModel) {
+                          _model = 'FLUX.1 Kontext [dev]';
+                          _steps = 16;
+                          _cfg = 3.5;
+                        }
+                      }),
                     ),
+                    if (_isTryOnMode) ...[
+                      _SelectorMenu(
+                        options: _tryonCategories,
+                        value: _tryonCategory,
+                        muted: muted,
+                        border: border,
+                        menuOffset: const Offset(0, -150),
+                        onSelected: (v) => setState(() => _tryonCategory = v),
+                      ),
+                      _SelectorMenu(
+                        options: _garmentPhotoTypes,
+                        value: _garmentPhotoType,
+                        muted: muted,
+                        border: border,
+                        menuOffset: const Offset(0, -110),
+                        onSelected: (v) =>
+                            setState(() => _garmentPhotoType = v),
+                      ),
+                    ],
+                    if (_mode == 'Voice Studio' || _isVoiceModel)
+                      _SelectorMenu(
+                        options: _languages,
+                        value: _language,
+                        muted: muted,
+                        border: border,
+                        menuOffset: const Offset(0, -260),
+                        onSelected: (v) => setState(() => _language = v),
+                      ),
                     _buildNegativePromptToggle(dark, border, muted),
                     _buildTuneToggle(dark, border, muted),
                     _buildLoraPill(dark, border, muted),
                   ],
                 ),
-                // Optional expandable tune sliders (steps / CFG).
+                // Optional expandable tune sliders (steps / CFG or Exaggeration / CFG).
                 AnimatedCrossFade(
                   duration: const Duration(milliseconds: 200),
                   crossFadeState: _showTune
@@ -262,56 +673,158 @@ class _PromptInputBarState extends State<PromptInputBar> {
                           horizontal: 14, vertical: 6),
                       child: Column(
                         children: [
-                          Row(
-                            children: [
-                              const Text('Steps'),
-                              Expanded(
-                                child: Slider(
-                                  min: 1,
-                                  max: 60,
-                                  divisions: 59,
-                                  value: _steps.toDouble(),
-                                  label: '$_steps',
-                                  onChanged: (v) => setState(
-                                      () => _steps = v.round()),
+                          if (_mode == 'Voice Studio' || _isVoiceModel) ...[
+                            if (_model.contains('Breeze')) ...[
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4, bottom: 6),
+                                child: TextField(
+                                  controller: _instructionController,
+                                  style: const TextStyle(fontSize: 12.5),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    labelText: 'Voice Design / Tone Direction (Optional)',
+                                    hintText: 'e.g. A warm, thoughtful young woman with clear delivery',
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                    prefixIcon: const Icon(Icons.record_voice_over, size: 16),
+                                  ),
                                 ),
                               ),
-                              SizedBox(
-                                  width: 36,
-                                  child: Text('$_steps',
-                                      textAlign: TextAlign.end)),
-                            ],
-                          ),
-                          Row(
-                            children: [
-                              const Text('CFG'),
-                              Expanded(
-                                child: Slider(
-                                  min: 0.0,
-                                  max: 15.0,
-                                  divisions: 150,
-                                  value: _cfg,
-                                  label: _cfg.toStringAsFixed(1),
-                                  onChanged: (v) =>
-                                      setState(() => _cfg = v),
+                              if (_referenceAudioBytes != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: TextField(
+                                    controller: _refTextController,
+                                    style: const TextStyle(fontSize: 12.5),
+                                    decoration: InputDecoration(
+                                      isDense: true,
+                                      labelText: 'Reference Audio Transcript (Optional)',
+                                      hintText: 'Exact text spoken in the reference audio',
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      prefixIcon: const Icon(Icons.subtitles_rounded, size: 16),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              SizedBox(
-                                  width: 36,
-                                  child: Text(_cfg.toStringAsFixed(1),
-                                      textAlign: TextAlign.end)),
                             ],
-                          ),
-                          if (_model == 'FLUX.1-schnell')
-                            const Padding(
-                              padding: EdgeInsets.only(bottom: 4),
+                            Row(
+                              children: [
+                                const Text('Exaggeration'),
+                                Expanded(
+                                  child: Slider(
+                                    min: 0.0,
+                                    max: 1.5,
+                                    divisions: 30,
+                                    value: _exaggeration,
+                                    label: _exaggeration.toStringAsFixed(2),
+                                    onChanged: (v) =>
+                                        setState(() => _exaggeration = v),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 36,
+                                  child: Text(
+                                    _exaggeration.toStringAsFixed(2),
+                                    textAlign: TextAlign.end,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                Text(_model.contains('Breeze') ? 'Guidance Scale' : 'CFG Guidance'),
+                                Expanded(
+                                  child: Slider(
+                                    min: 0.0,
+                                    max: _model.contains('Breeze') ? 8.0 : 1.5,
+                                    divisions: _model.contains('Breeze') ? 32 : 30,
+                                    value: _cfg.clamp(0.0, _model.contains('Breeze') ? 8.0 : 1.5),
+                                    label: _cfg.toStringAsFixed(2),
+                                    onChanged: (v) =>
+                                        setState(() => _cfg = v),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 36,
+                                  child: Text(
+                                    _cfg.toStringAsFixed(2),
+                                    textAlign: TextAlign.end,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
                               child: Text(
-                                'Schnell is distilled: CFG is ignored, 4 steps is enough.',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    fontStyle: FontStyle.italic),
+                                _model.contains('Breeze')
+                                    ? 'Breeze TTS 2 (3.4B): Use CFG ~4.0 for Voice Design/Direction; supports vocal events ((laugh), (sigh), [笑]) and zero-shot voice cloning.'
+                                    : 'Chatterbox TTS: Higher exaggeration increases emotional expressiveness; lower CFG (~0.3) provides deliberate pacing.',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                ),
                               ),
                             ),
+                          ] else ...[
+                            Row(
+                              children: [
+                                const Text('Steps'),
+                                Expanded(
+                                  child: Slider(
+                                    min: 1,
+                                    max: 60,
+                                    divisions: 59,
+                                    value: _steps.toDouble(),
+                                    label: '$_steps',
+                                    onChanged: (v) => setState(
+                                        () => _steps = v.round()),
+                                  ),
+                                ),
+                                SizedBox(
+                                    width: 36,
+                                    child: Text('$_steps',
+                                        textAlign: TextAlign.end)),
+                              ],
+                            ),
+                            Row(
+                              children: [
+                                const Text('CFG'),
+                                Expanded(
+                                  child: Slider(
+                                    min: 0.0,
+                                    max: 15.0,
+                                    divisions: 150,
+                                    value: _cfg,
+                                    label: _cfg.toStringAsFixed(1),
+                                    onChanged: (v) =>
+                                        setState(() => _cfg = v),
+                                  ),
+                                ),
+                                SizedBox(
+                                    width: 36,
+                                    child: Text(_cfg.toStringAsFixed(1),
+                                        textAlign: TextAlign.end)),
+                              ],
+                            ),
+                            if (_model == 'FLUX.1 Kontext [dev]')
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  'FLUX.1 Kontext (12B): Optimized for instruction-guided image-to-image editing.',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                            if (_model == 'Z-Image Turbo')
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  'Z-Image Turbo (6B): 8-step distilled model. Keep CFG at 0 — guidance is baked in.',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                          ],
                         ],
                       ),
                     ),
@@ -383,7 +896,14 @@ class _PromptInputBarState extends State<PromptInputBar> {
                     ),
                   ),
                 ),
-                _buildReferenceImagePreview(dark, border, muted),
+                if (_isTryOnMode)
+                  _buildTryOnSlots(dark, border, muted)
+                else ...[
+                  _buildReferenceImagePreview(dark, border, muted),
+                  _buildGarmentImagePreview(dark, border, muted),
+                  _buildReferenceVideoPreview(dark, border, muted),
+                  _buildReferenceAudioPreview(dark, border, muted),
+                ],
                 const SizedBox(height: 10),
                 // Bottom row: input + actions.
                 Row(
@@ -394,8 +914,15 @@ class _PromptInputBarState extends State<PromptInputBar> {
                         onSubmitted: (_) => _submit(),
                         style: const TextStyle(fontSize: 13.5),
                         decoration: InputDecoration(
-                          hintText:
-                              'Describe your image or video prompt, style, lighting, camera angle...',
+                          hintText: _isTryOnMode
+                              ? 'Virtual Try-On (FASHN VTON 1.5): Attach person photo + garment photo...'
+                              : (_isMiniMaxModel
+                                  ? 'Describe video scene, action, and sounds (e.g. Neon cyberpunk street in rain, sirens & synth audio)...'
+                                  : (_mode == 'Voice Studio' || _isVoiceModel
+                                      ? (_model.contains('Breeze')
+                                          ? 'Type what you want Breeze TTS 2 to speak (supports (laugh), (sigh), [笑]...)'
+                                          : 'Type what you want Chatterbox to speak...')
+                                      : 'Describe your character, prompt, motion style, or lighting...')),
                           hintStyle:
                               TextStyle(fontSize: 12.5, color: muted),
                           filled: true,
@@ -416,6 +943,37 @@ class _PromptInputBarState extends State<PromptInputBar> {
                       ),
                     ),
                     const SizedBox(width: 6),
+                    if (_isTryOnMode)
+                      IconButton(
+                        onPressed: _pickGarmentImage,
+                        icon: Icon(
+                          _garmentBytes != null
+                              ? Icons.checkroom
+                              : Icons.checkroom_outlined,
+                          size: 20,
+                          color: _garmentBytes != null
+                              ? LuminaColors.violet
+                              : muted,
+                        ),
+                        tooltip: _garmentBytes != null
+                            ? 'Change garment / clothing photo'
+                            : 'Attach garment photo (FASHN VTON 1.5)',
+                      ),
+                    IconButton(
+                      onPressed: _pickReferenceAudio,
+                      icon: Icon(
+                        _referenceAudioBytes != null
+                            ? Icons.mic_rounded
+                            : Icons.mic_none_outlined,
+                        size: 20,
+                        color: _referenceAudioBytes != null
+                            ? LuminaColors.primaryGlow
+                            : muted,
+                      ),
+                      tooltip: _referenceAudioBytes != null
+                          ? 'Change voice clone clip'
+                          : 'Attach voice reference clip (${_model.contains('Breeze') ? 'Breeze Voice Cloning' : 'Chatterbox Cloning'})',
+                    ),
                     IconButton(
                       onPressed: _pickReferenceImage,
                       icon: Icon(
@@ -428,8 +986,39 @@ class _PromptInputBarState extends State<PromptInputBar> {
                             : muted,
                       ),
                       tooltip: _referenceBytes != null
-                          ? 'Change reference photo'
-                          : 'Attach reference photo (Img2Img)',
+                          ? (_isTryOnMode ? 'Change person photo' : 'Change character photo')
+                          : (_isTryOnMode ? 'Attach person photo to dress' : 'Attach first frame photo (${_isMiniMaxModel ? 'MiniMax-H3' : (_isWan21Model ? 'Wan 2.1 I2V' : 'Wan 2.2 / Img2Img')})'),
+                    ),
+                    if (_isWan21FLF2V)
+                      IconButton(
+                        onPressed: _pickEndImage,
+                        icon: Icon(
+                          _endImageBytes != null
+                              ? Icons.image_rounded
+                              : Icons.flip_to_back_rounded,
+                          size: 20,
+                          color: _endImageBytes != null
+                              ? LuminaColors.violet
+                              : muted,
+                        ),
+                        tooltip: _endImageBytes != null
+                            ? 'Change end frame photo'
+                            : 'Attach end frame photo (Wan 2.1 FLF2V Morph)',
+                      ),
+                    IconButton(
+                      onPressed: _pickTemplateVideo,
+                      icon: Icon(
+                        _referenceVideoBytes != null
+                            ? Icons.video_file
+                            : Icons.video_call_outlined,
+                        size: 20,
+                        color: _referenceVideoBytes != null
+                            ? LuminaColors.primaryGlow
+                            : muted,
+                      ),
+                      tooltip: _referenceVideoBytes != null
+                          ? 'Change motion template video'
+                          : 'Attach driving video (Wan 2.2 Motion)',
                     ),
                     IconButton(
                       onPressed: () =>
@@ -461,11 +1050,20 @@ class _PromptInputBarState extends State<PromptInputBar> {
                               horizontal: 20, vertical: 12),
                           shape: const StadiumBorder(),
                         ),
-                        child: const Text('Generate ⚡',
-                            style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                        child: Text(
+                          _isVoiceModel
+                              ? 'Speak 🎙️'
+                              : (_isVideoModel
+                                  ? 'Animate 🎬'
+                                  : (_isTryOnMode
+                                      ? 'Try On 👗'
+                                      : 'Generate ⚡')),
+                          style: const TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -616,7 +1214,11 @@ class _PromptInputBarState extends State<PromptInputBar> {
               ),
               const SizedBox(width: 6),
               Text(
-                'Tune ($_steps / ${_cfg.toStringAsFixed(1)})',
+                _mode == 'Voice Studio' || _isVoiceModel
+                    ? (_model.contains('Breeze')
+                        ? 'Tune (Guidance ${_cfg.toStringAsFixed(1)})'
+                        : 'Tune (${_exaggeration.toStringAsFixed(1)} / ${_cfg.toStringAsFixed(1)})')
+                    : 'Tune ($_steps / ${_cfg.toStringAsFixed(1)})',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight:
@@ -700,7 +1302,7 @@ class _PromptInputBarState extends State<PromptInputBar> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          'Denoising: ${(_strength * 100).toInt()}%',
+                          'Strength: ${(_strength * 100).toInt()}%',
                           style: const TextStyle(
                             fontSize: 10.5,
                             color: LuminaColors.primaryGlow,
@@ -770,6 +1372,596 @@ class _PromptInputBarState extends State<PromptInputBar> {
                 _referenceName = null;
                 _referenceBase64 = null;
                 _strength = 0.65;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTryOnSlots(bool dark, Color border, Color muted) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: dark
+              ? LuminaColors.violet.withValues(alpha: 0.08)
+              : LuminaColors.violet.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: LuminaColors.violet.withValues(alpha: 0.35),
+          ),
+        ),
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_awesome, size: 14, color: LuminaColors.violet),
+                const SizedBox(width: 6),
+                const Text(
+                  'Virtual Try-On Setup',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: LuminaColors.violet,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  'Both photos required',
+                  style: TextStyle(fontSize: 11, color: muted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                // Slot 1: Person Photo
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickReferenceImage,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _referenceBytes != null
+                            ? LuminaColors.primaryGlow.withValues(alpha: 0.12)
+                            : (dark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _referenceBytes != null
+                              ? LuminaColors.primaryGlow.withValues(alpha: 0.5)
+                              : border,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          if (_referenceBytes != null)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                _referenceBytes!,
+                                width: 36,
+                                height: 36,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: LuminaColors.primaryGlow.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Icon(
+                                Icons.person_add_alt_1_rounded,
+                                size: 18,
+                                color: LuminaColors.primaryGlow,
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      '1. Person Photo',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _referenceBytes != null
+                                            ? LuminaColors.primaryGlow
+                                            : null,
+                                      ),
+                                    ),
+                                    if (_referenceBytes != null) ...[
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.check_circle_rounded,
+                                          size: 13, color: Colors.greenAccent),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _referenceName ?? 'Attach human photo',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_referenceBytes != null)
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 14),
+                              color: muted,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Remove person photo',
+                              onPressed: () => setState(() {
+                                _referenceBytes = null;
+                                _referenceName = null;
+                                _referenceBase64 = null;
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Slot 2: Garment Photo
+                Expanded(
+                  child: InkWell(
+                    onTap: _pickGarmentImage,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _garmentBytes != null
+                            ? LuminaColors.violet.withValues(alpha: 0.12)
+                            : (dark
+                                ? Colors.white.withValues(alpha: 0.04)
+                                : Colors.black.withValues(alpha: 0.03)),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _garmentBytes != null
+                              ? LuminaColors.violet.withValues(alpha: 0.5)
+                              : border,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          if (_garmentBytes != null)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.memory(
+                                _garmentBytes!,
+                                width: 36,
+                                height: 36,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: LuminaColors.violet.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Icon(
+                                Icons.checkroom_rounded,
+                                size: 18,
+                                color: LuminaColors.violet,
+                              ),
+                            ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      '2. Garment Photo',
+                                      style: TextStyle(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: _garmentBytes != null
+                                            ? LuminaColors.violet
+                                            : null,
+                                      ),
+                                    ),
+                                    if (_garmentBytes != null) ...[
+                                      const SizedBox(width: 4),
+                                      const Icon(Icons.check_circle_rounded,
+                                          size: 13, color: Colors.greenAccent),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _garmentName ?? 'Attach Shadda/clothing',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_garmentBytes != null)
+                            IconButton(
+                              icon: const Icon(Icons.close, size: 14),
+                              color: muted,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Remove garment photo',
+                              onPressed: () => setState(() {
+                                _garmentBytes = null;
+                                _garmentName = null;
+                                _garmentBase64 = null;
+                              }),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGarmentImagePreview(bool dark, Color border, Color muted) {
+    if (_garmentBytes == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: dark
+              ? LuminaColors.violet.withValues(alpha: 0.08)
+              : LuminaColors.violet.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: LuminaColors.violet.withValues(alpha: 0.4),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.memory(
+                _garmentBytes!,
+                width: 44,
+                height: 44,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.checkroom_rounded,
+                        size: 15,
+                        color: LuminaColors.violet,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          _garmentName ?? 'Garment / Clothing',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: LuminaColors.violet.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _tryonCategory.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: LuminaColors.violet,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'FASHN VTON 1.5 • ${_garmentPhotoType == 'model' ? 'Model photo' : 'Flat-lay product'} • Maskless Try-On',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              color: muted,
+              tooltip: 'Remove garment',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() {
+                _garmentBytes = null;
+                _garmentName = null;
+                _garmentBase64 = null;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReferenceVideoPreview(bool dark, Color border, Color muted) {
+    if (_referenceVideoBytes == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: dark
+              ? LuminaColors.primaryGlow.withValues(alpha: 0.08)
+              : LuminaColors.primaryGlow.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: _videoThumbnailBytes != null
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Image.memory(
+                          _videoThumbnailBytes!,
+                          width: 44,
+                          height: 44,
+                          fit: BoxFit.cover,
+                        ),
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: LuminaColors.primaryGlow.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.videocam_rounded,
+                        color: LuminaColors.primaryGlow,
+                        size: 24,
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.animation_rounded,
+                        size: 15,
+                        color: LuminaColors.primaryGlow,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          _referenceVideoName ?? 'Driving Video Template',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: LuminaColors.primaryGlow.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          _referenceBytes != null
+                              ? 'Motion Template'
+                              : 'Video Input (Motion + Subject)',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            color: LuminaColors.primaryGlow,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _referenceBytes != null
+                        ? 'Motion will be retargeted onto your character image'
+                        : 'Using video as motion guide & subject. (Attach a photo to swap character!)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: muted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.close, size: 16),
+              color: muted,
+              tooltip: 'Remove template video',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() {
+                _referenceVideoBytes = null;
+                _referenceVideoName = null;
+                _referenceVideoBase64 = null;
+                _videoThumbnailBytes = null;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReferenceAudioPreview(bool dark, Color border, Color muted) {
+    if (_referenceAudioBytes == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: dark
+              ? LuminaColors.primaryGlow.withValues(alpha: 0.08)
+              : LuminaColors.primaryGlow.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: LuminaColors.primaryGlow.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.record_voice_over_rounded,
+                color: LuminaColors.primaryGlow,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.mic_rounded,
+                        size: 14,
+                        color: LuminaColors.primaryGlow,
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          _referenceAudioName ?? 'Voice Reference Clip',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color:
+                              LuminaColors.primaryGlow.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'Zero-Shot Voice Cloning',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: LuminaColors.primaryGlow,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Chatterbox will clone this speaker\'s voice characteristics and tone.',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: muted,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, size: 18),
+              color: muted,
+              tooltip: 'Remove voice clip',
+              onPressed: () => setState(() {
+                _referenceAudioBytes = null;
+                _referenceAudioName = null;
+                _referenceAudioBase64 = null;
               }),
             ),
           ],

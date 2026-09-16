@@ -175,10 +175,44 @@ class DatabaseService {
     final items = <GenerationItem>[];
     for (final r in rows) {
       Uint8List? bytes;
+      bool isVideo = false;
+      String? videoPath;
+      bool isAudio = false;
+      String? audioPath;
       final imagePath = r['image_path'] as String?;
       if (imagePath != null) {
-        final file = File(imagePath);
-        if (await file.exists()) bytes = await file.readAsBytes();
+        if (imagePath.endsWith('.mp4')) {
+          isVideo = true;
+          videoPath = imagePath;
+          final thumbFile = File(imagePath.replaceAll('.mp4', '_thumb.jpg'));
+          if (await thumbFile.exists()) {
+            bytes = await thumbFile.readAsBytes();
+          } else {
+            try {
+              await Process.run('ffmpeg', [
+                '-y',
+                '-i',
+                imagePath,
+                '-ss',
+                '00:00:00',
+                '-vframes',
+                '1',
+                thumbFile.path,
+              ]);
+              if (await thumbFile.exists()) {
+                bytes = await thumbFile.readAsBytes();
+              }
+            } catch (_) {}
+          }
+        } else if (imagePath.endsWith('.wav') || imagePath.endsWith('.mp3')) {
+          isAudio = true;
+          audioPath = imagePath;
+          final file = File(imagePath);
+          if (await file.exists()) bytes = await file.readAsBytes();
+        } else {
+          final file = File(imagePath);
+          if (await file.exists()) bytes = await file.readAsBytes();
+        }
       }
 
       Map<String, LoraInfo> loras = {};
@@ -215,6 +249,10 @@ class DatabaseService {
         inferenceTimeMs: r['inference_time_ms'] as int?,
         activeLoras: loras,
         errorMessage: r['error_message'] as String?,
+        isVideo: isVideo,
+        videoPath: videoPath,
+        isAudio: isAudio,
+        audioPath: audioPath,
       ));
     }
     return items;
@@ -253,12 +291,43 @@ class DatabaseService {
     required int? durationMs,
     required Map<String, LoraInfo> loras,
     String? error,
+    bool isVideo = false,
+    bool isAudio = false,
   }) async {
     String? savedFilePath;
     if (bytes != null && bytes.isNotEmpty && _imagesDir != null) {
-      final file = File(p.join(_imagesDir!.path, '$id.jpg'));
+      final isMp4 = isVideo ||
+          (bytes.length > 8 &&
+              bytes[4] == 0x66 &&
+              bytes[5] == 0x74 &&
+              bytes[6] == 0x79 &&
+              bytes[7] == 0x70);
+      final isWav = isAudio ||
+          (bytes.length > 12 &&
+              bytes[0] == 0x52 &&
+              bytes[1] == 0x49 &&
+              bytes[2] == 0x46 &&
+              bytes[3] == 0x46);
+      final ext = isMp4 ? 'mp4' : (isWav ? 'wav' : 'jpg');
+      final file = File(p.join(_imagesDir!.path, '$id.$ext'));
       await file.writeAsBytes(bytes);
       savedFilePath = file.path;
+
+      if (isMp4) {
+        final thumbPath = p.join(_imagesDir!.path, '${id}_thumb.jpg');
+        try {
+          await Process.run('ffmpeg', [
+            '-y',
+            '-i',
+            file.path,
+            '-ss',
+            '00:00:00',
+            '-vframes',
+            '1',
+            thumbPath,
+          ]);
+        } catch (_) {}
+      }
     }
     await db.update(
       'generations',

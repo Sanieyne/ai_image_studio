@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:ai_image_studio/models/generation_item.dart';
 import 'package:ai_image_studio/models/generation_request.dart';
 import 'package:ai_image_studio/models/generation_result.dart';
+import 'package:ai_image_studio/services/api_service.dart';
 import 'package:ai_image_studio/widgets/app_sidebar.dart';
 import 'package:ai_image_studio/widgets/settings_dialog.dart';
 
@@ -275,5 +277,70 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Account Overview'), findsOneWidget);
     expect(find.text('128 Images'), findsOneWidget);
+  });
+
+  test('GenerationResult audio factory constructor test', () {
+    final dummyWav = Uint8List.fromList([82, 73, 70, 70, 0, 0, 0, 0]);
+    final result = GenerationResult.audio(
+      dummyWav,
+      audioPath: '/tmp/test.wav',
+      sampleRate: 24000,
+      inferenceTimeMs: 1250,
+    );
+
+    expect(result.success, isTrue);
+    expect(result.isAudio, isTrue);
+    expect(result.audioBytes, equals(dummyWav));
+    expect(result.audioPath, '/tmp/test.wav');
+    expect(result.sampleRate, 24000);
+    expect(result.inferenceTimeMs, 1250);
+  });
+
+  test('GenerationItem audio attributes serialization and clone test', () {
+    final item = GenerationItem(
+      id: 'item-123',
+      projectId: 'proj-1',
+      prompt: 'Hello Chatterbox voice',
+      aspectRatio: '1:1',
+      modelName: 'Chatterbox TTS',
+      timestamp: DateTime(2026, 1, 1),
+      isAudio: true,
+      audioPath: '/data/audio/item-123.wav',
+      language: 'fr',
+      referenceAudioName: 'ref.wav',
+    );
+
+    expect(item.isAudio, isTrue);
+    expect(item.audioPath, '/data/audio/item-123.wav');
+    expect(item.language, 'fr');
+    expect(item.referenceAudioName, 'ref.wav');
+
+    item.audioPath = '/data/audio/updated.wav';
+    item.language = 'es';
+    expect(item.audioPath, '/data/audio/updated.wav');
+    expect(item.language, 'es');
+    expect(item.isAudio, isTrue);
+  });
+
+  test('ApiService generateVoice in offline mock mode produces valid WAV bytes', () async {
+    ApiService.forceMockMode = true;
+    final api = ApiService();
+    final result = await api.generateVoice(
+      prompt: 'Testing mock voice synthesis',
+      language: 'en',
+      exaggeration: 0.6,
+      cfgWeight: 0.5,
+    );
+
+    expect(result.success, isTrue);
+    expect(result.isAudio, isTrue);
+    expect(result.audioBytes, isNotNull);
+    expect(result.audioBytes!.length, greaterThan(44)); // WAV header is 44 bytes
+    expect(result.sampleRate, 24000);
+    // Check RIFF header magic bytes: 'R' 'I' 'F' 'F'
+    expect(result.audioBytes![0], 0x52);
+    expect(result.audioBytes![1], 0x49);
+    expect(result.audioBytes![2], 0x46);
+    expect(result.audioBytes![3], 0x46);
   });
 }

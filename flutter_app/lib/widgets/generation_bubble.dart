@@ -21,6 +21,16 @@ class GenerationBubble extends StatefulWidget {
 
 class _GenerationBubbleState extends State<GenerationBubble> {
   bool _isCardHovered = false;
+  bool _isPlayingAudio = false;
+  Process? _activeAudioProcess;
+
+  @override
+  void dispose() {
+    try {
+      _activeAudioProcess?.kill();
+    } catch (_) {}
+    super.dispose();
+  }
 
   String _time(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -68,6 +78,179 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to save file: $e'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _playVideo(BuildContext context, String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Video file not found on disk.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+        return;
+      }
+      try {
+        await Process.start('mpv', ['--loop', '--title=AI Video Preview', path]);
+      } catch (_) {
+        await Process.start('xdg-open', [path]);
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to play video: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveVideo(BuildContext context) async {
+    try {
+      final path = widget.item.videoPath ?? widget.item.imagePath;
+      if (path == null) return;
+      final file = File(path);
+      if (!await file.exists()) return;
+      final downloadsDir =
+          Directory('${Platform.environment['HOME']}/Downloads');
+      final isMiniMax = widget.item.modelName.contains('MiniMax');
+      final fileName = isMiniMax
+          ? 'minimax_h3_${widget.item.id}.mp4'
+          : 'wan_animate_${widget.item.id}.mp4';
+      final target = File('${downloadsDir.path}/$fileName');
+      await file.copy(target.path);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved video to Downloads: $fileName 🎬'),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save video: $e'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _togglePlayAudio(BuildContext context, String? path) async {
+    if (path == null) return;
+    final file = File(path);
+    if (!await file.exists()) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Audio file not found on disk.'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (_isPlayingAudio) {
+      try {
+        _activeAudioProcess?.kill();
+      } catch (_) {}
+      setState(() {
+        _isPlayingAudio = false;
+        _activeAudioProcess = null;
+      });
+      return;
+    }
+
+    setState(() => _isPlayingAudio = true);
+    try {
+      Process proc;
+      if (Platform.isLinux) {
+        try {
+          proc = await Process.start('paplay', [path]);
+        } catch (_) {
+          try {
+            proc = await Process.start('aplay', [path]);
+          } catch (_) {
+            try {
+              proc = await Process.start(
+                  'ffplay', ['-nodisp', '-autoexit', path]);
+            } catch (_) {
+              proc = await Process.start('xdg-open', [path]);
+            }
+          }
+        }
+      } else if (Platform.isWindows) {
+        proc = await Process.start('powershell',
+            ['-c', '(New-Object Media.SoundPlayer "$path").PlaySync()']);
+      } else if (Platform.isMacOS) {
+        proc = await Process.start('afplay', [path]);
+      } else {
+        proc = await Process.start('xdg-open', [path]);
+      }
+
+      _activeAudioProcess = proc;
+      proc.exitCode.then((_) {
+        if (mounted) {
+          setState(() {
+            _isPlayingAudio = false;
+            _activeAudioProcess = null;
+          });
+        }
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isPlayingAudio = false);
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to play audio: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveAudio(BuildContext context) async {
+    try {
+      final path = widget.item.audioPath ?? widget.item.imagePath;
+      if (path == null) return;
+      final file = File(path);
+      if (!await file.exists()) return;
+      final downloadsDir =
+          Directory('${Platform.environment['HOME']}/Downloads');
+      final isBreeze = widget.item.modelName.contains('Breeze');
+      final fileName = isBreeze
+          ? 'breeze_voice_${widget.item.id}.wav'
+          : 'chatterbox_voice_${widget.item.id}.wav';
+      final target = File('${downloadsDir.path}/$fileName');
+      await file.copy(target.path);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saved speech audio to Downloads: $fileName 🎙️'),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save audio: $e'),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),
@@ -306,44 +489,101 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                       ),
                     ),
                   ],
-                  if (item.referenceImageBytes != null) ...[
+                  if (item.referenceImageBytes != null ||
+                      item.referenceVideoBytes != null ||
+                      item.referenceVideoName != null) ...[
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.05)
-                            : Colors.black.withValues(alpha: 0.04),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: LuminaColors.primaryGlow
-                              .withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.memory(
-                              item.referenceImageBytes!,
-                              width: 38,
-                              height: 38,
-                              fit: BoxFit.cover,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      alignment: WrapAlignment.end,
+                      children: [
+                        if (item.referenceImageBytes != null)
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.05)
+                                  : Colors.black.withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: LuminaColors.primaryGlow
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Image.memory(
+                                    item.referenceImageBytes!,
+                                    width: 34,
+                                    height: 34,
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  '📷 Character Photo',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: LuminaColors.primaryGlow,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            '📷 Reference Image Attached',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: LuminaColors.primaryGlow,
+                        if (item.referenceVideoBytes != null ||
+                            item.referenceVideoName != null)
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.05)
+                                  : Colors.black.withValues(alpha: 0.04),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: LuminaColors.primaryGlow
+                                    .withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    color: LuminaColors.primaryGlow
+                                        .withValues(alpha: 0.2),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(
+                                    Icons.videocam_rounded,
+                                    color: LuminaColors.primaryGlow,
+                                    size: 20,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    '🎬 Motion Video: ${item.referenceVideoName ?? "Attached"}',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: LuminaColors.primaryGlow,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 4),
-                        ],
-                      ),
+                      ],
                     ),
                   ],
                 ],
@@ -430,6 +670,22 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       );
     }
 
+    final isVideo = item.isVideo ||
+        item.videoPath != null ||
+        (item.imagePath != null && item.imagePath!.endsWith('.mp4'));
+    final videoPath = item.videoPath ?? item.imagePath;
+
+    final isAudio = item.isAudio ||
+        item.audioPath != null ||
+        (item.imagePath != null &&
+            (item.imagePath!.endsWith('.wav') ||
+                item.imagePath!.endsWith('.mp3')));
+    final audioPath = item.audioPath ?? item.imagePath;
+
+    if (isAudio) {
+      return _buildAudioPlayerCard(context, item, isDark, audioPath, muted);
+    }
+
     // Completed state (+ network fallback via outputImageUrl).
     ImageProvider<Object>? image;
     if (item.imageBytes != null) {
@@ -437,7 +693,7 @@ class _GenerationBubbleState extends State<GenerationBubble> {
     } else if (item.outputImageUrl != null) {
       image = NetworkImage(item.outputImageUrl!);
     }
-    if (image == null) {
+    if (image == null && !isVideo) {
       return const SizedBox(
         width: 320,
         height: 240,
@@ -478,24 +734,103 @@ class _GenerationBubbleState extends State<GenerationBubble> {
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  GestureDetector(
-                    onTap: () => _openLightbox(context),
-                    child: Image(
-                      image: resolved,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) =>
-                          const SizedBox(
-                        width: 320,
-                        height: 240,
-                        child: Center(
-                          child: Icon(
-                              Icons.broken_image_outlined,
-                              size: 40,
-                              color: Colors.grey),
-                        ),
+                  if (isVideo && videoPath != null)
+                    GestureDetector(
+                      onTap: () => _playVideo(context, videoPath),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          if (resolved != null)
+                            Image(
+                              image: resolved,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => Container(
+                                width: 320,
+                                height: 240,
+                                color: Colors.black26,
+                                child: const Icon(Icons.movie_creation_outlined,
+                                    size: 40, color: Colors.grey),
+                              ),
+                            )
+                          else
+                            Container(
+                              width: 320,
+                              height: 240,
+                              color: Colors.black54,
+                              child: const Icon(Icons.movie_creation_outlined,
+                                  size: 40, color: Colors.grey),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.65),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                  width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: LuminaColors.primaryGlow
+                                      .withValues(alpha: 0.5),
+                                  blurRadius: 18,
+                                ),
+                              ],
+                            ),
+                            child: const Icon(Icons.play_arrow_rounded,
+                                color: Colors.white, size: 40),
+                          ),
+                          Positioned(
+                            top: 10,
+                            left: 10,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.75),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.videocam,
+                                      size: 13, color: Colors.white),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'WAN 2.2 MP4',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
+                    )
+                  else
+                    GestureDetector(
+                      onTap: () => _openLightbox(context),
+                      child: resolved != null
+                          ? Image(
+                              image: resolved,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) =>
+                                  const SizedBox(
+                                width: 320,
+                                height: 240,
+                                child: Center(
+                                  child: Icon(
+                                      Icons.broken_image_outlined,
+                                      size: 40,
+                                      color: Colors.grey),
+                                ),
+                              ),
+                            )
+                          : const SizedBox.shrink(),
                     ),
-                  ),
                   if (_isCardHovered)
                     Positioned(
                       bottom: 12,
@@ -513,25 +848,45 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            _actionButton(
-                              icon: Icons.fullscreen_rounded,
-                              tooltip: 'Full Preview',
-                              onTap: () =>
-                                  _openLightbox(context),
-                            ),
-                            const SizedBox(width: 6),
-                            _actionButton(
-                              icon: Icons.copy_rounded,
-                              tooltip: 'Copy Prompt',
-                              onTap: () => _copyPrompt(context),
-                            ),
-                            const SizedBox(width: 6),
-                            _actionButton(
-                              icon: Icons.download_rounded,
-                              tooltip: 'Download',
-                              onTap: () =>
-                                  _downloadImage(context),
-                            ),
+                            if (isVideo && videoPath != null) ...[
+                              _actionButton(
+                                icon: Icons.play_arrow_rounded,
+                                tooltip: 'Play Video',
+                                onTap: () => _playVideo(context, videoPath),
+                              ),
+                              const SizedBox(width: 6),
+                              _actionButton(
+                                icon: Icons.copy_rounded,
+                                tooltip: 'Copy Prompt',
+                                onTap: () => _copyPrompt(context),
+                              ),
+                              const SizedBox(width: 6),
+                              _actionButton(
+                                icon: Icons.download_rounded,
+                                tooltip: 'Save Video',
+                                onTap: () => _saveVideo(context),
+                              ),
+                            ] else ...[
+                              _actionButton(
+                                icon: Icons.fullscreen_rounded,
+                                tooltip: 'Full Preview',
+                                onTap: () =>
+                                    _openLightbox(context),
+                              ),
+                              const SizedBox(width: 6),
+                              _actionButton(
+                                icon: Icons.copy_rounded,
+                                tooltip: 'Copy Prompt',
+                                onTap: () => _copyPrompt(context),
+                              ),
+                              const SizedBox(width: 6),
+                              _actionButton(
+                                icon: Icons.download_rounded,
+                                tooltip: 'Download',
+                                onTap: () =>
+                                    _downloadImage(context),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -548,6 +903,9 @@ class _GenerationBubbleState extends State<GenerationBubble> {
           spacing: 8,
           runSpacing: 6,
           children: [
+            if (isVideo)
+              _metaTag(
+                  muted, Icons.videocam_rounded, 'MP4 Video (Wan 2.2)'),
             if (item.inferenceTimeMs != null &&
                 item.inferenceTimeMs! > 0)
               _metaTag(
@@ -562,6 +920,264 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                   muted,
                   Icons.extension_outlined,
                   'LoRAs: ${item.activeLoras.keys.join(", ")}'),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudioPlayerCard(
+    BuildContext context,
+    GenerationItem item,
+    bool isDark,
+    String? audioPath,
+    Color muted,
+  ) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          constraints: const BoxConstraints(maxWidth: 440),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(
+              colors: isDark
+                  ? [
+                      const Color(0xFF1F222E).withValues(alpha: 0.95),
+                      const Color(0xFF141722).withValues(alpha: 0.95),
+                    ]
+                  : [
+                      Colors.white.withValues(alpha: 0.95),
+                      const Color(0xFFF3F5FA).withValues(alpha: 0.95),
+                    ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(
+              color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: LuminaColors.primaryGlow.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          item.modelName.contains('Breeze')
+                              ? Icons.graphic_eq_rounded
+                              : Icons.record_voice_over_rounded,
+                          size: 13,
+                          color: LuminaColors.primaryGlow,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          item.modelName.contains('Breeze')
+                              ? 'BREEZE TTS 2'
+                              : 'CHATTERBOX TTS',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            color: LuminaColors.primaryGlow,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  if (item.language != null && item.language!.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        item.language!.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: muted,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Spoken script text
+              Text(
+                '"${item.prompt}"',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  height: 1.4,
+                  fontStyle: FontStyle.italic,
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.92)
+                      : Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Play button + visualizer waveform
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => _togglePlayAudio(context, audioPath),
+                    child: Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        gradient: LuminaColors.primaryGradient,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: LuminaColors.primaryGlow
+                                .withValues(alpha: 0.45),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _isPlayingAudio
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.black.withValues(alpha: 0.25)
+                            : Colors.white.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isDark ? Colors.white12 : Colors.black12,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: List.generate(24, (idx) {
+                          final heights = [
+                            8, 14, 22, 10, 18, 28, 16, 24, 12, 20, 26, 14,
+                            22, 30, 18, 24, 12, 20, 16, 26, 18, 14, 10, 6,
+                          ];
+                          final h = heights[idx % heights.length].toDouble();
+                          final active = _isPlayingAudio;
+                          return AnimatedContainer(
+                            duration: Duration(milliseconds: 150 + (idx * 20)),
+                            width: 3,
+                            height: active ? (h * 0.8 + 4) : (h * 0.55),
+                            decoration: BoxDecoration(
+                              color: active
+                                  ? LuminaColors.primaryGlow
+                                  : muted.withValues(alpha: 0.45),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (item.referenceAudioName != null) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(Icons.mic_none_rounded,
+                        size: 13, color: LuminaColors.primaryGlow),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Cloned from: ${item.referenceAudioName}',
+                      style: const TextStyle(
+                          fontSize: 11, color: LuminaColors.primaryGlow),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 14),
+              // Action buttons: Play, Copy Prompt, Download WAV, Open External
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  _actionButton(
+                    icon: _isPlayingAudio
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    tooltip: _isPlayingAudio ? 'Stop Audio' : 'Play Voice',
+                    onTap: () => _togglePlayAudio(context, audioPath),
+                  ),
+                  const SizedBox(width: 6),
+                  _actionButton(
+                    icon: Icons.copy_rounded,
+                    tooltip: 'Copy Spoken Text',
+                    onTap: () => _copyPrompt(context),
+                  ),
+                  const SizedBox(width: 6),
+                  _actionButton(
+                    icon: Icons.download_rounded,
+                    tooltip: 'Save Voice WAV',
+                    onTap: () => _saveAudio(context),
+                  ),
+                  const SizedBox(width: 6),
+                  _actionButton(
+                    icon: Icons.open_in_new_rounded,
+                    tooltip: 'Open with System Player',
+                    onTap: () {
+                      if (audioPath != null) {
+                        Process.start('xdg-open', [audioPath]);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            _metaTag(muted, Icons.record_voice_over_rounded, 'Voice Audio'),
+            if (item.inferenceTimeMs != null && item.inferenceTimeMs! > 0)
+              _metaTag(
+                  muted, Icons.timer_outlined, '${item.inferenceTimeMs}ms'),
+            if (item.seed != null && item.seed! != -1)
+              _metaTag(muted, Icons.tag_rounded, 'Seed ${item.seed}'),
+            if (item.sampleRate != null && item.sampleRate! > 0)
+              _metaTag(
+                  muted, Icons.graphic_eq_rounded, '${item.sampleRate}Hz'),
           ],
         ),
       ],

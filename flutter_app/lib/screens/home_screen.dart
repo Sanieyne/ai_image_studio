@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/generation_item.dart';
 import '../models/generation_request.dart';
+import '../models/generation_result.dart';
 import '../models/project_item.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
@@ -206,7 +207,26 @@ class _HomeScreenState extends State<HomeScreen> {
       double strength,
       Uint8List? referenceBytes,
       int steps,
-      double cfgScale) async {
+      double cfgScale, {
+      String? videoBase64,
+      Uint8List? referenceVideoBytes,
+      String? referenceVideoName,
+      String? audioBase64,
+      Uint8List? referenceAudioBytes,
+      String? referenceAudioName,
+      String? language,
+      double? exaggeration,
+      String? instruction,
+      String? refText,
+      String? garmentBase64,
+      Uint8List? garmentBytes,
+      String? garmentName,
+      String? tryonCategory,
+      String? garmentPhotoType,
+      String? endImageBase64,
+      Uint8List? endImageBytes,
+      String? endImageName,
+  }) async {
     if (_activeProject == null) {
       final newProj = ProjectItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -237,6 +257,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ? trimmedNeg
         : 'low quality, bad anatomy, worst quality, blurry';
 
+    final isWan21T2V = model == 'Wan 2.1 T2V 1.3B';
+    final isWan21I2V = model == 'Wan 2.1 I2V 14B';
+    final isWan21FLF2V = model == 'Wan 2.1 FLF2V 14B';
+    final isWan21Model = isWan21T2V || isWan21I2V || isWan21FLF2V;
+    final isWanAnimateModel = model == 'Wan 2.2 Animate 14B';
+    final isWanModel = isWanAnimateModel || isWan21Model;
+    final isMiniMaxModel = model.contains('MiniMax');
+    final isVoiceModel = model.contains('Chatterbox') || model.contains('Breeze');
+    final isTryOnModel = model.contains('FASHN') || model.contains('Try-On');
     final item = GenerationItem(
       id: genId,
       projectId: currentProjId,
@@ -246,42 +275,120 @@ class _HomeScreenState extends State<HomeScreen> {
       modelName: model,
       timestamp: DateTime.now(),
       referenceImageBytes: referenceBytes,
+      referenceVideoBytes: referenceVideoBytes,
+      referenceVideoName: referenceVideoName,
+      referenceAudioBytes: referenceAudioBytes,
+      referenceAudioName: referenceAudioName,
+      isVideo: isWanModel || isMiniMaxModel,
+      isAudio: isVoiceModel,
+      language: language,
     );
     setState(() => _messages.add(item));
     await _db.insertGeneration(item);
     _scrollToBottom();
 
-    // Switch the backend to the picked checkpoint (label -> HF id).
-    // Must match _models in prompt_input_bar.dart.
-    const modelIds = PromptInputBar.modelIds;
-    final wasForceMock = ApiService.forceMockMode;
-    ApiService.forceMockMode = (model == 'Offline Mock Mode');
-    final modelId = modelIds[model];
-    if (modelId != null && !ApiService.forceMockMode) {
-      await _api.switchModel(modelId);
-    }
-
-    final result = await _api.generateImage(
-      GenerationRequest(
+    GenerationResult result;
+    if (isTryOnModel) {
+      if ((imageBase64 == null || imageBase64.isEmpty) ||
+          (garmentBase64 == null || garmentBase64.isEmpty)) {
+        result = GenerationResult.failure(
+            'Virtual Try-On requires both a Person photo and a Garment photo. Please attach both using the buttons in the bar.');
+      } else {
+        result = await _api.generateTryOn(
+          personImageBase64: imageBase64,
+          garmentImageBase64: garmentBase64,
+          category: tryonCategory ?? 'tops',
+          garmentPhotoType: garmentPhotoType ?? 'model',
+          steps: steps,
+          guidanceScale: cfgScale,
+        );
+      }
+    } else if (isVoiceModel) {
+      result = await _api.generateVoice(
         prompt: prompt,
-        negativePrompt: effectiveNeg,
+        language: language ?? 'en',
+        modelName: model,
+        audioPromptBase64: audioBase64,
+        instruction: instruction,
+        refText: refText,
+        exaggeration: exaggeration ?? 0.5,
+        cfgWeight: cfgScale,
+      );
+    } else if (isMiniMaxModel) {
+      result = await _api.generateMiniMaxVideo(
+        prompt: prompt,
+        imageBase64: imageBase64,
+        durationSeconds: 5,
+        fps: 24,
+        steps: steps,
         aspectRatio: ratio,
+      );
+    } else if (isWan21Model) {
+      String task = 't2v-1.3B';
+      if (isWan21I2V) task = 'i2v-14B';
+      if (isWan21FLF2V) task = 'flf2v-14B';
+
+      result = await _api.generateWan2_1(
+        prompt: prompt,
+        negativePrompt: trimmedNeg,
+        imageBase64: imageBase64,
+        endImageBase64: endImageBase64,
+        task: task,
         steps: steps,
         guidanceScale: cfgScale,
-        imageBase64: imageBase64,
-        strength: strength,
-      ),
-    );
-    ApiService.forceMockMode = wasForceMock;
+        aspectRatio: ratio,
+      );
+    } else if (isWanAnimateModel) {
+      if ((imageBase64 == null || imageBase64.isEmpty) &&
+          (videoBase64 == null || videoBase64.isEmpty)) {
+        result = GenerationResult.failure(
+            'Wan 2.2 Animate requires a character image, a motion video, or both. Click the photo or video icon to attach one.');
+      } else {
+        result = await _api.animateCharacter(
+          imageBase64: imageBase64 ?? '',
+          templateVideoBase64: videoBase64,
+          prompt: prompt,
+          steps: steps,
+        );
+      }
+    } else {
+      // Switch the backend to the picked checkpoint (label -> HF id).
+      const modelIds = PromptInputBar.modelIds;
+      final wasForceMock = ApiService.forceMockMode;
+      ApiService.forceMockMode = (model == 'Offline Mock Mode');
+      final modelId = modelIds[model];
+      if (modelId != null && !ApiService.forceMockMode) {
+        await _api.switchModel(modelId);
+      }
+
+      result = await _api.generateImage(
+        GenerationRequest(
+          prompt: prompt,
+          negativePrompt: effectiveNeg,
+          aspectRatio: ratio,
+          steps: steps,
+          guidanceScale: cfgScale,
+          imageBase64: imageBase64,
+          strength: strength,
+        ),
+      );
+      ApiService.forceMockMode = wasForceMock;
+    }
+
     if (!mounted) return;
     if (result.success) {
+      final bytesToSave = result.isAudio
+          ? result.audioBytes
+          : (result.isVideo ? result.videoBytes : result.imageBytes);
       await _db.updateGenerationResult(
         id: genId,
         status: GenerationStatus.completed,
-        bytes: result.imageBytes,
+        bytes: bytesToSave,
         seed: result.seed,
         durationMs: result.inferenceTimeMs,
         loras: result.activeLoras,
+        isVideo: result.isVideo,
+        isAudio: result.isAudio,
       );
     } else {
       await _db.updateGenerationResult(
@@ -373,6 +480,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: TopBar(
         engineOnline: _engineOnline,
+        deviceName: _api.activeDeviceName,
         isDark: widget.isDark,
         workspaceLabel: _activeProject?.title ?? 'Creative Studio',
         onThemeToggle: widget.onThemeToggle,
@@ -449,19 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const BoxConstraints(maxWidth: 760),
                       child: PromptInputBar(
                         apiService: _api,
-                        onGenerate: (prompt, negativePrompt, ratio, model,
-                                imageBase64, strength, referenceBytes,
-                                steps, cfgScale) =>
-                            _handlePromptSubmit(
-                                prompt,
-                                negativePrompt,
-                                ratio,
-                                model,
-                                imageBase64,
-                                strength,
-                                referenceBytes,
-                                steps,
-                                cfgScale),
+                        onGenerate: _handlePromptSubmit,
                       ),
                     ),
                   ),

@@ -50,13 +50,9 @@ class SDXLEngine:
 
     def __init__(self, model_id: str = MODEL_ID):
         self.mock_mode = os.getenv("AI_STUDIO_MOCK", "0") == "1"
-        cuda = torch is not None and torch.cuda.is_available()
-        self.device = "cuda" if cuda else "cpu"
-        self.torch_dtype = (
-            torch.float16
-            if (torch is not None and self.device == "cuda")
-            else (torch.float32 if torch is not None else None)
-        )
+        from generation.device import get_device, get_optimal_dtype
+        self.device, self._torch_device = get_device()
+        self.torch_dtype = get_optimal_dtype(self.device)
         self.pipe = None
         self.img2img_pipe = None
         self.family = family_for(model_id)
@@ -80,6 +76,8 @@ class SDXLEngine:
         hf_token = os.environ.get("HF_TOKEN") or None
         if self.family == "flux":
             self._load_flux_pipeline(model_id, hf_token)
+        elif self.family == "zimage":
+            self._load_zimage_pipeline(model_id, hf_token)
         else:
             self._load_sdxl_pipeline(model_id, hf_token)
         self.current_model_id = model_id
@@ -102,7 +100,7 @@ class SDXLEngine:
                 model_id,
                 torch_dtype=self.torch_dtype,
                 use_safetensors=True,
-                variant="fp16" if self.device == "cuda" else None,
+                variant="fp16" if self.device in ("cuda", "mps", "directml") else None,
                 token=hf_token,
             )
 
@@ -122,6 +120,13 @@ class SDXLEngine:
                 self.pipe.enable_vae_tiling()
             elif hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
                 self.pipe.vae.enable_tiling()
+        elif self.device in ("mps", "directml"):
+            print(f"[*] Moving SDXL model to {self.device}...")
+            self.pipe.to(self.device)
+            if hasattr(self.pipe, "enable_vae_tiling"):
+                self.pipe.enable_vae_tiling()
+            elif hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
+                self.pipe.vae.enable_tiling()
         else:
             self.pipe.to("cpu")
 
@@ -133,15 +138,38 @@ class SDXLEngine:
 
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
         print(f"[*] Loading FLUX model '{model_id}' ({dtype})...")
-        if os.path.isfile(model_id):
+        if "kontext" in model_id.lower():
+            from diffusers import FluxKontextPipeline, FluxTransformer2DModel
+            local_weights = "/root/models/flux1-kontext/flux1-kontext-dev.safetensors"
+            snapshot_dir = "/workspace/.hf_home/hub/models--black-forest-labs--FLUX.1-Kontext-dev/snapshots/24e9dedc4ef646698dc8eb4e18ae2cec3c9fea0d"
+            if os.path.exists(local_weights) and os.path.exists(f"{snapshot_dir}/transformer"):
+                print("[*] Loading Kontext with local single-file transformer...")
+                transformer = FluxTransformer2DModel.from_single_file(
+                    local_weights,
+                    config=f"{snapshot_dir}/transformer",
+                    torch_dtype=dtype,
+                )
+                self.pipe = FluxKontextPipeline.from_pretrained(
+                    snapshot_dir,
+                    transformer=transformer,
+                    torch_dtype=dtype,
+                    token=hf_token,
+                )
+            else:
+                self.pipe = FluxKontextPipeline.from_pretrained(
+                    model_id, torch_dtype=dtype, token=hf_token)
+        elif os.path.isfile(model_id):
             self.pipe = FluxPipeline.from_single_file(
                 model_id, torch_dtype=dtype, use_safetensors=True)
         else:
             self.pipe = FluxPipeline.from_pretrained(
                 model_id, torch_dtype=dtype, token=hf_token)
         if self.device == "cuda":
-            # 12B params: offload is mandatory on 24GB, tiling for 4K.
-            self.pipe.enable_model_cpu_offload()
+            # 12B params: sequential offload guarantees fitting 24GB VRAM without OOM.
+            if "kontext" in model_id.lower():
+                self.pipe.enable_sequential_cpu_offload()
+            else:
+                self.pipe.enable_model_cpu_offload()
             try:
                 self.pipe.vae.enable_tiling()
                 self.pipe.vae.enable_slicing()
@@ -149,11 +177,52 @@ class SDXLEngine:
                 pass
         print(f"[OK] FLUX pipeline ready with '{model_id}'.")
 
+    def _load_zimage_pipeline(self, model_id: str, hf_token=None) -> None:
+        """Z-Image-Turbo (6B single-stream DiT) — 8 NFE, bfloat16."""
+        from diffusers import ZImagePipeline
+
+        dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+        path_to_load = model_id
+        if os.path.isdir("/root/models/z-image-turbo") and ("z-image" in model_id.lower()):
+            path_to_load = "/root/models/z-image-turbo"
+            print(f"[*] Found local Z-Image weights at {path_to_load}")
+        print(f"[*] Loading Z-Image model '{path_to_load}' ({dtype})...")
+
+        self.pipe = ZImagePipeline.from_pretrained(
+            path_to_load,
+            torch_dtype=dtype,
+            token=hf_token,
+        )
+        if self.device == "cuda":
+            total_vram_gb = (
+                torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            )
+            # Z-Image (6B) takes ~19GB in bfloat16. On <=32GB GPUs, enable_model_cpu_offload
+            # is necessary to leave headroom for 1024x1024 attention activations and VAE decode.
+            if total_vram_gb < 40 or os.environ.get("FORCE_CPU_OFFLOAD") == "1":
+                print(f"[*] VRAM ({total_vram_gb:.1f} GB): enabling model CPU offload for Z-Image.")
+                self.pipe.enable_model_cpu_offload()
+            else:
+                print(f"[*] High VRAM ({total_vram_gb:.1f} GB): loading Z-Image into CUDA.")
+                self.pipe.to("cuda")
+            try:
+                self.pipe.vae.enable_tiling()
+                self.pipe.vae.enable_slicing()
+            except Exception:
+                pass
+        else:
+            self.pipe.to("cpu")
+        print(f"[OK] Z-Image pipeline ready with '{model_id}'.")
+
     def switch_model(self, model_id: str) -> str:
         """Dynamically unload current model and load a new one."""
         model_id = model_id.strip()
         if not model_id:
             raise ValueError("Model ID or path cannot be empty.")
+
+        if self.model_loaded and model_id == self.current_model_id:
+            print(f"[*] Model '{model_id}' is already active and loaded.")
+            return model_id
 
         if self.mock_mode:
             print(f"[*] [MOCK] Model switched to: {model_id}")
@@ -161,6 +230,21 @@ class SDXLEngine:
             return model_id
 
         import gc
+        from generation.device import empty_device_cache
+        # If switching on limited VRAM, delete old pipe first to avoid OOM
+        if self.device == "cuda":
+            total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            if total_vram_gb <= 32:
+                print("[*] Releasing previous model weights before loading new one...")
+                self.pipe = None
+                self.img2img_pipe = None
+                self.active_loras.clear()
+                empty_device_cache()
+        elif self.device in ("mps", "directml"):
+            self.pipe = None
+            self.img2img_pipe = None
+            self.active_loras.clear()
+            empty_device_cache()
         # Keep the working pipes alive until the new model loads: on
         # failure we roll back instead of leaving pipe=None (which used
         # to turn every later generate into "'NoneType' object" 500s).
@@ -186,9 +270,7 @@ class SDXLEngine:
             del old_pipe
         if old_img2img is not None:
             del old_img2img
-        if torch is not None and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
+        empty_device_cache()
         self.active_loras.clear()
         return model_id
 
@@ -346,11 +428,28 @@ class SDXLEngine:
 
         generator = None
         if seed != -1:
-            generator = torch.Generator(device=self.device).manual_seed(seed)
+            gen_dev = "cuda" if self.device == "cuda" else "cpu"
+            generator = torch.Generator(device=gen_dev).manual_seed(seed)
 
         # FLUX family: pipeline takes no negative prompt; schnell ignores
         # guidance (distilled 4-step), dev uses ~3.5.
         if getattr(self, "family", "sdxl") == "flux":
+            from diffusers import FluxKontextPipeline
+            if isinstance(self.pipe, FluxKontextPipeline):
+                kwargs = dict(
+                    prompt=prompt,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                )
+                if init_image is not None:
+                    init_img = init_image.convert("RGB").resize(
+                        (width, height), Image.Resampling.LANCZOS
+                    )
+                    kwargs["image"] = init_img
+                result = self.pipe(**kwargs)
+                return result.images[0]
+
             kwargs = dict(
                 prompt=prompt,
                 width=width,
@@ -372,6 +471,38 @@ class SDXLEngine:
                     image=init_img, strength=strength, **kwargs)
                 return result.images[0]
             result = self.pipe(**kwargs)
+            return result.images[0]
+
+        # Z-Image family: distilled 8-NFE model, guidance=0.
+        if getattr(self, "family", "sdxl") == "zimage":
+            if init_image is not None:
+                if self.img2img_pipe is None:
+                    from diffusers import ZImageImg2ImgPipeline
+                    log.info("[*] Creating ZImageImg2ImgPipeline from ZImage pipe (sharing weights)...")
+                    self.img2img_pipe = ZImageImg2ImgPipeline.from_pipe(self.pipe)
+                init_img = init_image.convert("RGB").resize(
+                    (width, height), Image.Resampling.LANCZOS
+                )
+                result = self.img2img_pipe(
+                    prompt=prompt,
+                    image=init_img,
+                    strength=strength,
+                    height=height,
+                    width=width,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                )
+                return result.images[0]
+
+            result = self.pipe(
+                prompt=prompt,
+                height=height,
+                width=width,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generator=generator,
+            )
             return result.images[0]
 
         if init_image is not None:
