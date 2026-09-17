@@ -102,29 +102,48 @@ jobs:
           $zipSizeMB = [math]::Round($zipSize / 1MB, 1)
           Write-Host "Zip size: $zipSizeMB MB"
 
-      # -------------------------------------------------------------
-      # 5. Deploy to Contabo VPS via native Windows OpenSSH (scp)
-      #    (cwRsync under Git Bash fails on Windows runners with
-      #     "dup() in/out/err failed" + connection closed, 0 bytes sent)
-      # -------------------------------------------------------------
+      # Artifact handoff: deploy job downloads this (lets deploy retry
+      # in minutes via re-run instead of another full 20-min rebuild).
+      - name: Upload GPU bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-zip
+          path: dist/AI_Image_Studio_Windows_x64_GPU.zip
+          retention-days: 3
+
+  deploy:
+    name: Deploy GPU Bundle to Contabo
+    runs-on: windows-latest
+    needs: build-windows
+    steps:
+      - name: Download GPU bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gpu-zip
+          path: dist
+
       - name: Deploy build to Contabo VPS
         shell: pwsh
         env:
-          CONTABO_SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+          CONTABO_SSH_KEY_B64: ${{ secrets.CONTABO_SSH_KEY_B64 }}
           CONTABO_IP: ${{ secrets.CONTABO_IP }}
         run: |
           $ErrorActionPreference = 'Stop'
           $keyPath = "$HOME\.ssh\contabo_key"
           New-Item -ItemType Directory -Force -Path (Split-Path $keyPath) | Out-Null
-          # Write key with LF-only endings, then lock it down for ssh.exe
-          ($env:CONTABO_SSH_KEY -replace "`r", "") | Set-Content -Path $keyPath -NoNewline -Encoding ascii
+          # Key stored as single-line base64: multiline secret values
+          # get mangled between GitHub and the runner file write.
+          $keyBytes = [Convert]::FromBase64String($env:CONTABO_SSH_KEY_B64.Trim())
+          Write-Host "decoded key bytes: $($keyBytes.Length) (expect 411)"
+          if ($keyBytes.Length -lt 100) { throw "decoded key too short - secret is damaged" }
+          [System.IO.File]::WriteAllBytes($keyPath, $keyBytes)
           icacls $keyPath /inheritance:r | Out-Null
           icacls $keyPath /grant:r "$($env:USERNAME):R" | Out-Null
 
           # Fail fast on a bad key. Prints only the PUBLIC key (safe to log).
           $keygen = 'C:\Windows\System32\OpenSSH\ssh-keygen.exe'
           $pubKey = & $keygen -y -f $keyPath
-          if ($LASTEXITCODE -ne 0) { throw "CONTABO_SSH_KEY is not a valid private key (ssh-keygen could not parse it)" }
+          if ($LASTEXITCODE -ne 0) { throw "deploy key does not parse" }
           Write-Host "deploy key OK"
 
           $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
