@@ -13,6 +13,6 @@ imageio>=2.35.0  # export_to_video
 imageio-ffmpeg>=0.5.1  # mp4 muxing
 torchaudio>=2.2.0  # audio processing
 soundfile>=0.12.1  # wav I/O
-chatterbox-tts>=0.1.0  # Resemble AI Chatterbox TTS & voice cloning
+# chatterbox-tts>=0.1.0  # Optional (conflicts with diffusers>=0.32.0)
 # Virtual Try-On (FASHN VTON 1.5):
 # git+https://github.com/fashn-AI/fashn-vton-1.5.git
