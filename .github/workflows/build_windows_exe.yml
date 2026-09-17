@@ -121,6 +121,12 @@ jobs:
           icacls $keyPath /inheritance:r | Out-Null
           icacls $keyPath /grant:r "$($env:USERNAME):R" | Out-Null
 
+          # Fail fast on a bad key. Prints only the PUBLIC key (safe to log).
+          $keygen = 'C:\Windows\System32\OpenSSH\ssh-keygen.exe'
+          $pubKey = & $keygen -y -f $keyPath
+          if ($LASTEXITCODE -ne 0) { throw "CONTABO_SSH_KEY is not a valid private key (ssh-keygen could not parse it)" }
+          Write-Host "deploy key OK"
+
           $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
           $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
           $sshOpts = @('-i', $keyPath, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=30')
