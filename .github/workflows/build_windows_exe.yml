@@ -1,0 +1,105 @@
+name: Build Windows Release (.exe)
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Flutter + Python Windows Bundle
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------
+      # 1. Setup Python & Build Python Engine Sidecar
+      # -------------------------------------------------------------
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'python_engine/requirements.txt'
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          # Install core server dependencies for the frozen engine
+          pip install fastapi uvicorn pydantic python-multipart httpx
+          # Install project requirements (CPU/DirectML baseline for packaging)
+          pip install -r python_engine/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+      - name: Build Python Engine Executable
+        shell: pwsh
+        run: |
+          cd python_engine
+          pyinstaller engine.spec
+          cd ..
+
+      # -------------------------------------------------------------
+      # 2. Setup Flutter & Build Flutter Desktop App
+      # -------------------------------------------------------------
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable Windows Desktop & Create Platform Files
+        shell: pwsh
+        run: |
+          cd flutter_app
+          flutter config --enable-windows-desktop
+          flutter create --platforms=windows .
+          flutter pub get
+          cd ..
+
+      - name: Build Flutter Windows Release
+        shell: pwsh
+        run: |
+          cd flutter_app
+          flutter build windows --release
+          cd ..
+
+      # -------------------------------------------------------------
+      # 3. Assemble Unified Distribution (Flutter + Python Sidecar)
+      # -------------------------------------------------------------
+      - name: Assemble Unified Distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\AI_Image_Studio
+          # Copy Flutter Release executable and runtime DLLs
+          Copy-Item -Recurse flutter_app\build\windows\x64\runner\Release\* dist\AI_Image_Studio\
+          # Copy Python Engine into sidecar directory
+          New-Item -ItemType Directory -Force -Path dist\AI_Image_Studio\engine
+          Copy-Item -Recurse python_engine\dist\engine\* dist\AI_Image_Studio\engine\
+          # Create zip archive
+          Compress-Archive -Path dist\AI_Image_Studio\* -DestinationPath dist\AI_Image_Studio_Windows_x64.zip
+
+      # -------------------------------------------------------------
+      # 4. Upload Release Artifact
+      # -------------------------------------------------------------
+      - name: Upload Windows Bundle Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_Image_Studio_Windows_x64
+          path: dist/AI_Image_Studio_Windows_x64.zip
+          retention-days: 14
+
+      # -------------------------------------------------------------
+      # 5. Create GitHub Release on Tag
+      # -------------------------------------------------------------
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/AI_Image_Studio_Windows_x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

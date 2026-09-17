@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'screens/home_screen.dart';
 import 'services/database_service.dart';
+import 'services/engine_process_manager.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -18,6 +20,11 @@ void main() async {
 
   // Initialize DB tables before the UI boots.
   await DatabaseService.instance.init();
+
+  // Launch local AI Engine sidecar in the background if bundled.
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    unawaited(EngineProcessManager.instance.ensureEngineRunning());
+  }
 
   runApp(const AiImageStudioApp());
 }
