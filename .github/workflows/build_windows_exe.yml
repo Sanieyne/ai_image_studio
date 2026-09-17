@@ -1,4 +1,4 @@
-name: Build Windows Release (.exe)
+name: Build Windows Release (GPU + Contabo Deploy)
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-windows:
-    name: Build Flutter + Python Windows Bundle
+    name: Build Flutter + Python GPU Windows Bundle
     runs-on: windows-latest
 
     steps:
@@ -17,7 +17,7 @@ jobs:
         uses: actions/checkout@v4
 
       # -------------------------------------------------------------
-      # 1. Setup Python & Build Python Engine Sidecar
+      # 1. Setup Python & Install CUDA PyTorch Dependencies
       # -------------------------------------------------------------
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -26,16 +26,22 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'python_engine/requirements.txt'
 
-      - name: Install Python dependencies
+      - name: Install Python dependencies (CUDA 12.1 torch)
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
-          # Install core server dependencies for the frozen engine
-          pip install fastapi uvicorn pydantic python-multipart httpx
-          # Install project requirements (CPU/DirectML baseline for packaging)
-          pip install -r python_engine/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
+          # Install PyTorch with CUDA 12.1 support (GPU acceleration for NVIDIA)
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+          # Install remaining project dependencies (skip torch from requirements.txt)
+          pip install -r python_engine/requirements.txt `
+            --extra-index-url https://download.pytorch.org/whl/cu121
+
+      # -------------------------------------------------------------
+      # 2. Build Python Engine with PyInstaller
+      # -------------------------------------------------------------
       - name: Build Python Engine Executable
         shell: pwsh
         run: |
@@ -44,7 +50,7 @@ jobs:
           cd ..
 
       # -------------------------------------------------------------
-      # 2. Setup Flutter & Build Flutter Desktop App
+      # 3. Setup Flutter & Build Flutter Desktop App
       # -------------------------------------------------------------
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -69,37 +75,100 @@ jobs:
           cd ..
 
       # -------------------------------------------------------------
-      # 3. Assemble Unified Distribution (Flutter + Python Sidecar)
+      # 4. Assemble Unified Distribution (Flutter + Python GPU Sidecar)
       # -------------------------------------------------------------
       - name: Assemble Unified Distribution
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist\AI_Image_Studio
+
           # Copy Flutter Release executable and runtime DLLs
           Copy-Item -Recurse flutter_app\build\windows\x64\runner\Release\* dist\AI_Image_Studio\
-          # Copy Python Engine into sidecar directory
+
+          # Copy Python GPU Engine into sidecar directory
           New-Item -ItemType Directory -Force -Path dist\AI_Image_Studio\engine
           Copy-Item -Recurse python_engine\dist\engine\* dist\AI_Image_Studio\engine\
+
+          # Show bundle size summary
+          $size = (Get-ChildItem -Recurse dist\AI_Image_Studio | Measure-Object -Property Length -Sum).Sum
+          $sizeMB = [math]::Round($size / 1MB, 1)
+          Write-Host "Bundle size: $sizeMB MB"
+
           # Create zip archive
-          Compress-Archive -Path dist\AI_Image_Studio\* -DestinationPath dist\AI_Image_Studio_Windows_x64.zip
+          Compress-Archive -Path dist\AI_Image_Studio\* -DestinationPath dist\AI_Image_Studio_Windows_x64_GPU.zip
+
+          # Show zip size
+          $zipSize = (Get-Item dist\AI_Image_Studio_Windows_x64_GPU.zip).Length
+          $zipSizeMB = [math]::Round($zipSize / 1MB, 1)
+          Write-Host "Zip size: $zipSizeMB MB"
 
       # -------------------------------------------------------------
-      # 4. Upload Release Artifact
+      # 5. Deploy to Contabo VPS via rsync over SSH
       # -------------------------------------------------------------
-      - name: Upload Windows Bundle Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AI_Image_Studio_Windows_x64
-          path: dist/AI_Image_Studio_Windows_x64.zip
-          retention-days: 14
+      - name: Setup SSH key for Contabo
+        shell: bash
+        env:
+          CONTABO_SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$CONTABO_SSH_KEY" > ~/.ssh/contabo_key
+          chmod 600 ~/.ssh/contabo_key
+          # Trust the Contabo server (add known_hosts)
+          cat >> ~/.ssh/known_hosts << 'EOF'
+          |1|2zEu6hbWprFcAURr7BkvHa8f/yM=|sg5JiIi2FHzKcT6HFNVSKW7/hrw= ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBD443rWiOuHUH1j8LTvrfYbAGu3Ta/VhL3/8ZujUzvIiLoc0SA3QB3DBgRvuqQAEoVSoOGWpgAZhdLsxKaRYe3U=
+          |1|C+BY7BssxeVE/ik1epKDS/F90tw=|Ypt773aOsSFG+XqSUtuf+oQ+Fyk= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF1XZ0RJr4oqBEv1m7rGqibuaXU/gaptB8AGDf1/SYei
+          EOF
+
+      - name: Install rsync (Windows runner)
+        shell: bash
+        run: |
+          choco install rsync -y
+          rsync --version
+
+      - name: rsync build to Contabo VPS
+        shell: bash
+        env:
+          CONTABO_IP: ${{ secrets.CONTABO_IP }}
+        run: |
+          BUILD_DIR="dist/AI_Image_Studio"
+          ZIP_FILE="dist/AI_Image_Studio_Windows_x64_GPU.zip"
+          REMOTE_PATH="/var/www/releases/ai_image_studio"
+
+          # Upload the zip
+          rsync -avz --progress \
+            -e "ssh -i ~/.ssh/contabo_key -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
+            "$ZIP_FILE" \
+            "root@${CONTABO_IP}:${REMOTE_PATH}/"
+
+          # Update the 'latest' symlink on server
+          ssh -i ~/.ssh/contabo_key -o StrictHostKeyChecking=no \
+            "root@${CONTABO_IP}" \
+            "cd ${REMOTE_PATH} && \
+             ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && \
+             ls -lah && \
+             echo 'Deploy complete: '$(date)"
 
       # -------------------------------------------------------------
-      # 5. Create GitHub Release on Tag
+      # 6. Create GitHub Release on Tag (no artifact - build is on Contabo)
       # -------------------------------------------------------------
-      - name: Create GitHub Release
+      - name: Create GitHub Release on Tag
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/AI_Image_Studio_Windows_x64.zip
+          body: |
+            ## AI Image Studio - Windows x64 (GPU Build)
+
+            **Download**: Available on the Contabo release server.
+
+            ### System Requirements
+            - Windows 10/11 64-bit
+            - NVIDIA GPU with CUDA 12.1+ (RTX 20xx or newer)
+            - Minimum 8 GB VRAM recommended
+            - 16 GB RAM
+
+            ### What's included
+            - Flutter desktop app
+            - Python AI engine (PyInstaller, CUDA 12.1, PyTorch)
+            - All AI models downloaded on first use
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
