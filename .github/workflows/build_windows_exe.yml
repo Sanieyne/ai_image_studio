@@ -103,50 +103,33 @@ jobs:
           Write-Host "Zip size: $zipSizeMB MB"
 
       # -------------------------------------------------------------
-      # 5. Deploy to Contabo VPS via rsync over SSH
+      # 5. Deploy to Contabo VPS via native Windows OpenSSH (scp)
+      #    (cwRsync under Git Bash fails on Windows runners with
+      #     "dup() in/out/err failed" + connection closed, 0 bytes sent)
       # -------------------------------------------------------------
-      - name: Setup SSH key for Contabo
-        shell: bash
+      - name: Deploy build to Contabo VPS
+        shell: pwsh
         env:
           CONTABO_SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "$CONTABO_SSH_KEY" > ~/.ssh/contabo_key
-          chmod 600 ~/.ssh/contabo_key
-          # Trust the Contabo server (add known_hosts)
-          cat >> ~/.ssh/known_hosts << 'EOF'
-          |1|2zEu6hbWprFcAURr7BkvHa8f/yM=|sg5JiIi2FHzKcT6HFNVSKW7/hrw= ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBD443rWiOuHUH1j8LTvrfYbAGu3Ta/VhL3/8ZujUzvIiLoc0SA3QB3DBgRvuqQAEoVSoOGWpgAZhdLsxKaRYe3U=
-          |1|C+BY7BssxeVE/ik1epKDS/F90tw=|Ypt773aOsSFG+XqSUtuf+oQ+Fyk= ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF1XZ0RJr4oqBEv1m7rGqibuaXU/gaptB8AGDf1/SYei
-          EOF
-
-      - name: Install rsync (Windows runner)
-        shell: bash
-        run: |
-          choco install rsync -y
-          rsync --version
-
-      - name: rsync build to Contabo VPS
-        shell: bash
-        env:
           CONTABO_IP: ${{ secrets.CONTABO_IP }}
         run: |
-          BUILD_DIR="dist/AI_Image_Studio"
-          ZIP_FILE="dist/AI_Image_Studio_Windows_x64_GPU.zip"
-          REMOTE_PATH="/var/www/releases/ai_image_studio"
+          $ErrorActionPreference = 'Stop'
+          $keyPath = "$HOME\.ssh\contabo_key"
+          New-Item -ItemType Directory -Force -Path (Split-Path $keyPath) | Out-Null
+          # Write key with LF-only endings, then lock it down for ssh.exe
+          ($env:CONTABO_SSH_KEY -replace "`r", "") | Set-Content -Path $keyPath -NoNewline -Encoding ascii
+          icacls $keyPath /inheritance:r | Out-Null
+          icacls $keyPath /grant:r "$($env:USERNAME):R" | Out-Null
 
-          # Upload the zip
-          rsync -avz --progress \
-            -e "ssh -i ~/.ssh/contabo_key -o StrictHostKeyChecking=no -o ConnectTimeout=30" \
-            "$ZIP_FILE" \
-            "root@${CONTABO_IP}:${REMOTE_PATH}/"
+          $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
+          $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
+          $sshOpts = @('-i', $keyPath, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=30')
 
-          # Update the 'latest' symlink on server
-          ssh -i ~/.ssh/contabo_key -o StrictHostKeyChecking=no \
-            "root@${CONTABO_IP}" \
-            "cd ${REMOTE_PATH} && \
-             ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && \
-             ls -lah && \
-             echo 'Deploy complete: '$(date)"
+          & $scp @sshOpts 'dist\AI_Image_Studio_Windows_x64_GPU.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
+          if ($LASTEXITCODE -ne 0) { throw "scp upload failed (exit $LASTEXITCODE)" }
+
+          & $ssh @sshOpts "root@$($env:CONTABO_IP)" 'cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ls -lah && echo Deploy complete: $(date)'
+          if ($LASTEXITCODE -ne 0) { throw "remote symlink update failed (exit $LASTEXITCODE)" }
 
       # -------------------------------------------------------------
       # 6. Create GitHub Release on Tag (no artifact - build is on Contabo)
