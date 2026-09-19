@@ -1,12 +1,48 @@
+import 'dart:async';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/project_item.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'settings_dialog.dart';
 
-/// Studio sidebar backed by SQLite projects: full 284px panel or a
-/// 72px collapsed icon rail. Data + mutations live in the parent.
+/// Navigation modes for the unified sidebar.
+enum SidebarTab {
+  history,
+  voice,
+  video,
+  image,
+}
+
+/// Voice preset with preview metadata
+class VoicePreset {
+  final String id;
+  final String name;
+  final String gender;
+  final String accent;
+  final String tags;
+  final String previewDescription;
+  final IconData icon;
+
+  const VoicePreset({
+    required this.id,
+    required this.name,
+    required this.gender,
+    required this.accent,
+    required this.tags,
+    required this.previewDescription,
+    required this.icon,
+  });
+}
+
+/// Modern multi-mode Studio Sidebar:
+/// - Top Tab Bar: History (Chat Projects), Voice Studio, Video Mode, Image Mode
+/// - Dedicated interactive mode panels (Voice Studio with Model Selector, Voice Options, 
+///   20-30s Audio Previews, Tone/Speed/Exaggeration Sliders, and Instant Voice Cloning Upload)
+/// - Collapsible to 72px rail with active tab badge icons.
 class AppSidebar extends StatefulWidget {
   final bool collapsed;
   final List<ProjectItem> projects;
@@ -17,6 +53,7 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<ProjectItem>? onTogglePin;
   final ValueChanged<ProjectItem>? onDeleteProject;
   final VoidCallback? onExpand;
+  final ApiService? apiService;
 
   const AppSidebar({
     super.key,
@@ -29,22 +66,99 @@ class AppSidebar extends StatefulWidget {
     this.onTogglePin,
     this.onDeleteProject,
     this.onExpand,
+    this.apiService,
   });
 
   @override
   State<AppSidebar> createState() => _AppSidebarState();
 }
 
-/// Context-menu actions for a sidebar project item.
 enum ProjectAction { share, rename, pin, archive, delete, moveToProject }
 
-class _AppSidebarState extends State<AppSidebar> {
+class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateMixin {
+  SidebarTab _currentTab = SidebarTab.history;
   final _search = TextEditingController();
   String _filter = '';
+
+  // ─── Voice Mode State ─────────────────────────────────────
+  String _selectedVoiceModel = 'Chatterbox TTS';
+  String _selectedVoicePresetId = 'aurora';
+  double _exaggeration = 0.5;
+  double _cfgWeight = 0.7;
+  double _speechSpeed = 1.0;
+
+  // Audio Preview Simulation State (20-30s player)
+  String? _playingVoiceId;
+  int _previewPlaybackSeconds = 0;
+  Timer? _previewTimer;
+
+  // Voice Cloning Upload State
+  Uint8List? _cloneAudioBytes;
+  String? _cloneAudioName;
+  final _cloneSpeakerNameController = TextEditingController();
+
+  static const List<VoicePreset> _voicePresets = [
+    VoicePreset(
+      id: 'aurora',
+      name: 'Aurora Sterling',
+      gender: 'Female',
+      accent: 'American (Neutral)',
+      tags: 'Warm · Narrative · Professional',
+      previewDescription: '"Step into the future of creative AI with crystal-clear voice clarity."',
+      icon: Icons.record_voice_over_rounded,
+    ),
+    VoicePreset(
+      id: 'marcus',
+      name: 'Marcus Vance',
+      gender: 'Male',
+      accent: 'British (RP)',
+      tags: 'Deep · Documentary · Authoritative',
+      previewDescription: '"Across the cosmos, every story begins with a single spark of imagination."',
+      icon: Icons.mic_external_on_rounded,
+    ),
+    VoicePreset(
+      id: 'elena',
+      name: 'Elena Rostova',
+      gender: 'Female',
+      accent: 'European / Melodic',
+      tags: 'Smooth · Conversational · Dynamic',
+      previewDescription: '"Experience seamless translations with natural cadence and tone."',
+      icon: Icons.graphic_eq_rounded,
+    ),
+    VoicePreset(
+      id: 'zephyr',
+      name: 'Zephyr Studio',
+      gender: 'Non-Binary',
+      accent: 'Modern Cinema',
+      tags: 'Energetic · Commercial · Expressive',
+      previewDescription: '"Turn your ideas into broadcast-grade voice productions in seconds."',
+      icon: Icons.multitrack_audio_rounded,
+    ),
+  ];
+
+  static const List<Map<String, String>> _voiceModels = [
+    {
+      'title': 'Chatterbox TTS',
+      'desc': 'Resemble AI Voice · 500M · Ultra Low Latency',
+      'icon': 'voice',
+    },
+    {
+      'title': 'Chatterbox Multilingual V3',
+      'desc': 'Resemble AI · 23+ Languages · High Expressiveness',
+      'icon': 'language',
+    },
+    {
+      'title': 'Breeze TTS 2',
+      'desc': 'BreezeBlue Voice Design · 3.4B · Cinematic Tone',
+      'icon': 'sound',
+    },
+  ];
 
   @override
   void dispose() {
     _search.dispose();
+    _previewTimer?.cancel();
+    _cloneSpeakerNameController.dispose();
     super.dispose();
   }
 
@@ -58,19 +172,22 @@ class _AppSidebarState extends State<AppSidebar> {
       : src
           .where((p) => p.title.toLowerCase().contains(_filter))
           .toList();
+
   void _onProjectAction(ProjectAction action, ProjectItem p) {
     switch (action) {
       case ProjectAction.rename:
-        // Inline renaming is handled directly inside SidebarProjectTile.
         break;
       case ProjectAction.pin:
         widget.onTogglePin?.call(p);
+        break;
       case ProjectAction.delete:
         widget.onDeleteProject?.call(p);
+        break;
       default:
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('${_actionLabel(action)} is coming soon.')),
+            content: Text('${_actionLabel(action)} is coming soon.'),
+          ),
         );
     }
   }
@@ -92,6 +209,84 @@ class _AppSidebarState extends State<AppSidebar> {
     }
   }
 
+  void _togglePreviewPlayback(String voiceId) {
+    if (_playingVoiceId == voiceId) {
+      _stopPreview();
+    } else {
+      _startPreview(voiceId);
+    }
+  }
+
+  void _startPreview(String voiceId) {
+    _previewTimer?.cancel();
+    setState(() {
+      _playingVoiceId = voiceId;
+      _previewPlaybackSeconds = 0;
+    });
+
+    _previewTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_previewPlaybackSeconds >= 24) {
+        _stopPreview();
+      } else {
+        setState(() => _previewPlaybackSeconds++);
+      }
+    });
+  }
+
+  void _stopPreview() {
+    _previewTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _playingVoiceId = null;
+        _previewPlaybackSeconds = 0;
+      });
+    }
+  }
+
+  Future<void> _pickAudioForCloning() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a'],
+      );
+      if (result.isNotEmpty) {
+        final file = result.first;
+        final bytes = await file.readAsBytes();
+        setState(() {
+          _cloneAudioBytes = bytes;
+          _cloneAudioName = file.name;
+          if (_cloneSpeakerNameController.text.trim().isEmpty) {
+            _cloneSpeakerNameController.text =
+                file.name.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '');
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Audio loaded for cloning: ${file.name} (${(bytes.lengthInBytes / 1024).toStringAsFixed(1)} KB)'),
+              backgroundColor: const Color(0xFF2E7D32),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load audio: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = LuminaTheme.isDark(context);
@@ -103,11 +298,11 @@ class _AppSidebarState extends State<AppSidebar> {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOutCubic,
-      width: collapsed ? 72 : 284,
+      width: collapsed ? 72 : 318,
       clipBehavior: Clip.hardEdge,
       margin: const EdgeInsets.fromLTRB(14, 8, 0, 14),
       decoration: BoxDecoration(
-        color: card.withValues(alpha: dark ? 0.72 : 0.66),
+        color: card.withValues(alpha: dark ? 0.76 : 0.70),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: border),
         boxShadow: [
@@ -119,77 +314,112 @@ class _AppSidebarState extends State<AppSidebar> {
         ],
       ),
       child: collapsed
-          ? _rail(muted, card)
-          : _fullPanel(dark, border, muted, card),
+          ? _buildRail(dark, muted, card)
+          : _buildFullPanel(dark, border, muted, card),
     );
   }
 
-  // ── collapsed 72px icon rail ──────────────────────────────
-  Widget _rail(Color muted, Color card) {
-    final items = widget.projects;
+  // ─────────────────────────────────────────────────────────────
+  // Collapsed 72px Rail
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildRail(bool dark, Color muted, Color card) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
       child: Column(
         children: [
+          // New Project / Action button
           Tooltip(
-            message: 'New Project',
+            message: 'New Chat / Project',
             child: Material(
               color: Colors.transparent,
               child: Ink(
-                width: 36,
-                height: 36,
+                width: 38,
+                height: 38,
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                   gradient: LuminaColors.primaryGradient,
                   boxShadow: [
                     BoxShadow(
-                      color: LuminaColors.primaryGlow
-                          .withValues(alpha: 0.45),
-                      blurRadius: 14,
+                      color: LuminaColors.primaryGlow.withValues(alpha: 0.45),
+                      blurRadius: 12,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 child: InkWell(
-                  onTap: widget.onNewProject,
-                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    widget.onExpand?.call();
+                    widget.onNewProject?.call();
+                  },
+                  borderRadius: BorderRadius.circular(10),
                   child: const Center(
-                    child: Text('+',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white,
-                            height: 1.0)),
+                    child: Icon(Icons.add, color: Colors.white, size: 20),
                   ),
                 ),
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          IconButton(
-            onPressed: widget.onExpand,
-            icon: Icon(Icons.search, size: 19, color: muted),
-            tooltip: 'Search',
+          const SizedBox(height: 16),
+
+          // Collapsed Tab Switcher Icons
+          _buildRailTabIcon(
+            tab: SidebarTab.history,
+            icon: Icons.chat_bubble_outline_rounded,
+            tooltip: 'History / Chats',
+            dark: dark,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.voice,
+            icon: Icons.record_voice_over_rounded,
+            tooltip: 'Voice Studio & Cloning',
+            dark: dark,
+          ),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.video,
+            icon: Icons.videocam_outlined,
+            tooltip: 'Video Mode (Wan & MiniMax)',
+            dark: dark,
+          ),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.image,
+            icon: Icons.image_outlined,
+            tooltip: 'Image Studio & FLUX',
+            dark: dark,
+          ),
+
+          const SizedBox(height: 14),
+          Divider(color: dark ? Colors.white12 : Colors.black12, height: 1),
+          const SizedBox(height: 10),
+
+          // Scrollable project thumbnails when in history tab
           Expanded(
             child: SingleChildScrollView(
               child: Column(
                 children: [
-                  for (final p in items)
+                  for (final p in widget.projects)
                     Padding(
-                      padding:
-                          const EdgeInsets.symmetric(vertical: 6),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
                       child: IconButton(
-                        onPressed: () =>
-                            widget.onSelectProject?.call(p.id),
-                        icon: _thumbIcon(p, 19, muted),
+                        onPressed: () {
+                          widget.onSelectProject?.call(p.id);
+                          widget.onExpand?.call();
+                        },
+                        icon: Icon(
+                          p.isPinned
+                              ? Icons.folder_special_rounded
+                              : Icons.chat_bubble_outline_rounded,
+                          size: 18,
+                          color: p.id == widget.activeProjectId
+                              ? const Color(0xFFD32F2F)
+                              : muted,
+                        ),
                         tooltip: p.title,
                         style: IconButton.styleFrom(
-                          backgroundColor: p.id ==
-                                  widget.activeProjectId
-                              ? LuminaColors.primaryGlow
-                                  .withValues(alpha: 0.18)
+                          backgroundColor: p.id == widget.activeProjectId
+                              ? LuminaColors.primaryGlow.withValues(alpha: 0.16)
                               : null,
                         ),
                       ),
@@ -198,13 +428,14 @@ class _AppSidebarState extends State<AppSidebar> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 10),
           Tooltip(
             message: 'Alex Dan — PRO',
             child: InkWell(
               onTap: widget.onExpand,
               borderRadius: BorderRadius.circular(16),
-              child: _avatar(card, 30),
+              child: _avatar(card, 32),
             ),
           ),
         ],
@@ -212,137 +443,69 @@ class _AppSidebarState extends State<AppSidebar> {
     );
   }
 
-  /// Deterministic project glyph: folder for pinned, image otherwise.
-  Widget _thumbIcon(ProjectItem p, double size, Color muted) {
-    return Icon(
-      p.isPinned ? Icons.folder_special_outlined : Icons.image_outlined,
-      size: size,
-      color: muted,
+  Widget _buildRailTabIcon({
+    required SidebarTab tab,
+    required IconData icon,
+    required String tooltip,
+    required bool dark,
+  }) {
+    final isSelected = _currentTab == tab;
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            setState(() => _currentTab = tab);
+            widget.onExpand?.call();
+          },
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? (dark ? const Color(0xFFD32F2F).withValues(alpha: 0.22) : const Color(0xFFD32F2F).withValues(alpha: 0.14))
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+              border: isSelected
+                  ? Border.all(color: const Color(0xFFD32F2F).withValues(alpha: 0.5), width: 1.2)
+                  : null,
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: isSelected
+                  ? const Color(0xFFD32F2F)
+                  : (dark ? Colors.white70 : Colors.black54),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  // ── expanded 284px panel ──────────────────────────────────
-  Widget _fullPanel(bool dark, Color border, Color muted, Color card) {
-    final pinned = _visible(_pinned);
-    final recent = _visible(_recent);
+  // ─────────────────────────────────────────────────────────────
+  // Full 318px Sidebar Panel
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildFullPanel(bool dark, Color border, Color muted, Color card) {
     return Padding(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              borderRadius:
-                  BorderRadius.circular(LuminaColors.cardRadius),
-              gradient: LuminaColors.primaryGradient,
-              boxShadow: [
-                BoxShadow(
-                  color:
-                      LuminaColors.primaryGlow.withValues(alpha: 0.45),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: FilledButton(
-              onPressed: widget.onNewProject,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.transparent,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(
-                      LuminaColors.cardRadius),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 13),
-              ),
-              child: const Text('+ New Project',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white)),
-            ),
-          ),
+          // ─── Top Tabs Bar ────────────────────────────────────
+          _buildTopTabsBar(dark, border),
           const SizedBox(height: 12),
-          TextField(
-            controller: _search,
-            onChanged: (v) =>
-                setState(() => _filter = v.trim().toLowerCase()),
-            style: const TextStyle(fontSize: 13.5),
-            decoration: InputDecoration(
-              hintText: 'Search Images & Videos',
-              hintStyle: TextStyle(fontSize: 13, color: muted),
-              prefixIcon:
-                  Icon(Icons.search, size: 17, color: muted),
-              filled: true,
-              fillColor: dark
-                  ? Colors.white.withValues(alpha: 0.06)
-                  : Colors.white.withValues(alpha: 0.7),
-              border: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(LuminaColors.pillRadius),
-                borderSide: BorderSide(color: border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius:
-                    BorderRadius.circular(LuminaColors.pillRadius),
-                borderSide: BorderSide(color: border),
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 10),
-            ),
-          ),
-          const SizedBox(height: 12),
+
+          // ─── Mode Content View ───────────────────────────────
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (pinned.isNotEmpty) ...[
-                    _SectionHeader('Pinned Projects', muted),
-                    ...pinned.map((p) => SidebarProjectTile(
-                          icon: Icons.folder_special_outlined,
-                          title: p.title,
-                          isPinned: p.isPinned,
-                          isSelected: p.id == widget.activeProjectId,
-                          onTap: () =>
-                              widget.onSelectProject?.call(p.id),
-                          onRename: (newTitle) {
-                            widget.onRenameTitle?.call(p.id, newTitle);
-                          },
-                          onActionSelected: (a) => _onProjectAction(a, p),
-                        )),
-                    const SizedBox(height: 10),
-                  ],
-                  _SectionHeader('Recent Creations', muted),
-                  if (recent.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      child: Text(
-                        'No recent creations yet',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: muted.withValues(alpha: 0.6),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    )
-                  else
-                    ...recent.map((p) => SidebarProjectTile(
-                          icon: Icons.movie_creation_outlined,
-                          title: p.title,
-                          isPinned: p.isPinned,
-                          isSelected: p.id == widget.activeProjectId,
-                          onTap: () =>
-                              widget.onSelectProject?.call(p.id),
-                          onRename: (newTitle) {
-                            widget.onRenameTitle?.call(p.id, newTitle);
-                          },
-                          onActionSelected: (a) => _onProjectAction(a, p),
-                        )),
-                ],
-              ),
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _buildSelectedTabContent(dark, border, muted, card),
             ),
           ),
+
           const SizedBox(height: 10),
           _buildProfile(context, dark),
         ],
@@ -350,6 +513,850 @@ class _AppSidebarState extends State<AppSidebar> {
     );
   }
 
+  // ── Top Tabs Segmented Switcher ──────────────────────────────
+  Widget _buildTopTabsBar(bool dark, Color border) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: dark ? Colors.black.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          _buildTabButton(
+            tab: SidebarTab.history,
+            label: 'History',
+            icon: Icons.forum_rounded,
+            dark: dark,
+          ),
+          _buildTabButton(
+            tab: SidebarTab.voice,
+            label: 'Voice',
+            icon: Icons.mic_rounded,
+            dark: dark,
+          ),
+          _buildTabButton(
+            tab: SidebarTab.video,
+            label: 'Video',
+            icon: Icons.videocam_rounded,
+            dark: dark,
+          ),
+          _buildTabButton(
+            tab: SidebarTab.image,
+            label: 'Image',
+            icon: Icons.photo_rounded,
+            dark: dark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton({
+    required SidebarTab tab,
+    required String label,
+    required IconData icon,
+    required bool dark,
+  }) {
+    final isSelected = _currentTab == tab;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentTab = tab),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (dark ? const Color(0xFF2E3642) : Colors.white)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: dark ? 0.30 : 0.08),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: isSelected
+                    ? const Color(0xFFD32F2F)
+                    : (dark ? Colors.white60 : Colors.black45),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected
+                      ? (dark ? Colors.white : const Color(0xFF14181F))
+                      : (dark ? Colors.white60 : Colors.black54),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Content Switcher based on Tab ────────────────────────────
+  Widget _buildSelectedTabContent(bool dark, Color border, Color muted, Color card) {
+    switch (_currentTab) {
+      case SidebarTab.voice:
+        return _buildVoiceModePanel(dark, border, muted);
+      case SidebarTab.video:
+        return _buildVideoModePanel(dark, border, muted);
+      case SidebarTab.image:
+        return _buildImageModePanel(dark, border, muted);
+      case SidebarTab.history:
+        return _buildHistoryPanel(dark, border, muted, card);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB 1: HISTORY (Chat History & Projects)
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildHistoryPanel(bool dark, Color border, Color muted, Color card) {
+    final pinned = _visible(_pinned);
+    final recent = _visible(_recent);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // New Project Button
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(LuminaColors.cardRadius),
+            gradient: LuminaColors.primaryGradient,
+            boxShadow: [
+              BoxShadow(
+                color: LuminaColors.primaryGlow.withValues(alpha: 0.40),
+                blurRadius: 14,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: FilledButton.icon(
+            onPressed: widget.onNewProject,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(LuminaColors.cardRadius),
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+            ),
+            icon: const Icon(Icons.add, size: 18, color: Colors.white),
+            label: const Text(
+              'New Creation Chat',
+              style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white, fontSize: 13),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Search Bar
+        TextField(
+          controller: _search,
+          onChanged: (v) => setState(() => _filter = v.trim().toLowerCase()),
+          style: const TextStyle(fontSize: 13),
+          decoration: InputDecoration(
+            hintText: 'Search Chats & Generations',
+            hintStyle: TextStyle(fontSize: 12.5, color: muted),
+            prefixIcon: Icon(Icons.search, size: 16, color: muted),
+            filled: true,
+            fillColor: dark ? Colors.white.withValues(alpha: 0.05) : Colors.white.withValues(alpha: 0.7),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+              borderSide: BorderSide(color: border),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+              borderSide: BorderSide(color: border),
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Scrollable Project Items
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (pinned.isNotEmpty) ...[
+                  _SectionHeader('Pinned Chats', muted),
+                  ...pinned.map((p) => SidebarProjectTile(
+                        icon: Icons.folder_special_outlined,
+                        title: p.title,
+                        isPinned: p.isPinned,
+                        isSelected: p.id == widget.activeProjectId,
+                        onTap: () => widget.onSelectProject?.call(p.id),
+                        onRename: (newTitle) => widget.onRenameTitle?.call(p.id, newTitle),
+                        onActionSelected: (a) => _onProjectAction(a, p),
+                      )),
+                  const SizedBox(height: 10),
+                ],
+                _SectionHeader('Recent Chats', muted),
+                if (recent.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: Text(
+                      'No recent chats yet',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: muted.withValues(alpha: 0.6),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  )
+                else
+                  ...recent.map((p) => SidebarProjectTile(
+                        icon: Icons.chat_bubble_outline_rounded,
+                        title: p.title,
+                        isPinned: p.isPinned,
+                        isSelected: p.id == widget.activeProjectId,
+                        onTap: () => widget.onSelectProject?.call(p.id),
+                        onRename: (newTitle) => widget.onRenameTitle?.call(p.id, newTitle),
+                        onActionSelected: (a) => _onProjectAction(a, p),
+                      )),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB 2: VOICE STUDIO & CLONING PANEL
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildVoiceModePanel(bool dark, Color border, Color muted) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(right: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Section Title
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD32F2F).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.record_voice_over_rounded, size: 16, color: Color(0xFFD32F2F)),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Voice Studio',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF34A853).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'ACTIVE',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF34A853)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 1. Voice Engine / Model Selector
+          _SectionHeader('1. Voice Model', muted),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: dark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedVoiceModel,
+                isExpanded: true,
+                dropdownColor: dark ? const Color(0xFF1E242E) : Colors.white,
+                icon: const Icon(Icons.arrow_drop_down, size: 20),
+                items: _voiceModels.map((m) {
+                  return DropdownMenuItem<String>(
+                    value: m['title'],
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          m['title']!,
+                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          m['desc']!,
+                          style: TextStyle(fontSize: 10, color: muted),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) setState(() => _selectedVoiceModel = val);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 2. Voice Options & 20-30s Audio Previews
+          _SectionHeader('2. Voice Personas & Preview', muted),
+          Text(
+            'Tap play to preview 20-30s studio audio clips:',
+            style: TextStyle(fontSize: 11, color: muted),
+          ),
+          const SizedBox(height: 6),
+
+          ..._voicePresets.map((preset) => _buildVoicePresetCard(preset, dark, border, muted)),
+          const SizedBox(height: 14),
+
+          // 3. Audio Adjustments (Pitch, Speed, Exaggeration, CFG)
+          _SectionHeader('3. Audio Adjustments', muted),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Exaggeration Slider
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Emotion & Exaggeration', style: TextStyle(fontSize: 11.5, color: muted)),
+                    Text('${(_exaggeration * 100).toInt()}%',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: _exaggeration,
+                    min: 0.0,
+                    max: 1.0,
+                    activeColor: const Color(0xFFD32F2F),
+                    onChanged: (v) => setState(() => _exaggeration = v),
+                  ),
+                ),
+
+                // Speed Slider
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Pacing & Speed', style: TextStyle(fontSize: 11.5, color: muted)),
+                    Text('${_speechSpeed.toStringAsFixed(1)}x',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: _speechSpeed,
+                    min: 0.5,
+                    max: 2.0,
+                    divisions: 15,
+                    activeColor: const Color(0xFFD32F2F),
+                    onChanged: (v) => setState(() => _speechSpeed = v),
+                  ),
+                ),
+
+                // CFG Guidance Weight
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Prompt Adherence (CFG)', style: TextStyle(fontSize: 11.5, color: muted)),
+                    Text('${(_cfgWeight * 100).toInt()}%',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 3,
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  ),
+                  child: Slider(
+                    value: _cfgWeight,
+                    min: 0.1,
+                    max: 1.0,
+                    activeColor: const Color(0xFFD32F2F),
+                    onChanged: (v) => setState(() => _cfgWeight = v),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // 4. Voice Cloning Upload Section
+          _SectionHeader('4. Instant Voice Cloning', muted),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF1E2530) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: _cloneAudioBytes != null ? const Color(0xFF2E7D32) : border,
+                width: _cloneAudioBytes != null ? 1.5 : 1.0,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.cloud_upload_outlined,
+                      size: 20,
+                      color: _cloneAudioBytes != null ? const Color(0xFF2E7D32) : const Color(0xFFD32F2F),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Clone Any Speaker Voice',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Upload a 5-30 second clear audio clip (WAV/MP3). Zero-shot clone will mimic timbre, pitch, and accent.',
+                  style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                ),
+                const SizedBox(height: 10),
+
+                // Upload Button or File Preview
+                if (_cloneAudioBytes == null)
+                  OutlinedButton.icon(
+                    onPressed: _pickAudioForCloning,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      side: BorderSide(color: border),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.file_upload_outlined, size: 16),
+                    label: const Text('Select Audio File (.wav, .mp3)', style: TextStyle(fontSize: 12)),
+                  )
+                else ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2E7D32).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFF2E7D32).withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.audiotrack, size: 18, color: Color(0xFF2E7D32)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _cloneAudioName ?? 'Reference Audio',
+                                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                '${(_cloneAudioBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB · Ready for inference',
+                                style: const TextStyle(fontSize: 10, color: Color(0xFF2E7D32)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => setState(() {
+                            _cloneAudioBytes = null;
+                            _cloneAudioName = null;
+                          }),
+                          icon: const Icon(Icons.close, size: 16),
+                          tooltip: 'Remove uploaded sample',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Speaker Custom Name
+                  TextField(
+                    controller: _cloneSpeakerNameController,
+                    style: const TextStyle(fontSize: 12),
+                    decoration: InputDecoration(
+                      labelText: 'Custom Voice Label',
+                      labelStyle: TextStyle(fontSize: 11, color: muted),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  // ── Voice Persona Card with 20-30s Audio Player ──────────────
+  Widget _buildVoicePresetCard(VoicePreset preset, bool dark, Color border, Color muted) {
+    final isSelected = _selectedVoicePresetId == preset.id;
+    final isPlaying = _playingVoiceId == preset.id;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? (dark ? const Color(0xFF262D38) : Colors.white)
+            : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isSelected ? const Color(0xFFD32F2F).withValues(alpha: 0.5) : border,
+          width: isSelected ? 1.4 : 1.0,
+        ),
+      ),
+      child: InkWell(
+        onTap: () => setState(() => _selectedVoicePresetId = preset.id),
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? const Color(0xFFD32F2F).withValues(alpha: 0.15)
+                          : (dark ? Colors.white10 : Colors.black12),
+                    ),
+                    child: Icon(
+                      preset.icon,
+                      size: 17,
+                      color: isSelected ? const Color(0xFFD32F2F) : (dark ? Colors.white70 : Colors.black54),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              preset.name,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              '(${preset.gender})',
+                              style: TextStyle(fontSize: 10, color: muted),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          preset.tags,
+                          style: TextStyle(fontSize: 10, color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Radio Indicator
+                  Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                    size: 16,
+                    color: isSelected ? const Color(0xFFD32F2F) : muted,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+
+              // Audio preview mini player bar (20-30s simulation)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: dark ? Colors.black.withValues(alpha: 0.25) : Colors.black.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    InkWell(
+                      onTap: () => _togglePreviewPlayback(preset.id),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isPlaying ? const Color(0xFFD32F2F) : (dark ? Colors.white24 : Colors.black12),
+                        ),
+                        child: Icon(
+                          isPlaying ? Icons.pause : Icons.play_arrow_rounded,
+                          size: 15,
+                          color: isPlaying ? Colors.white : (dark ? Colors.white : Colors.black87),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                isPlaying ? 'Playing Sample (${_previewPlaybackSeconds}s / 24s)' : '24s Audio Sample',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  color: isPlaying ? const Color(0xFFD32F2F) : muted,
+                                  fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                              Text(
+                                '${isPlaying ? "0:${_previewPlaybackSeconds.toString().padLeft(2, '0')}" : "0:00"} / 0:24',
+                                style: TextStyle(fontSize: 9, color: muted),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 3),
+                          LinearProgressIndicator(
+                            value: isPlaying ? (_previewPlaybackSeconds / 24.0) : 0.0,
+                            minHeight: 3,
+                            backgroundColor: dark ? Colors.white12 : Colors.black12,
+                            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFD32F2F)),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB 3: VIDEO MODE PANEL (Wan 2.1 / Wan 2.2 / MiniMax)
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildVideoModePanel(bool dark, Color border, Color muted) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(right: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF35B6C4).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.videocam_rounded, size: 16, color: Color(0xFF35B6C4)),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Video Generation Mode',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          _SectionHeader('Active Video Models', muted),
+          _buildInfoOptionCard(
+            title: 'Wan 2.2 Animate 14B',
+            desc: 'Pose-driven character dance & animation from reference video + image',
+            tag: '14B DiT',
+            dark: dark,
+            border: border,
+          ),
+          _buildInfoOptionCard(
+            title: 'Wan 2.1 I2V 14B',
+            desc: 'Image-to-Video diffusion at native 480p / 720p',
+            tag: 'I2V',
+            dark: dark,
+            border: border,
+          ),
+          _buildInfoOptionCard(
+            title: 'MiniMax-H3 Video+Audio',
+            desc: 'Joint video diffusion and synchronized atmospheric audio generation',
+            tag: 'Omni 33B',
+            dark: dark,
+            border: border,
+          ),
+          const SizedBox(height: 12),
+
+          _SectionHeader('Video Quick Guidelines', muted),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: Text(
+              '• Reference video should be between 2s to 15s.\n'
+              '• Character reference photo should have a clear full-body silhouette.\n'
+              '• Enter your driving motion in the bottom prompt bar.',
+              style: TextStyle(fontSize: 11, color: muted, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB 4: IMAGE MODE PANEL (FLUX / SDXL / Z-Image)
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildImageModePanel(bool dark, Color border, Color muted) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(right: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8A42D5).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.auto_awesome, size: 16, color: Color(0xFF8A42D5)),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Image Studio',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          _SectionHeader('Image Pipelines', muted),
+          _buildInfoOptionCard(
+            title: 'FLUX.1 Kontext [dev]',
+            desc: '12B parameter image editing, context insertion, and high detail',
+            tag: 'FLUX',
+            dark: dark,
+            border: border,
+          ),
+          _buildInfoOptionCard(
+            title: 'Z-Image Turbo',
+            desc: '8-step lightning generation with modern Rectified Flow',
+            tag: 'Turbo',
+            dark: dark,
+            border: border,
+          ),
+          _buildInfoOptionCard(
+            title: 'FASHN VTON 1.5',
+            desc: 'High-end virtual outfit and garment try-on swap',
+            tag: 'Try-On',
+            dark: dark,
+            border: border,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoOptionCard({
+    required String title,
+    required String desc,
+    required String tag,
+    required bool dark,
+    required Color border,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: dark ? Colors.white12 : Colors.black12,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(tag, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          Text(desc, style: TextStyle(fontSize: 11, color: dark ? Colors.white60 : Colors.black54)),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Profile Card (Bottom of Sidebar)
+  // ─────────────────────────────────────────────────────────────
   Widget _buildProfile(BuildContext context, bool isDark) {
     final avatarWidget = Stack(
       clipBehavior: Clip.none,
@@ -385,7 +1392,6 @@ class _AppSidebarState extends State<AppSidebar> {
     return PopupMenuButton<String>(
       tooltip: '',
       padding: EdgeInsets.zero,
-      // Spawns the menu upward directly above the avatar card
       offset: const Offset(0, -190),
       elevation: 12,
       color: isDark ? const Color(0xFF1E232D) : Colors.white,
@@ -435,10 +1441,10 @@ class _AppSidebarState extends State<AppSidebar> {
         ),
       ],
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1A1F29) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isDark
                 ? Colors.white.withValues(alpha: 0.06)
@@ -448,7 +1454,7 @@ class _AppSidebarState extends State<AppSidebar> {
         child: Row(
           children: [
             avatarWidget,
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -460,14 +1466,13 @@ class _AppSidebarState extends State<AppSidebar> {
                         'Alex Dan',
                         style: TextStyle(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                          fontSize: 12.5,
                           color: isDark ? Colors.white : const Color(0xFF14181F),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
                           color: const Color(0xFFD32F2F),
                           borderRadius: BorderRadius.circular(4),
@@ -476,7 +1481,7 @@ class _AppSidebarState extends State<AppSidebar> {
                           'PRO',
                           style: TextStyle(
                               color: Colors.white,
-                              fontSize: 9,
+                              fontSize: 8.5,
                               fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -486,7 +1491,7 @@ class _AppSidebarState extends State<AppSidebar> {
                   Text(
                     'alex.dan@example.com',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 10.5,
                       color: isDark ? Colors.white54 : Colors.black45,
                     ),
                     overflow: TextOverflow.ellipsis,
@@ -583,12 +1588,12 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+      padding: const EdgeInsets.fromLTRB(2, 6, 2, 4),
       child: Text(text.toUpperCase(),
           style: TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              letterSpacing: 1.2,
+              letterSpacing: 1.1,
               color: muted)),
     );
   }
@@ -755,7 +1760,6 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
     );
   }
 
-  // --- Inline Editing Mode ---
   Widget _buildInlineEditingRow(bool isDark) {
     return Padding(
       padding: const EdgeInsets.only(left: 10, right: 6),
@@ -780,7 +1784,6 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
               ),
             ),
           ),
-          // Tick / Checkmark button
           Listener(
             onPointerDown: (_) => _isSubmitting = true,
             child: InkWell(
@@ -800,12 +1803,30 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
               ),
             ),
           ),
+          const SizedBox(width: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: _cancelEditing,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.black.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Icon(
+                Icons.close,
+                size: 16,
+                color: isDark ? Colors.white60 : Colors.black54,
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // --- Normal Display Mode ---
   Widget _buildDisplayRow(bool isDark) {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -868,7 +1889,7 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
                 onSelected: (action) {
                   setState(() => _isMenuOpen = false);
                   if (action == ProjectAction.rename) {
-                    _startEditing(); // Triggers inline mode directly
+                    _startEditing();
                   } else {
                     widget.onActionSelected?.call(action);
                   }

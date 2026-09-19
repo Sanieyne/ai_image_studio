@@ -69,7 +69,15 @@ class SDXLEngine:
                   "No weights loaded.")
             return
 
-        self._load_pipeline(model_id)
+        try:
+            self._load_pipeline(model_id)
+        except Exception as e:
+            log.warning(
+                "[!] Preloading model '%s' failed (%s). Engine online in on-demand mode.",
+                model_id,
+                e,
+            )
+            self.pipe = None
 
     def _load_pipeline(self, model_id: str) -> None:
         self.family = family_for(model_id)
@@ -426,6 +434,10 @@ class SDXLEngine:
                 "torch is required for real generation. "
                 "Run: pip install -r requirements.txt")
 
+        if self.pipe is None:
+            log.info("[*] Pipeline not yet loaded. Loading '%s' on demand...", self.current_model_id)
+            self._load_pipeline(self.current_model_id)
+
         generator = None
         if seed != -1:
             gen_dev = "cuda" if self.device == "cuda" else "cpu"
@@ -597,7 +609,10 @@ class ImagePipeline:
         self.engine = SDXLEngine()
         self.device = self.engine.device
         self.mock_mode = self.engine.mock_mode
-        self.model_loaded = self.engine.model_loaded
+
+    @property
+    def model_loaded(self) -> bool:
+        return self.engine.model_loaded
 
     def generate(
         self,

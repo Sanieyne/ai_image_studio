@@ -39,15 +39,26 @@ router = APIRouter()
 
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    pipe = get_pipeline()
-    from generation.device import get_device_name
-    return HealthResponse(
-        status="ok" if pipe.model_loaded else "ok-mock",
-        device=pipe.device,
-        device_name=get_device_name(),
-        model_loaded=pipe.model_loaded,
-        current_model=pipe.current_model,
-    )
+    from generation.device import get_device, get_device_name
+    dev, _ = get_device()
+    try:
+        pipe = get_pipeline()
+        return HealthResponse(
+            status="ok" if pipe.model_loaded else "ok-mock",
+            device=pipe.device,
+            device_name=get_device_name(),
+            model_loaded=pipe.model_loaded,
+            current_model=pipe.current_model,
+        )
+    except Exception as e:
+        log.warning("[health] Engine online but pipeline not ready: %s", e)
+        return HealthResponse(
+            status="ok-standby",
+            device=dev,
+            device_name=get_device_name(),
+            model_loaded=False,
+            current_model=None,
+        )
 
 
 

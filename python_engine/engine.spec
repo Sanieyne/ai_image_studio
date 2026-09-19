@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 block_cipher = None
 
@@ -40,6 +40,31 @@ datas = [
     ('api', 'api'),
     ('generation', 'generation'),
 ]
+
+# Collect dist-info metadata for runtime dependency checks (e.g. diffusers, transformers)
+metadata_packages = [
+    'requests',
+    'diffusers',
+    'transformers',
+    'torch',
+    'torchaudio',
+    'torchvision',
+    'accelerate',
+    'safetensors',
+    'huggingface_hub',
+    'tokenizers',
+    'timm',
+    'packaging',
+    'filelock',
+    'numpy',
+    'pillow',
+]
+
+for pkg in metadata_packages:
+    try:
+        datas += copy_metadata(pkg)
+    except Exception:
+        pass
 
 a = Analysis(
     ['launcher.py'],
