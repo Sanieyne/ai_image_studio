@@ -9,6 +9,7 @@ import '../models/generation_request.dart';
 import '../models/generation_result.dart';
 import '../models/project_item.dart';
 import '../models/video_template.dart';
+import '../models/image_template.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_theme.dart';
@@ -17,6 +18,7 @@ import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
 import '../widgets/video_template_gallery.dart';
+import '../widgets/image_template_gallery.dart';
 
 /// Lumina studio: DB-backed projects + generation feed.
 class HomeScreen extends StatefulWidget {
@@ -45,6 +47,13 @@ class _HomeScreenState extends State<HomeScreen> {
   bool get _shouldShowVideoTemplates {
     // Only the selected video sidebar tab should show the video grid views template!
     if (_currentSidebarTab != SidebarTab.video) return false;
+    if (_messages.isNotEmpty) return false;
+    return !_dismissedTemplateGallery;
+  }
+
+  bool get _shouldShowImageTemplates {
+    // Only the selected image sidebar tab should show the image grid views template!
+    if (_currentSidebarTab != SidebarTab.image) return false;
     if (_messages.isNotEmpty) return false;
     return !_dismissedTemplateGallery;
   }
@@ -271,6 +280,89 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Row(
             children: [
               const Icon(Icons.movie_filter_rounded,
+                  color: LuminaColors.primaryEnd, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  template.requiresAttachment
+                      ? 'Created "${proj.title}". ${template.attachmentGuidance}'
+                      : 'Created "${proj.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleCreateNewImageProject() async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Image Project ${_projects.length + 1}',
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.clearInputs();
+    _promptBarKey.currentState?.setImageModel('FLUX.1 Kontext [dev]');
+    if (mounted) {
+      setState(() {
+        _currentSidebarTab = SidebarTab.image;
+        _dismissedTemplateGallery = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.photo_rounded,
+                  color: LuminaColors.primaryEnd, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Started fresh Image Project: "${proj.title}"',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleStartImageProjectWithTemplate(ImageTemplate template) async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: template.title,
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.applyImageTemplate(template);
+    if (mounted) {
+      setState(() {
+        _currentSidebarTab = SidebarTab.image;
+        _dismissedTemplateGallery = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.auto_awesome_rounded,
                   color: LuminaColors.primaryEnd, size: 18),
               const SizedBox(width: 8),
               Expanded(
@@ -671,9 +763,16 @@ class _HomeScreenState extends State<HomeScreen> {
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
             onNewVideoProject: _handleCreateNewVideoProject,
+            onNewImageProject: _handleCreateNewImageProject,
             onOpenVideoGallery: () {
               setState(() {
                 _currentSidebarTab = SidebarTab.video;
+                _dismissedTemplateGallery = false;
+              });
+            },
+            onOpenImageGallery: () {
+              setState(() {
+                _currentSidebarTab = SidebarTab.image;
                 _dismissedTemplateGallery = false;
               });
             },
@@ -706,8 +805,59 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
             },
+            onSelectImageModel: (model) {
+              _promptBarKey.currentState?.setImageModel(model);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          color: LuminaColors.primaryEnd, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Active Image Model: $model',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFF1E293B),
+                ),
+              );
+            },
             onSelectVideoTemplate: (VideoTemplate template) {
               _promptBarKey.currentState?.applyVideoTemplate(template);
+              setState(() {
+                _dismissedTemplateGallery = true;
+              });
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded,
+                          color: LuminaColors.primaryEnd, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          template.requiresAttachment
+                              ? 'Loaded "${template.title}". ${template.attachmentGuidance}'
+                              : 'Loaded "${template.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 4),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFF0F172A),
+                ),
+              );
+            },
+            onSelectImageTemplate: (ImageTemplate template) {
+              _promptBarKey.currentState?.applyImageTemplate(template);
               setState(() {
                 _dismissedTemplateGallery = true;
               });
@@ -788,6 +938,51 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       onStartProjectWithTemplate:
                           _handleStartProjectWithTemplate,
+                    ),
+                  )
+                else if (_shouldShowImageTemplates)
+                  Positioned.fill(
+                    child: ImageTemplateGallery(
+                      isDark: widget.isDark,
+                      generationsCount: _messages.length,
+                      onDismiss: () =>
+                          setState(() => _dismissedTemplateGallery = true),
+                      onBackToGenerations: () => setState(() {
+                        _dismissedTemplateGallery = true;
+                      }),
+                      onNewImageProject: _handleCreateNewImageProject,
+                      onSelectTemplate: (template) {
+                        _promptBarKey.currentState
+                            ?.applyImageTemplate(template);
+                        setState(() {
+                          _dismissedTemplateGallery = true;
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.auto_awesome_rounded,
+                                    color: LuminaColors.primaryEnd, size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    template.requiresAttachment
+                                        ? 'Loaded "${template.title}". ${template.attachmentGuidance}'
+                                        : 'Loaded "${template.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            duration: const Duration(seconds: 4),
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: const Color(0xFF0F172A),
+                          ),
+                        );
+                      },
+                      onStartProjectWithTemplate:
+                          _handleStartImageProjectWithTemplate,
                     ),
                   )
                 else if (_messages.isEmpty)

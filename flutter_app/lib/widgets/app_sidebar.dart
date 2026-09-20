@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/project_item.dart';
 import '../models/video_template.dart';
+import '../models/image_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'settings_dialog.dart';
@@ -52,7 +53,9 @@ class AppSidebar extends StatefulWidget {
   final VoidCallback? onNewProject;
   final VoidCallback? onNewVoiceProject;
   final VoidCallback? onNewVideoProject;
+  final VoidCallback? onNewImageProject;
   final VoidCallback? onOpenVideoGallery;
+  final VoidCallback? onOpenImageGallery;
   final ValueChanged<SidebarTab>? onTabChanged;
   final ValueChanged<String>? onSelectProject;
   final void Function(String id, String title)? onRenameTitle;
@@ -62,6 +65,8 @@ class AppSidebar extends StatefulWidget {
   final ApiService? apiService;
   final ValueChanged<VideoTemplate>? onSelectVideoTemplate;
   final ValueChanged<String>? onSelectVideoModel;
+  final ValueChanged<ImageTemplate>? onSelectImageTemplate;
+  final ValueChanged<String>? onSelectImageModel;
   final SidebarTab? activeTab;
 
   const AppSidebar({
@@ -72,7 +77,9 @@ class AppSidebar extends StatefulWidget {
     this.onNewProject,
     this.onNewVoiceProject,
     this.onNewVideoProject,
+    this.onNewImageProject,
     this.onOpenVideoGallery,
+    this.onOpenImageGallery,
     this.onTabChanged,
     this.onSelectProject,
     this.onRenameTitle,
@@ -82,6 +89,8 @@ class AppSidebar extends StatefulWidget {
     this.apiService,
     this.onSelectVideoTemplate,
     this.onSelectVideoModel,
+    this.onSelectImageTemplate,
+    this.onSelectImageModel,
     this.activeTab,
   });
 
@@ -117,6 +126,11 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   String _selectedVideoModel = 'Wan 2.1 T2V 1.3B';
   String? _selectedVideoTemplateId;
   String _videoTemplateCategory = 'All';
+
+  // ─── Image Mode State ─────────────────────────────────────
+  String _selectedImageModel = 'FLUX.1 Kontext [dev]';
+  String? _selectedImageTemplateId;
+  String _imageTemplateCategory = 'All';
 
   // ─── Voice Mode State ─────────────────────────────────────
   String _selectedVoiceModel = 'Chatterbox TTS';
@@ -232,6 +246,41 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
       'desc': 'Low-latency video diffusion with extreme camera trajectory precision',
       'resolution': '720p 30fps',
       'speed': 'Real-Time',
+    },
+  ];
+
+  static const List<Map<String, String>> _imageModels = [
+    {
+      'id': 'FLUX.1 Kontext [dev]',
+      'name': 'FLUX.1 Kontext [dev]',
+      'tag': 'Flagship 12B',
+      'desc': 'State-of-the-art flow transformer with contextual conditioning & precise typography',
+      'resolution': 'Up to 2048px',
+      'speed': 'Quality (~20s)',
+    },
+    {
+      'id': 'Z-Image Turbo',
+      'name': 'Z-Image Turbo',
+      'tag': '8-Step RF',
+      'desc': 'Ultra-fast distilled Rectified Flow delivering photorealism in sub-second inference',
+      'resolution': '1024x1024',
+      'speed': 'Fast (~4s)',
+    },
+    {
+      'id': 'SDXL Base 1.0',
+      'name': 'SDXL Base 1.0',
+      'tag': 'SDXL Base',
+      'desc': 'Classic high-dynamic-range open diffusion base model with wide LoRA compatibility',
+      'resolution': '1024x1024',
+      'speed': 'Standard (~12s)',
+    },
+    {
+      'id': 'FASHN VTON 1.5',
+      'name': 'FASHN VTON 1.5',
+      'tag': 'Virtual Try-On',
+      'desc': 'Virtual try-on replacing outfits & garments while maintaining exact pose & identity',
+      'resolution': 'High-Res VTON',
+      'speed': 'Specialized (~18s)',
     },
   ];
 
@@ -1689,96 +1738,354 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   }
 
   // ─────────────────────────────────────────────────────────────
-  // TAB 4: IMAGE MODE PANEL (FLUX / SDXL / Z-Image)
+  // TAB 4: IMAGE MODE PANEL (FLUX / Z-Image / SDXL / FASHN)
   // ─────────────────────────────────────────────────────────────
   Widget _buildImageModePanel(bool dark, Color border, Color muted) {
+    final filteredTemplates = _imageTemplateCategory == 'All'
+        ? ImageTemplate.curatedTemplates
+        : ImageTemplate.curatedTemplates
+            .where((t) => t.category == _imageTemplateCategory)
+            .toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(right: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Header
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF8A42D5).withValues(alpha: 0.15),
+                  color: LuminaColors.primaryStart.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.auto_awesome, size: 16, color: Color(0xFF8A42D5)),
+                child: const Icon(Icons.photo_library_rounded, size: 17, color: LuminaColors.primaryEnd),
               ),
               const SizedBox(width: 8),
               const Expanded(
-                child: Text(
-                  'Image Studio',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Image Studio & Art',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'State-of-the-art text-to-image & neural editing',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 10),
+
+          // New Image Project / Fresh Session Button
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: LuminaColors.primaryGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: FilledButton.icon(
+              onPressed: widget.onNewImageProject ?? widget.onNewProject,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.add_photo_alternate_rounded, size: 18, color: Colors.white),
+              label: const Text(
+                'New Image Project',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
 
-          _SectionHeader('Image Pipelines', muted),
-          _buildInfoOptionCard(
-            title: 'FLUX.1 Kontext [dev]',
-            desc: '12B parameter image editing, context insertion, and high detail',
-            tag: 'FLUX',
-            dark: dark,
-            border: border,
+          // SECTION 1: IMAGE MODELS SELECTION WITH RED GRADIENT TICK ICON
+          _SectionHeader('Image Models', muted),
+          const SizedBox(height: 2),
+          Text(
+            'Select an AI image model to activate for generation:',
+            style: TextStyle(fontSize: 11, color: muted),
           ),
-          _buildInfoOptionCard(
-            title: 'Z-Image Turbo',
-            desc: '8-step lightning generation with modern Rectified Flow',
-            tag: 'Turbo',
-            dark: dark,
-            border: border,
+          const SizedBox(height: 8),
+          for (final model in _imageModels)
+            _buildImageModelCard(
+              model: model,
+              isSelected: _selectedImageModel == model['id'],
+              dark: dark,
+              border: border,
+              muted: muted,
+            ),
+
+          const SizedBox(height: 18),
+
+          // SECTION 2: CURATED IMAGE TEMPLATES
+          _SectionHeader('Curated Image Templates', muted),
+          const SizedBox(height: 2),
+          Text(
+            'Tap any template to populate prompt container with all required settings.',
+            style: TextStyle(fontSize: 11, color: muted),
           ),
-          _buildInfoOptionCard(
-            title: 'FASHN VTON 1.5',
-            desc: 'High-end virtual outfit and garment try-on swap',
-            tag: 'Try-On',
-            dark: dark,
-            border: border,
+          const SizedBox(height: 10),
+
+          // Category Filter Bar
+          _buildImageTemplateCategoryFilter(dark, border, muted),
+          const SizedBox(height: 10),
+
+          // Templates List
+          for (final template in filteredTemplates) ...[
+            _ImageTemplateCard(
+              template: template,
+              isSelected: _selectedImageTemplateId == template.id,
+              dark: dark,
+              border: border,
+              muted: muted,
+              onSelect: () {
+                setState(() {
+                  _selectedImageTemplateId = template.id;
+                  _selectedImageModel = template.model;
+                });
+                widget.onSelectImageModel?.call(template.model);
+                widget.onSelectImageTemplate?.call(template);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          const SizedBox(height: 10),
+
+          // SECTION 3: IMAGE GUIDELINES
+          _SectionHeader('Image Prompting Pro Tips', muted),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTipRow('Aspect Ratios:', 'Use 1:1 for square avatars/social, 16:9 for cinematic landscapes, or 9:16 for posters/stories.', muted),
+                const SizedBox(height: 6),
+                _buildTipRow('Virtual Try-On:', 'When using FASHN VTON 1.5, provide reference images for both the person and clothing.', muted),
+                const SizedBox(height: 6),
+                _buildTipRow('Lighting Detail:', 'Specify lighting terms like "volumetric rim lighting, Octane Render 8k, soft diffusion" for peak realism.', muted),
+              ],
+            ),
           ),
+          const SizedBox(height: 20),
         ],
       ),
     );
   }
 
-  Widget _buildInfoOptionCard({
-    required String title,
-    required String desc,
-    required String tag,
+  Widget _buildImageModelCard({
+    required Map<String, String> model,
+    required bool isSelected,
     required bool dark,
     required Color border,
+    required Color muted,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+    final modelId = model['id']!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () {
+          setState(() => _selectedImageModel = modelId);
+          widget.onSelectImageModel?.call(modelId);
+        },
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (dark ? LuminaColors.primaryStart.withValues(alpha: 0.14) : LuminaColors.primaryStart.withValues(alpha: 0.08))
+                : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? LuminaColors.primaryStart : border,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: LuminaColors.primaryGlow.withValues(alpha: 0.20),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: dark ? Colors.white12 : Colors.black12,
-                  borderRadius: BorderRadius.circular(4),
+              Row(
+                children: [
+                  if (isSelected) ...[
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: const BoxDecoration(
+                        gradient: LuminaColors.primaryGradient,
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0x66D32F2F),
+                            blurRadius: 6,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ] else ...[
+                    Icon(
+                      Icons.radio_button_unchecked_rounded,
+                      size: 20,
+                      color: dark ? Colors.white24 : Colors.black26,
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      model['name']!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? LuminaColors.primaryEnd : null,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? LuminaColors.primaryStart.withValues(alpha: 0.20)
+                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      model['tag']!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? LuminaColors.primaryEnd : muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 30),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      model['desc']!,
+                      style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Icon(Icons.photo_size_select_actual_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          model['resolution']!,
+                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          model['speed']!,
+                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
-                child: Text(tag, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
-          const SizedBox(height: 3),
-          Text(desc, style: TextStyle(fontSize: 11, color: dark ? Colors.white60 : Colors.black54)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageTemplateCategoryFilter(bool dark, Color border, Color muted) {
+    const categories = [
+      'All',
+      'Portrait & Character',
+      'Product & Commercial',
+      'Anime & Fantasy',
+      'Fashion & Try-On',
+      'Architecture',
+      'Nature & Macro',
+      'Sci-Fi & 3D',
+      'Cinematic Still',
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final cat in categories)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(cat),
+                selected: _imageTemplateCategory == cat,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() => _imageTemplateCategory = cat);
+                  }
+                },
+                labelStyle: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: _imageTemplateCategory == cat
+                      ? Colors.white
+                      : (dark ? Colors.white70 : Colors.black87),
+                ),
+                selectedColor: LuminaColors.primaryStart,
+                backgroundColor: dark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  side: BorderSide(
+                    color: _imageTemplateCategory == cat ? LuminaColors.primaryStart : border,
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
         ],
       ),
     );
@@ -2524,6 +2831,291 @@ class _VideoTemplateCard extends StatelessWidget {
                         ),
                         Text(
                           'CFG ${template.cfgScale} • ${template.fps} fps',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Apply to Prompt Container Action Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onSelect,
+                      icon: const Icon(Icons.auto_awesome_rounded,
+                          size: 13, color: Colors.white),
+                      label: Text(
+                        isSelected
+                            ? 'Selected (Ready to Generate)'
+                            : 'Load Template into Prompt',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isSelected
+                            ? LuminaColors.primaryStart
+                            : const Color(0xFF1E293B),
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(7)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImageTemplateCard extends StatelessWidget {
+  final ImageTemplate template;
+  final bool isSelected;
+  final bool dark;
+  final Color border;
+  final Color muted;
+  final VoidCallback onSelect;
+
+  const _ImageTemplateCard({
+    required this.template,
+    required this.isSelected,
+    required this.dark,
+    required this.border,
+    required this.muted,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onSelect,
+      borderRadius: BorderRadius.circular(11),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (dark
+                  ? LuminaColors.primaryStart.withValues(alpha: 0.16)
+                  : LuminaColors.primaryStart.withValues(alpha: 0.08))
+              : (dark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : Colors.black.withValues(alpha: 0.02)),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: isSelected ? LuminaColors.primaryStart : border,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: LuminaColors.primaryGlow.withValues(alpha: 0.22),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Visual Header with Gradient, Icon, and Model Badge
+            Container(
+              height: 100,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+                gradient: LinearGradient(
+                  colors: template.gradientColors,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.25),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          template.icon,
+                          size: 32,
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        template.category,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        template.model,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    left: 8,
+                    right: 8,
+                    child: Text(
+                      template.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(blurRadius: 4, color: Colors.black54),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Template Details & Apply Action
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    template.description,
+                    style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Attachment Requirement Indicator
+                  if (template.requiresAttachment) ...[
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.attachment_rounded, size: 12, color: Colors.amber),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              template.attachmentBadgeLabel,
+                              style: const TextStyle(
+                                fontSize: 9.5,
+                                color: Colors.amber,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // Tags
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (final tag in template.tags)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: dark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            tag,
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              color: muted,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Parameter Summary
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.03)
+                          : Colors.black.withValues(alpha: 0.02),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: dark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.06),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${template.aspectRatio} • ${template.steps} steps',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: muted),
+                        ),
+                        Text(
+                          'CFG ${template.cfgScale} • ${template.strength} str',
                           style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,

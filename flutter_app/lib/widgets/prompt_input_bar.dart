@@ -7,6 +7,7 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../models/image_template.dart';
 import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
@@ -105,6 +106,37 @@ class PromptInputBarState extends State<PromptInputBar> {
       } else {
         _videoTemplateNotice = null;
       }
+    });
+  }
+
+  /// Programmatically populate the prompt bar with a full ImageTemplate
+  void applyImageTemplate(ImageTemplate template) {
+    setState(() {
+      _controller.text = template.prompt;
+      if (template.negativePrompt.isNotEmpty) {
+        _negController.text = template.negativePrompt;
+        _showNegativePrompt = true;
+      }
+      _model = template.model;
+      _mode = template.isTryOnModel ? 'Virtual Try-On' : 'Text to Image';
+      _ratio = template.aspectRatio;
+      _steps = template.steps;
+      _cfg = template.cfgScale;
+      _strength = template.strength;
+      _showTune = true;
+      if (template.requiresImageAttachment) {
+        _videoTemplateNotice = template.attachmentGuidance;
+      } else {
+        _videoTemplateNotice = null;
+      }
+    });
+  }
+
+  /// Programmatically set the image model
+  void setImageModel(String modelName) {
+    setState(() {
+      _model = modelName;
+      _mode = modelName.contains('FASHN') ? 'Virtual Try-On' : 'Text to Image';
     });
   }
 
