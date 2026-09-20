@@ -39,20 +39,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _engineOnline = false;
   bool _isSidebarCollapsed = false;
   bool _loading = true;
-  bool _showVideoTemplateGallery = false;
   bool _dismissedTemplateGallery = false;
   SidebarTab _currentSidebarTab = SidebarTab.history;
 
-  bool get _isVideoContext {
-    if (_currentSidebarTab == SidebarTab.video) return true;
-    final title = _activeProject?.title.toLowerCase() ?? '';
-    return title.contains('video');
-  }
-
   bool get _shouldShowVideoTemplates {
+    // Only the selected video sidebar tab should show the video grid views template!
+    if (_currentSidebarTab != SidebarTab.video) return false;
     if (_messages.isNotEmpty) return false;
-    if (_showVideoTemplateGallery) return true;
-    return _isVideoContext && !_dismissedTemplateGallery;
+    return !_dismissedTemplateGallery;
   }
 
   List<ProjectItem> _projects = [];
@@ -163,11 +157,12 @@ class _HomeScreenState extends State<HomeScreen> {
     await _db.insertProject(proj);
     await _refreshProjects(selectId: proj.id);
     await _loadGenerations();
+    _promptBarKey.currentState?.clearInputs();
+    _promptBarKey.currentState?.setMode('Text to Image');
     if (mounted) {
       setState(() {
-        _currentSidebarTab = SidebarTab.history;
+        _currentSidebarTab = SidebarTab.image;
         _dismissedTemplateGallery = false;
-        _showVideoTemplateGallery = false;
       });
     }
   }
@@ -189,7 +184,6 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _currentSidebarTab = SidebarTab.voice;
         _dismissedTemplateGallery = false;
-        _showVideoTemplateGallery = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -231,7 +225,6 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _currentSidebarTab = SidebarTab.video;
         _dismissedTemplateGallery = false;
-        _showVideoTemplateGallery = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -272,7 +265,6 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _currentSidebarTab = SidebarTab.video;
         _dismissedTemplateGallery = true;
-        _showVideoTemplateGallery = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -303,7 +295,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) {
       setState(() {
         _dismissedTemplateGallery = false;
-        _showVideoTemplateGallery = false;
       });
     }
   }
@@ -442,7 +433,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     setState(() {
       _messages.add(item);
-      _showVideoTemplateGallery = false;
       _dismissedTemplateGallery = false;
     });
     await _db.insertGeneration(item);
@@ -668,13 +658,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 _currentSidebarTab = tab;
                 _dismissedTemplateGallery = false;
               });
+              if (tab == SidebarTab.image) {
+                _promptBarKey.currentState?.setMode('Text to Image');
+              } else if (tab == SidebarTab.video) {
+                _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
+              } else if (tab == SidebarTab.voice) {
+                _promptBarKey.currentState?.setVoiceModel('Chatterbox TTS');
+              }
             },
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
             onNewVideoProject: _handleCreateNewVideoProject,
             onOpenVideoGallery: () {
               setState(() {
-                _showVideoTemplateGallery = true;
+                _currentSidebarTab = SidebarTab.video;
                 _dismissedTemplateGallery = false;
               });
             },
@@ -749,7 +746,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       onDismiss: () =>
                           setState(() => _dismissedTemplateGallery = true),
                       onBackToGenerations: () => setState(() {
-                        _showVideoTemplateGallery = false;
                         _dismissedTemplateGallery = true;
                       }),
                       onNewVideoProject: _handleCreateNewVideoProject,
@@ -782,7 +778,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         _promptBarKey.currentState
                             ?.applyVideoTemplate(template);
                         setState(() {
-                          _showVideoTemplateGallery = false;
                           _dismissedTemplateGallery = true;
                         });
                         _handlePromptSubmit(
