@@ -152,5 +152,62 @@ class VideoTemplate {
       tags: ['Phantom 1000fps', 'Fluid Dynamics', 'Macro 8K'],
       description: 'Hypnotic high-speed macro fluid explosion and droplet refraction.',
     ),
+    VideoTemplate(
+      id: 'abyssal_bioluminescent_leviathan',
+      title: 'Deep Ocean Bioluminescence',
+      category: 'Nature & Wildlife',
+      model: 'Wan 2.1 T2V 1.3B',
+      prompt:
+          'Deep-sea cinematic footage of a majestic bioluminescent creature gliding through midnight abyssal trench waters. Glowing cerulean and cyan tendrils pulsating rhythmically, marine snow floating through submarine headlights, volumetric underwater caustics, serene atmospheric depth.',
+      negativePrompt:
+          'murky blur, noisy artifacts, unnatural jerking, low detail, muddy lighting, oversaturated bloom',
+      aspectRatio: '16:9',
+      steps: 32,
+      cfgScale: 5.0,
+      duration: '5.0s',
+      fps: 24,
+      cameraMotion: 'Slow Submersible Dolly Forward',
+      gradientColors: [Color(0xFF022C22), Color(0xFF064E3B), Color(0xFF0E7490), Color(0xFF38BDF8)],
+      tags: ['Deep Ocean', 'Bioluminescence', 'Volumetric', '8K Cinema'],
+      description: 'Majestic deep sea wildlife glowing with otherworldly bioluminescent patterns.',
+    ),
+    VideoTemplate(
+      id: 'cyberpunk_vehicle_chase',
+      title: 'Cyberpunk Hovercar Pursuit',
+      category: 'Action & Vehicle',
+      model: 'Wan 2.1 T2V 1.3B',
+      prompt:
+          'High-speed cinematic chase sequence between two futuristic neon hovercars racing between towering skyscraper canyons. Blinding taillight streaks, spark showers grazing energy barriers, low-angle tracking camera skimming millimeters above wet highway.',
+      negativePrompt:
+          'motion blur smear, vehicle deformation, static wheels, jittery camera shakes, low poly models',
+      aspectRatio: '16:9',
+      steps: 30,
+      cfgScale: 5.5,
+      duration: '4.0s',
+      fps: 30,
+      cameraMotion: 'Low-Angle High-Speed Chase Tracking',
+      gradientColors: [Color(0xFF311042), Color(0xFF701A75), Color(0xFFD946EF), Color(0xFFF43F5E)],
+      tags: ['Vehicle Chase', 'Cyberpunk', 'High Speed', 'Night Neon'],
+      description: 'Adrenaline-fueled futuristic vehicle pursuit through neon-drenched skyways.',
+    ),
+    VideoTemplate(
+      id: 'neural_hologram_interface',
+      title: 'Holographic Neural Matrix',
+      category: 'Tech & Sci-Fi',
+      model: 'Wan 2.1 I2V 14B',
+      prompt:
+          'Futuristic scientist manipulating a complex 3D holographic neural brain matrix floating in mid-air in a dark quantum lab. Synapses firing with golden electric arcs, floating data nodes rotating smoothly, realistic light cast onto face, shallow depth of field, anamorphic blue flare.',
+      negativePrompt:
+          'flat 2d graphics, blurry holograms, noisy darks, finger distortion, flickering jitter',
+      aspectRatio: '16:9',
+      steps: 28,
+      cfgScale: 5.0,
+      duration: '4.5s',
+      fps: 24,
+      cameraMotion: 'Slow Arc Orbit with Rack Focus',
+      gradientColors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0284C7), Color(0xFF38BDF8)],
+      tags: ['Hologram', 'Sci-Fi UI', 'Quantum Lab', 'Macro VFX'],
+      description: 'Interactive floating holographic data visualization with rich volumetric depth.',
+    ),
   ];
 }

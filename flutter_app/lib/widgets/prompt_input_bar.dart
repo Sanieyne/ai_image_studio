@@ -108,6 +108,40 @@ class PromptInputBarState extends State<PromptInputBar> {
     });
   }
 
+  /// Programmatically set the voice model
+  void setVoiceModel(String modelName) {
+    setState(() {
+      _model = modelName;
+      _mode = 'Voice Mode';
+    });
+  }
+
+  /// Programmatically set the generation mode
+  void setMode(String mode) {
+    setState(() {
+      _mode = mode;
+    });
+  }
+
+  /// Clear all inputs for a fresh conversation session
+  void clearInputs() {
+    setState(() {
+      _controller.clear();
+      _negController.clear();
+      _instructionController.clear();
+      _refTextController.clear();
+      _showNegativePrompt = false;
+      _referenceBytes = null;
+      _referenceName = null;
+      _referenceBase64 = null;
+      _endImageBytes = null;
+      _endImageName = null;
+      _endImageBase64 = null;
+      _garmentBytes = null;
+      _garmentName = null;
+    });
+  }
+
   bool get _isVoiceModel =>
       _model.contains('Chatterbox') || _model.contains('Breeze');
   bool get _isMiniMaxModel => _model.contains('MiniMax');

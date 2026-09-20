@@ -15,6 +15,7 @@ import '../widgets/app_sidebar.dart';
 import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
+import '../widgets/video_template_gallery.dart';
 
 /// Lumina studio: DB-backed projects + generation feed.
 class HomeScreen extends StatefulWidget {
@@ -37,6 +38,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _engineOnline = false;
   bool _isSidebarCollapsed = false;
   bool _loading = true;
+  bool _showVideoTemplateGallery = false;
+  SidebarTab _currentSidebarTab = SidebarTab.history;
 
   List<ProjectItem> _projects = [];
   ProjectItem? _activeProject;
@@ -146,6 +149,119 @@ class _HomeScreenState extends State<HomeScreen> {
     await _db.insertProject(proj);
     await _refreshProjects(selectId: proj.id);
     await _loadGenerations();
+  }
+
+  Future<void> _handleCreateNewVoiceProject() async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Voice Project ${_projects.length + 1}',
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.clearInputs();
+    _promptBarKey.currentState?.setVoiceModel('Chatterbox TTS');
+    if (mounted) {
+      setState(() => _showVideoTemplateGallery = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.record_voice_over_rounded,
+                  color: Color(0xFFEF4444), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Started fresh Voice Project: "${proj.title}"',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleCreateNewVideoProject() async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Video Project ${_projects.length + 1}',
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.clearInputs();
+    _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
+    if (mounted) {
+      setState(() => _showVideoTemplateGallery = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.videocam_rounded,
+                  color: Color(0xFF38BDF8), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Started fresh Video Project: "${proj.title}"',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleStartProjectWithTemplate(VideoTemplate template) async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: template.title,
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.applyVideoTemplate(template);
+    if (mounted) {
+      setState(() => _showVideoTemplateGallery = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.movie_filter_rounded,
+                  color: Color(0xFF60A5FA), size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Created project "${template.title}" with template loaded!',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF0F172A),
+        ),
+      );
+    }
   }
 
   Future<void> _handleSelectProject(String id) async {
@@ -504,7 +620,22 @@ class _HomeScreenState extends State<HomeScreen> {
             projects: _projects,
             activeProjectId: _activeProject?.id,
             onNewProject: _handleCreateNewProject,
-            onSelectProject: _handleSelectProject,
+            onNewVoiceProject: _handleCreateNewVoiceProject,
+            onNewVideoProject: _handleCreateNewVideoProject,
+            onOpenVideoGallery: () =>
+                setState(() => _showVideoTemplateGallery = true),
+            onTabChanged: (tab) {
+              setState(() {
+                _currentSidebarTab = tab;
+                if (tab == SidebarTab.video) {
+                  _showVideoTemplateGallery = true;
+                }
+              });
+            },
+            onSelectProject: (id) {
+              _handleSelectProject(id);
+              setState(() => _showVideoTemplateGallery = false);
+            },
             onRenameTitle: _handleRename,
             onTogglePin: _handleTogglePin,
             onDeleteProject: _handleDelete,
@@ -564,28 +695,107 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Stack(
               children: [
                 if (_loading)
-                  const Center(
-                      child: CircularProgressIndicator())
-                else if (_messages.isEmpty)
-                  Center(
-                    child: Text(
-                      _activeProject == null
-                          ? 'Create a project to begin'
-                          : 'Your creations will appear here',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withValues(alpha: 0.4),
-                      ),
+                  const Center(child: CircularProgressIndicator())
+                else if (_showVideoTemplateGallery ||
+                    (_messages.isEmpty &&
+                        (_currentSidebarTab == SidebarTab.video ||
+                            (_activeProject?.title
+                                    .toLowerCase()
+                                    .contains('video') ??
+                                false))))
+                  Positioned.fill(
+                    child: VideoTemplateGallery(
+                      isDark: widget.isDark,
+                      generationsCount: _messages.length,
+                      onBackToGenerations: () =>
+                          setState(() => _showVideoTemplateGallery = false),
+                      onNewVideoProject: _handleCreateNewVideoProject,
+                      onSelectTemplate: (template) {
+                        _promptBarKey.currentState
+                            ?.applyVideoTemplate(template);
+                        setState(() => _showVideoTemplateGallery = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.auto_awesome_rounded,
+                                    color: Color(0xFF60A5FA), size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Loaded "${template.title}" into Prompt Container',
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            duration: const Duration(seconds: 3),
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: const Color(0xFF0F172A),
+                          ),
+                        );
+                      },
+                      onStartProjectWithTemplate:
+                          _handleStartProjectWithTemplate,
                     ),
                   )
-                else
+                else if (_messages.isEmpty)
+                  Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.draw_outlined,
+                          size: 48,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurface
+                              .withValues(alpha: 0.25),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _activeProject == null
+                              ? 'Create a project to begin'
+                              : 'Your creations will appear here',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurface
+                                .withValues(alpha: 0.5),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        OutlinedButton.icon(
+                          onPressed: () => setState(
+                              () => _showVideoTemplateGallery = true),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
+                            side: const BorderSide(color: Color(0xFF2563EB)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          icon: const Icon(Icons.movie_filter_rounded,
+                              size: 16, color: Color(0xFF38BDF8)),
+                          label: const Text(
+                            'Explore Video Templates in Wide Grid',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF38BDF8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else ...[
                   ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.only(
-                        top: 24, bottom: 140),
+                    padding: const EdgeInsets.only(top: 24, bottom: 140),
                     itemCount: _messages.length,
                     itemBuilder: (context, index) {
                       final item = _messages[index];
@@ -596,6 +806,58 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                  // Floating button to open video template gallery when browsing creations
+                  Positioned(
+                    top: 14,
+                    right: 20,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => setState(
+                            () => _showVideoTemplateGallery = true),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: widget.isDark
+                                ? const Color(0xFF1E293B)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFF2563EB)
+                                  .withValues(alpha: 0.45),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(
+                                    alpha: widget.isDark ? 0.35 : 0.1),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.movie_filter_rounded,
+                                  size: 15, color: Color(0xFF38BDF8)),
+                              SizedBox(width: 6),
+                              Text(
+                                'Browse Video Templates',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF38BDF8),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(

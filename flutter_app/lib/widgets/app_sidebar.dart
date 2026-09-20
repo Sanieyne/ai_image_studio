@@ -9,6 +9,7 @@ import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'settings_dialog.dart';
+import 'silent_video_preview_player.dart';
 
 /// Navigation modes for the unified sidebar.
 enum SidebarTab {
@@ -49,6 +50,10 @@ class AppSidebar extends StatefulWidget {
   final List<ProjectItem> projects;
   final String? activeProjectId;
   final VoidCallback? onNewProject;
+  final VoidCallback? onNewVoiceProject;
+  final VoidCallback? onNewVideoProject;
+  final VoidCallback? onOpenVideoGallery;
+  final ValueChanged<SidebarTab>? onTabChanged;
   final ValueChanged<String>? onSelectProject;
   final void Function(String id, String title)? onRenameTitle;
   final ValueChanged<ProjectItem>? onTogglePin;
@@ -64,6 +69,10 @@ class AppSidebar extends StatefulWidget {
     this.projects = const [],
     this.activeProjectId,
     this.onNewProject,
+    this.onNewVoiceProject,
+    this.onNewVideoProject,
+    this.onOpenVideoGallery,
+    this.onTabChanged,
     this.onSelectProject,
     this.onRenameTitle,
     this.onTogglePin,
@@ -511,6 +520,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           borderRadius: BorderRadius.circular(10),
           onTap: () {
             setState(() => _currentTab = tab);
+            widget.onTabChanged?.call(tab);
             widget.onExpand?.call();
           },
           child: Container(
@@ -615,7 +625,10 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     final isSelected = _currentTab == tab;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _currentTab = tab),
+        onTap: () {
+          setState(() => _currentTab = tab);
+          widget.onTabChanged?.call(tab);
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOut,
@@ -837,6 +850,44 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+
+          // New Voice Project / Fresh Session Button
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFD32F2F), Color(0xFFB71C1C)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFD32F2F).withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: FilledButton.icon(
+              onPressed: widget.onNewVoiceProject ?? widget.onNewProject,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 18, color: Colors.white),
+              label: const Text(
+                'New Voice Project',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
 
@@ -1289,7 +1340,71 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
+
+          // New Video Project / Fresh Session Button
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: FilledButton.icon(
+              onPressed: widget.onNewVideoProject ?? widget.onNewProject,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 18, color: Colors.white),
+              label: const Text(
+                'New Video Project',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Open Full Wide Gallery (Rows & Columns) button
+          if (widget.onOpenVideoGallery != null) ...[
+            OutlinedButton.icon(
+              onPressed: widget.onOpenVideoGallery,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: const Color(0xFF2563EB).withValues(alpha: 0.5)),
+                backgroundColor: const Color(0xFF2563EB).withValues(alpha: 0.08),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 9),
+              ),
+              icon: const Icon(Icons.grid_view_rounded, size: 15, color: Color(0xFF38BDF8)),
+              label: const Text(
+                'Explore Templates in Wide Grid',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF38BDF8),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ] else
+            const SizedBox(height: 6),
 
           // SECTION 1: VIDEO MODELS SELECTION WITH BLUE TICK ICON
           _SectionHeader('Video Models', muted),
@@ -2344,7 +2459,7 @@ class _VideoTemplateCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Video Display Viewport Without Sound with Title in it!
-            _SilentVideoPreviewPlayer(
+            SilentVideoPreviewPlayer(
               template: template,
               isSelected: isSelected,
             ),
@@ -2398,43 +2513,46 @@ class _VideoTemplateCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: dark
                           ? Colors.white.withValues(alpha: 0.03)
-                          : Colors.black.withValues(alpha: 0.03),
+                          : Colors.black.withValues(alpha: 0.02),
                       borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: dark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.black.withValues(alpha: 0.06),
+                      ),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${template.model} · ${template.aspectRatio}',
+                          '${template.aspectRatio} • ${template.steps} steps',
                           style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                               color: muted),
                         ),
                         Text(
-                          '${template.steps} steps · CFG ${template.cfgScale}',
-                          style: TextStyle(fontSize: 10, color: muted),
+                          'CFG ${template.cfgScale} • ${template.fps} fps',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: muted),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 10),
 
-                  // One-click apply button
+                  // Apply to Prompt Container Action Button
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: onSelect,
-                      icon: Icon(
-                        isSelected
-                            ? Icons.check_circle_rounded
-                            : Icons.auto_awesome_rounded,
-                        size: 14,
-                        color: Colors.white,
-                      ),
+                      icon: const Icon(Icons.auto_awesome_rounded,
+                          size: 13, color: Colors.white),
                       label: Text(
                         isSelected
-                            ? '✓ Loaded in Prompt Container'
+                            ? 'Selected (Ready to Generate)'
                             : 'Load Template into Prompt',
                         style: const TextStyle(
                           fontSize: 11,
@@ -2461,279 +2579,4 @@ class _VideoTemplateCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Simulated looping silent video player with camera HUD, timecode, muted audio badge, and title overlay
-class _SilentVideoPreviewPlayer extends StatefulWidget {
-  final VideoTemplate template;
-  final bool isSelected;
-
-  const _SilentVideoPreviewPlayer({
-    required this.template,
-    required this.isSelected,
-  });
-
-  @override
-  State<_SilentVideoPreviewPlayer> createState() =>
-      _SilentVideoPreviewPlayerState();
-}
-
-class _SilentVideoPreviewPlayerState extends State<_SilentVideoPreviewPlayer>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-
-  @override
-  void initState() {
-    super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 4),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _animController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = widget.template;
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
-      child: AspectRatio(
-        aspectRatio: 16 / 9,
-        child: AnimatedBuilder(
-          animation: _animController,
-          builder: (context, child) {
-            final progress = _animController.value;
-            final currentSecond = (1 + (progress * 3.99).floor()).clamp(1, 4);
-
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                // Animated dynamic motion gradient background
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment(-1.0 + (progress * 1.5), -1.0),
-                      end: Alignment(1.0 - (progress * 1.0), 1.0),
-                      colors: t.gradientColors,
-                    ),
-                  ),
-                ),
-
-                // Subtle motion shimmer / scanline wave overlay
-                Positioned.fill(
-                  child: CustomPaint(
-                    painter: _VideoScanlinePainter(progress),
-                  ),
-                ),
-
-                // Center camera viewfinder watermark
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: 0.35),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.2)),
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      size: 26,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ),
-
-                // TOP BAR OVERLAY: REC dot, timecode, and MUTED NO SOUND badge
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  right: 8,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // REC Indicator
-                      Row(
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: (progress * 2).floor() % 2 == 0
-                                  ? const Color(0xFFEF4444)
-                                  : const Color(0x66EF4444),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 5),
-                          Text(
-                            'REC 00:0$currentSecond',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 0.5,
-                              shadows: [
-                                Shadow(color: Colors.black, blurRadius: 4)
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      // Silent indicator (WITHOUT SOUND)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2.5),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.70),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.volume_off_rounded,
-                                size: 11, color: Colors.white),
-                            SizedBox(width: 4),
-                            Text(
-                              'NO SOUND',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // BOTTOM OVERLAY: TITLE IN IT + Camera Motion Tag + Looping Progress
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(10, 20, 10, 6),
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Color(0x99000000),
-                          Color(0xEE000000),
-                        ],
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Title inside video display!
-                        Text(
-                          t.title,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: -0.2,
-                            shadows: [
-                              Shadow(
-                                  color: Colors.black,
-                                  blurRadius: 6,
-                                  offset: Offset(0, 1)),
-                            ],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            const Icon(Icons.videocam_outlined,
-                                size: 11, color: Color(0xFF38BDF8)),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                t.cameraMotion,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Color(0xFFE2E8F0),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                              child: Text(
-                                t.duration,
-                                style: const TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        // Looping animated playback progress bar
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(2),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 2,
-                            backgroundColor: Colors.white24,
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                                Color(0xFF38BDF8)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class _VideoScanlinePainter extends CustomPainter {
-  final double progress;
-  _VideoScanlinePainter(this.progress);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
-      ..strokeWidth = 1.0;
-    // Horizontal cinematic scanlines
-    for (double y = 0; y < size.height; y += 8) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_VideoScanlinePainter oldDelegate) =>
-      oldDelegate.progress != progress;
 }
