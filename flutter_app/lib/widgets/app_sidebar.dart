@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/project_item.dart';
+import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'settings_dialog.dart';
@@ -54,6 +55,8 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<ProjectItem>? onDeleteProject;
   final VoidCallback? onExpand;
   final ApiService? apiService;
+  final ValueChanged<VideoTemplate>? onSelectVideoTemplate;
+  final ValueChanged<String>? onSelectVideoModel;
 
   const AppSidebar({
     super.key,
@@ -67,6 +70,8 @@ class AppSidebar extends StatefulWidget {
     this.onDeleteProject,
     this.onExpand,
     this.apiService,
+    this.onSelectVideoTemplate,
+    this.onSelectVideoModel,
   });
 
   @override
@@ -79,6 +84,11 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   SidebarTab _currentTab = SidebarTab.history;
   final _search = TextEditingController();
   String _filter = '';
+
+  // ─── Video Mode State ─────────────────────────────────────
+  String _selectedVideoModel = 'Wan 2.1 T2V 1.3B';
+  String? _selectedVideoTemplateId;
+  String _videoTemplateCategory = 'All';
 
   // ─── Voice Mode State ─────────────────────────────────────
   String _selectedVoiceModel = 'Chatterbox TTS';
@@ -151,6 +161,49 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
       'title': 'Breeze TTS 2',
       'desc': 'BreezeBlue Voice Design · 3.4B · Cinematic Tone',
       'icon': 'sound',
+    },
+  ];
+
+  static const List<Map<String, String>> _videoModels = [
+    {
+      'id': 'Wan 2.1 T2V 1.3B',
+      'name': 'Wan 2.1 T2V 1.3B',
+      'tag': 'Fast 1.3B DiT',
+      'desc': 'Text-to-Video with natural cinematic camera motion at 480p/720p',
+      'resolution': '480p / 720p',
+      'speed': 'Fast (~15s)',
+    },
+    {
+      'id': 'Wan 2.1 I2V 14B',
+      'name': 'Wan 2.1 I2V 14B',
+      'tag': 'Flagship 14B DiT',
+      'desc': 'High-fidelity Image-to-Video diffusion bringing static artwork to life',
+      'resolution': '720p HD',
+      'speed': 'Quality (~45s)',
+    },
+    {
+      'id': 'Wan 2.2 Animate 14B',
+      'name': 'Wan 2.2 Animate 14B',
+      'tag': 'Pose-Driven',
+      'desc': 'Pose-driven character dance & animation from reference video + image',
+      'resolution': '720p HD',
+      'speed': 'Smooth (24fps)',
+    },
+    {
+      'id': 'MiniMax-H3 Video+Audio',
+      'name': 'MiniMax-H3 Video+Audio',
+      'tag': 'Omni 33B',
+      'desc': 'Joint multimodal diffusion generating synchronized soundscapes & video',
+      'resolution': '720p + Audio',
+      'speed': 'Full Production',
+    },
+    {
+      'id': 'Lightricks LTX-Video',
+      'name': 'Lightricks LTX-Video',
+      'tag': 'Real-Time 0.9.1',
+      'desc': 'Low-latency video diffusion with extreme camera trajectory precision',
+      'resolution': '720p 30fps',
+      'speed': 'Real-Time',
     },
   ];
 
@@ -584,23 +637,28 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 icon,
-                size: 14,
+                size: 13,
                 color: isSelected
                     ? const Color(0xFFD32F2F)
                     : (dark ? Colors.white60 : Colors.black45),
               ),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  color: isSelected
-                      ? (dark ? Colors.white : const Color(0xFF14181F))
-                      : (dark ? Colors.white60 : Colors.black54),
+              const SizedBox(width: 3),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected
+                        ? (dark ? Colors.white : const Color(0xFF14181F))
+                        : (dark ? Colors.white60 : Colors.black54),
+                  ),
                 ),
               ),
             ],
@@ -1187,74 +1245,340 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   // ─────────────────────────────────────────────────────────────
   // TAB 3: VIDEO MODE PANEL (Wan 2.1 / Wan 2.2 / MiniMax)
   // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // TAB 3: VIDEO MODE PANEL (Wan 2.1 / Wan 2.2 / MiniMax / LTX)
+  // ─────────────────────────────────────────────────────────────
   Widget _buildVideoModePanel(bool dark, Color border, Color muted) {
+    final filteredTemplates = _videoTemplateCategory == 'All'
+        ? VideoTemplate.curatedTemplates
+        : VideoTemplate.curatedTemplates
+            .where((t) => t.category == _videoTemplateCategory)
+            .toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.only(right: 2),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Header
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(6),
+                padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF35B6C4).withValues(alpha: 0.15),
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.videocam_rounded, size: 16, color: Color(0xFF35B6C4)),
+                child: const Icon(Icons.videocam_rounded, size: 17, color: Color(0xFF38BDF8)),
               ),
               const SizedBox(width: 8),
               const Expanded(
-                child: Text(
-                  'Video Generation Mode',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Video Studio & Motion',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Multi-frame cinematic AI video & DiT motion',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
-          _SectionHeader('Active Video Models', muted),
-          _buildInfoOptionCard(
-            title: 'Wan 2.2 Animate 14B',
-            desc: 'Pose-driven character dance & animation from reference video + image',
-            tag: '14B DiT',
-            dark: dark,
-            border: border,
+          // SECTION 1: VIDEO MODELS SELECTION WITH BLUE TICK ICON
+          _SectionHeader('Video Models', muted),
+          const SizedBox(height: 2),
+          Text(
+            'Select an AI video model to activate for generation:',
+            style: TextStyle(fontSize: 11, color: muted),
           ),
-          _buildInfoOptionCard(
-            title: 'Wan 2.1 I2V 14B',
-            desc: 'Image-to-Video diffusion at native 480p / 720p',
-            tag: 'I2V',
-            dark: dark,
-            border: border,
-          ),
-          _buildInfoOptionCard(
-            title: 'MiniMax-H3 Video+Audio',
-            desc: 'Joint video diffusion and synchronized atmospheric audio generation',
-            tag: 'Omni 33B',
-            dark: dark,
-            border: border,
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          for (final model in _videoModels)
+            _buildVideoModelCard(
+              model: model,
+              isSelected: _selectedVideoModel == model['id'],
+              dark: dark,
+              border: border,
+              muted: muted,
+            ),
 
-          _SectionHeader('Video Quick Guidelines', muted),
+          const SizedBox(height: 18),
+
+          // SECTION 2: AMAZING VIDEO TEMPLATES (Silent preview with title)
+          _SectionHeader('Cinematic Video Templates', muted),
+          const SizedBox(height: 2),
+          Text(
+            'Silent preview with title inside. Tap any template to populate prompt container with all settings.',
+            style: TextStyle(fontSize: 11, color: muted),
+          ),
+          const SizedBox(height: 10),
+
+          // Category Filter Bar
+          _buildVideoTemplateCategoryFilter(dark, border, muted),
+          const SizedBox(height: 10),
+
+          // Templates List
+          for (final template in filteredTemplates) ...[
+            _VideoTemplateCard(
+              template: template,
+              isSelected: _selectedVideoTemplateId == template.id,
+              dark: dark,
+              border: border,
+              muted: muted,
+              onSelect: () {
+                setState(() {
+                  _selectedVideoTemplateId = template.id;
+                  _selectedVideoModel = template.model;
+                });
+                widget.onSelectVideoModel?.call(template.model);
+                widget.onSelectVideoTemplate?.call(template);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          const SizedBox(height: 10),
+
+          // SECTION 3: VIDEO GUIDELINES
+          _SectionHeader('Video Prompting Pro Tips', muted),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(color: border),
             ),
-            child: Text(
-              '• Reference video should be between 2s to 15s.\n'
-              '• Character reference photo should have a clear full-body silhouette.\n'
-              '• Enter your driving motion in the bottom prompt bar.',
-              style: TextStyle(fontSize: 11, color: muted, height: 1.4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTipRow('Camera Movement:', 'Use terms like "FPV drone dive", "360 orbit", "slow push-in", or "lateral tracking".', muted),
+                const SizedBox(height: 6),
+                _buildTipRow('Aspect Ratios:', 'Use 16:9 for landscape cinema, or 9:16 for TikTok/Reels fashion videos.', muted),
+                const SizedBox(height: 6),
+                _buildTipRow('Driving Motion:', 'When using Wan 2.2 Animate, attach a 2s-15s reference motion video.', muted),
+              ],
             ),
           ),
+          const SizedBox(height: 20),
         ],
       ),
+    );
+  }
+
+  Widget _buildVideoModelCard({
+    required Map<String, String> model,
+    required bool isSelected,
+    required bool dark,
+    required Color border,
+    required Color muted,
+  }) {
+    final modelId = model['id']!;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () {
+          setState(() => _selectedVideoModel = modelId);
+          widget.onSelectVideoModel?.call(modelId);
+        },
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (dark ? const Color(0xFF2563EB).withValues(alpha: 0.14) : const Color(0xFF2563EB).withValues(alpha: 0.08))
+                : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF2563EB) : border,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.20),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  // Blue Tick Icon with circular blue background badge when selected!
+                  if (isSelected) ...[
+                    Container(
+                      width: 22,
+                      height: 22,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF2563EB), // Blue tick badge
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0x662563EB),
+                            blurRadius: 6,
+                            offset: Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.check_rounded,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ] else ...[
+                    Icon(
+                      Icons.radio_button_unchecked_rounded,
+                      size: 19,
+                      color: muted.withValues(alpha: 0.4),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Expanded(
+                    child: Text(
+                      model['name']!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? const Color(0xFF60A5FA) : null,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? const Color(0xFF2563EB).withValues(alpha: 0.25)
+                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      model['tag']!,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? const Color(0xFF38BDF8) : muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 30),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      model['desc']!,
+                      style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Icon(Icons.hd_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          model['resolution']!,
+                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(width: 12),
+                        Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          model['speed']!,
+                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoTemplateCategoryFilter(bool dark, Color border, Color muted) {
+    const categories = [
+      'All',
+      'Cinematic Drone',
+      'Commercial 360',
+      'Anime & Action',
+      'Fashion & Character',
+      'Nature & Wildlife',
+      'Visual FX / Macro',
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final cat in categories)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                label: Text(cat),
+                selected: _videoTemplateCategory == cat,
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() => _videoTemplateCategory = cat);
+                  }
+                },
+                labelStyle: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: _videoTemplateCategory == cat
+                      ? Colors.white
+                      : (dark ? Colors.white70 : Colors.black87),
+                ),
+                selectedColor: const Color(0xFF2563EB),
+                backgroundColor: dark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  side: BorderSide(
+                    color: _videoTemplateCategory == cat ? const Color(0xFF2563EB) : border,
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTipRow(String title, String text, Color muted) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('• ', style: TextStyle(fontSize: 11, color: muted, fontWeight: FontWeight.bold)),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: TextStyle(fontSize: 11, color: muted, height: 1.35),
+              children: [
+                TextSpan(text: '$title ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                TextSpan(text: text),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1963,4 +2287,453 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// VIDEO TEMPLATE CARDS & SILENT PREVIEW PLAYER
+// ─────────────────────────────────────────────────────────────
+
+class _VideoTemplateCard extends StatelessWidget {
+  final VideoTemplate template;
+  final bool isSelected;
+  final bool dark;
+  final Color border;
+  final Color muted;
+  final VoidCallback onSelect;
+
+  const _VideoTemplateCard({
+    required this.template,
+    required this.isSelected,
+    required this.dark,
+    required this.border,
+    required this.muted,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onSelect,
+      borderRadius: BorderRadius.circular(11),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (dark
+                  ? const Color(0xFF1E3A8A).withValues(alpha: 0.25)
+                  : const Color(0xFFDBEAFE).withValues(alpha: 0.5))
+              : (dark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : Colors.black.withValues(alpha: 0.02)),
+          borderRadius: BorderRadius.circular(11),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF2563EB) : border,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.22),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Video Display Viewport Without Sound with Title in it!
+            _SilentVideoPreviewPlayer(
+              template: template,
+              isSelected: isSelected,
+            ),
+
+            // Template Details & Apply Action
+            Padding(
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    template.description,
+                    style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Tags
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: [
+                      for (final tag in template.tags)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: dark
+                                ? Colors.white.withValues(alpha: 0.06)
+                                : Colors.black.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            tag,
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              color: muted,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Parameter Summary
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: dark
+                          ? Colors.white.withValues(alpha: 0.03)
+                          : Colors.black.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${template.model} · ${template.aspectRatio}',
+                          style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: muted),
+                        ),
+                        Text(
+                          '${template.steps} steps · CFG ${template.cfgScale}',
+                          style: TextStyle(fontSize: 10, color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // One-click apply button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onSelect,
+                      icon: Icon(
+                        isSelected
+                            ? Icons.check_circle_rounded
+                            : Icons.auto_awesome_rounded,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                      label: Text(
+                        isSelected
+                            ? '✓ Loaded in Prompt Container'
+                            : 'Load Template into Prompt',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isSelected
+                            ? const Color(0xFF2563EB)
+                            : const Color(0xFF1E293B),
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(7)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Simulated looping silent video player with camera HUD, timecode, muted audio badge, and title overlay
+class _SilentVideoPreviewPlayer extends StatefulWidget {
+  final VideoTemplate template;
+  final bool isSelected;
+
+  const _SilentVideoPreviewPlayer({
+    required this.template,
+    required this.isSelected,
+  });
+
+  @override
+  State<_SilentVideoPreviewPlayer> createState() =>
+      _SilentVideoPreviewPlayerState();
+}
+
+class _SilentVideoPreviewPlayerState extends State<_SilentVideoPreviewPlayer>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.template;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: AnimatedBuilder(
+          animation: _animController,
+          builder: (context, child) {
+            final progress = _animController.value;
+            final currentSecond = (1 + (progress * 3.99).floor()).clamp(1, 4);
+
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Animated dynamic motion gradient background
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment(-1.0 + (progress * 1.5), -1.0),
+                      end: Alignment(1.0 - (progress * 1.0), 1.0),
+                      colors: t.gradientColors,
+                    ),
+                  ),
+                ),
+
+                // Subtle motion shimmer / scanline wave overlay
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _VideoScanlinePainter(progress),
+                  ),
+                ),
+
+                // Center camera viewfinder watermark
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.black.withValues(alpha: 0.35),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.2)),
+                    ),
+                    child: const Icon(
+                      Icons.play_arrow_rounded,
+                      size: 26,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+
+                // TOP BAR OVERLAY: REC dot, timecode, and MUTED NO SOUND badge
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  right: 8,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // REC Indicator
+                      Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: (progress * 2).floor() % 2 == 0
+                                  ? const Color(0xFFEF4444)
+                                  : const Color(0x66EF4444),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            'REC 00:0$currentSecond',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
+                              shadows: [
+                                Shadow(color: Colors.black, blurRadius: 4)
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      // Silent indicator (WITHOUT SOUND)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2.5),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.70),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.2)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.volume_off_rounded,
+                                size: 11, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text(
+                              'NO SOUND',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                // BOTTOM OVERLAY: TITLE IN IT + Camera Motion Tag + Looping Progress
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(10, 20, 10, 6),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Color(0x99000000),
+                          Color(0xEE000000),
+                        ],
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Title inside video display!
+                        Text(
+                          t.title,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: -0.2,
+                            shadows: [
+                              Shadow(
+                                  color: Colors.black,
+                                  blurRadius: 6,
+                                  offset: Offset(0, 1)),
+                            ],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            const Icon(Icons.videocam_outlined,
+                                size: 11, color: Color(0xFF38BDF8)),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                t.cameraMotion,
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFFE2E8F0),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                t.duration,
+                                style: const TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        // Looping animated playback progress bar
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(2),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 2,
+                            backgroundColor: Colors.white24,
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF38BDF8)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoScanlinePainter extends CustomPainter {
+  final double progress;
+  _VideoScanlinePainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.05)
+      ..strokeWidth = 1.0;
+    // Horizontal cinematic scanlines
+    for (double y = 0; y < size.height; y += 8) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VideoScanlinePainter oldDelegate) =>
+      oldDelegate.progress != progress;
 }

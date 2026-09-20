@@ -7,6 +7,7 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'lora_manager.dart';
@@ -66,7 +67,7 @@ class PromptInputBar extends StatefulWidget {
   };
 
   @override
-  State<PromptInputBar> createState() => _PromptInputBarState();
+  State<PromptInputBar> createState() => PromptInputBarState();
 }
 
 class _MenuOption {
@@ -76,12 +77,36 @@ class _MenuOption {
   const _MenuOption(this.value, this.hint, this.icon);
 }
 
-class _PromptInputBarState extends State<PromptInputBar> {
+class PromptInputBarState extends State<PromptInputBar> {
   final _controller = TextEditingController();
   final _negController = TextEditingController();
   final _instructionController = TextEditingController();
   final _refTextController = TextEditingController();
   bool _showNegativePrompt = false;
+
+  /// Programmatically populate the prompt bar with a full VideoTemplate
+  void applyVideoTemplate(VideoTemplate template) {
+    setState(() {
+      _controller.text = template.prompt;
+      if (template.negativePrompt.isNotEmpty) {
+        _negController.text = template.negativePrompt;
+        _showNegativePrompt = true;
+      }
+      _model = template.model;
+      _mode = 'Video Mode';
+      _ratio = template.aspectRatio;
+      _steps = template.steps;
+      _cfg = template.cfgScale;
+    });
+  }
+
+  /// Programmatically set the video model
+  void setVideoModel(String modelName) {
+    setState(() {
+      _model = modelName;
+      _mode = 'Video Mode';
+    });
+  }
 
   bool get _isVoiceModel =>
       _model.contains('Chatterbox') || _model.contains('Breeze');

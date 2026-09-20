@@ -8,6 +8,7 @@ import '../models/generation_item.dart';
 import '../models/generation_request.dart';
 import '../models/generation_result.dart';
 import '../models/project_item.dart';
+import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
 import '../widgets/app_sidebar.dart';
@@ -30,6 +31,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _db = DatabaseService.instance;
   final _api = ApiService();
+  final _promptBarKey = GlobalKey<PromptInputBarState>();
 
   Timer? _healthTimer;
   bool _engineOnline = false;
@@ -506,6 +508,52 @@ class _HomeScreenState extends State<HomeScreen> {
             onRenameTitle: _handleRename,
             onTogglePin: _handleTogglePin,
             onDeleteProject: _handleDelete,
+            onSelectVideoModel: (model) {
+              _promptBarKey.currentState?.setVideoModel(model);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          color: Color(0xFF38BDF8), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Active Video Model: $model',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFF1E293B),
+                ),
+              );
+            },
+            onSelectVideoTemplate: (VideoTemplate template) {
+              _promptBarKey.currentState?.applyVideoTemplate(template);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.auto_awesome_rounded,
+                          color: Color(0xFF60A5FA), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Loaded "${template.title}" into Prompt Container',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 3),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFF0F172A),
+                ),
+              );
+            },
             onExpand: () {
               if (_isSidebarCollapsed) {
                 setState(() => _isSidebarCollapsed = false);
@@ -556,6 +604,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       constraints:
                           const BoxConstraints(maxWidth: 760),
                       child: PromptInputBar(
+                        key: _promptBarKey,
                         apiService: _api,
                         onGenerate: _handlePromptSubmit,
                       ),
