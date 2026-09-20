@@ -1378,33 +1378,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
               ),
             ),
           ),
-          const SizedBox(height: 8),
-
-          // Open Full Wide Gallery (Rows & Columns) button
-          if (widget.onOpenVideoGallery != null) ...[
-            OutlinedButton.icon(
-              onPressed: widget.onOpenVideoGallery,
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: const Color(0xFF2563EB).withValues(alpha: 0.5)),
-                backgroundColor: const Color(0xFF2563EB).withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 9),
-              ),
-              icon: const Icon(Icons.grid_view_rounded, size: 15, color: Color(0xFF38BDF8)),
-              label: const Text(
-                'Explore Templates in Wide Grid',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF38BDF8),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ] else
-            const SizedBox(height: 6),
+          const SizedBox(height: 12),
 
           // SECTION 1: VIDEO MODELS SELECTION WITH BLUE TICK ICON
           _SectionHeader('Video Models', muted),

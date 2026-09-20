@@ -39,7 +39,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSidebarCollapsed = false;
   bool _loading = true;
   bool _showVideoTemplateGallery = false;
-  SidebarTab _currentSidebarTab = SidebarTab.history;
 
   List<ProjectItem> _projects = [];
   ProjectItem? _activeProject;
@@ -149,6 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _db.insertProject(proj);
     await _refreshProjects(selectId: proj.id);
     await _loadGenerations();
+    if (mounted) setState(() => _showVideoTemplateGallery = false);
   }
 
   Future<void> _handleCreateNewVoiceProject() async {
@@ -203,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _promptBarKey.currentState?.clearInputs();
     _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
     if (mounted) {
-      setState(() => _showVideoTemplateGallery = true);
+      setState(() => _showVideoTemplateGallery = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -622,16 +622,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
             onNewVideoProject: _handleCreateNewVideoProject,
-            onOpenVideoGallery: () =>
-                setState(() => _showVideoTemplateGallery = true),
-            onTabChanged: (tab) {
-              setState(() {
-                _currentSidebarTab = tab;
-                if (tab == SidebarTab.video) {
-                  _showVideoTemplateGallery = true;
-                }
-              });
-            },
             onSelectProject: (id) {
               _handleSelectProject(id);
               setState(() => _showVideoTemplateGallery = false);
@@ -696,13 +686,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 if (_loading)
                   const Center(child: CircularProgressIndicator())
-                else if (_showVideoTemplateGallery ||
-                    (_messages.isEmpty &&
-                        (_currentSidebarTab == SidebarTab.video ||
-                            (_activeProject?.title
-                                    .toLowerCase()
-                                    .contains('video') ??
-                                false))))
+                else if (_showVideoTemplateGallery)
                   Positioned.fill(
                     child: VideoTemplateGallery(
                       isDark: widget.isDark,
@@ -766,33 +750,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 .withValues(alpha: 0.5),
                           ),
                         ),
-                        const SizedBox(height: 14),
-                        OutlinedButton.icon(
-                          onPressed: () => setState(
-                              () => _showVideoTemplateGallery = true),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
-                            side: const BorderSide(color: Color(0xFF2563EB)),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          icon: const Icon(Icons.movie_filter_rounded,
-                              size: 16, color: Color(0xFF38BDF8)),
-                          label: const Text(
-                            'Explore Video Templates in Wide Grid',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF38BDF8),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   )
-                else ...[
+                else
                   ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.only(top: 24, bottom: 140),
@@ -806,58 +767,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
-                  // Floating button to open video template gallery when browsing creations
-                  Positioned(
-                    top: 14,
-                    right: 20,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => setState(
-                            () => _showVideoTemplateGallery = true),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: widget.isDark
-                                ? const Color(0xFF1E293B)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: const Color(0xFF2563EB)
-                                  .withValues(alpha: 0.45),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(
-                                    alpha: widget.isDark ? 0.35 : 0.1),
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.movie_filter_rounded,
-                                  size: 15, color: Color(0xFF38BDF8)),
-                              SizedBox(width: 6),
-                              Text(
-                                'Browse Video Templates',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF38BDF8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
