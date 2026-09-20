@@ -6,18 +6,22 @@ import 'silent_video_preview_player.dart';
 /// Wide responsive multi-column/row Video Template Gallery for the main content area
 class VideoTemplateGallery extends StatefulWidget {
   final ValueChanged<VideoTemplate> onSelectTemplate;
+  final ValueChanged<VideoTemplate>? onGenerateDirect;
   final ValueChanged<VideoTemplate>? onStartProjectWithTemplate;
   final VoidCallback? onNewVideoProject;
   final VoidCallback? onBackToGenerations;
+  final VoidCallback? onDismiss;
   final int generationsCount;
   final bool isDark;
 
   const VideoTemplateGallery({
     super.key,
     required this.onSelectTemplate,
+    this.onGenerateDirect,
     this.onStartProjectWithTemplate,
     this.onNewVideoProject,
     this.onBackToGenerations,
+    this.onDismiss,
     this.generationsCount = 0,
     this.isDark = true,
   });
@@ -178,6 +182,27 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                     // Actions
                     Row(
                       children: [
+                        if (widget.onDismiss != null) ...[
+                          OutlinedButton.icon(
+                            onPressed: widget.onDismiss,
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: borderColor),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(9)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 12),
+                            ),
+                            icon: const Icon(Icons.edit_note_rounded, size: 16),
+                            label: Text(
+                              'Blank Canvas',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: textColor),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
                         if (widget.generationsCount > 0 &&
                             widget.onBackToGenerations != null) ...[
                           OutlinedButton.icon(
@@ -391,7 +416,7 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: 18,
                     mainAxisSpacing: 18,
-                    mainAxisExtent: 490,
+                    mainAxisExtent: 510,
                   ),
                   itemCount: templates.length,
                   itemBuilder: (context, index) {
@@ -404,6 +429,9 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                       textColor: textColor,
                       mutedColor: mutedColor,
                       onUseTemplate: () => widget.onSelectTemplate(t),
+                      onGenerateDirect: widget.onGenerateDirect != null
+                          ? () => widget.onGenerateDirect!(t)
+                          : null,
                       onStartNewProject: widget.onStartProjectWithTemplate != null
                           ? () => widget.onStartProjectWithTemplate!(t)
                           : null,
@@ -429,6 +457,7 @@ class _WideVideoTemplateCard extends StatelessWidget {
   final Color textColor;
   final Color mutedColor;
   final VoidCallback onUseTemplate;
+  final VoidCallback? onGenerateDirect;
   final VoidCallback? onStartNewProject;
 
   const _WideVideoTemplateCard({
@@ -439,6 +468,7 @@ class _WideVideoTemplateCard extends StatelessWidget {
     required this.textColor,
     required this.mutedColor,
     required this.onUseTemplate,
+    this.onGenerateDirect,
     this.onStartNewProject,
   });
 
@@ -679,46 +709,79 @@ class _WideVideoTemplateCard extends StatelessWidget {
                   // Action Buttons Row
                   Row(
                     children: [
-                      // "Apply to Studio" / "Use Template"
+                      // "Use Template" / "Load to Prompt"
                       Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                        child: OutlinedButton.icon(
+                          onPressed: onUseTemplate,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: const Color(0xFF2563EB)
+                                  .withValues(alpha: 0.45),
                             ),
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                color: const Color(0xFF2563EB)
-                                    .withValues(alpha: 0.3),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
+                            backgroundColor: const Color(0xFF2563EB)
+                                .withValues(alpha: 0.08),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 9, horizontal: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          child: FilledButton.icon(
-                            onPressed: onUseTemplate,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              shadowColor: Colors.transparent,
-                              padding: const EdgeInsets.symmetric(vertical: 9),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            icon: const Icon(Icons.auto_awesome_rounded,
-                                size: 14, color: Colors.white),
-                            label: const Text(
-                              'Use Template',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                          icon: const Icon(Icons.tune_rounded,
+                              size: 14, color: Color(0xFF38BDF8)),
+                          label: const Text(
+                            'Use Template',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF38BDF8),
                             ),
                           ),
                         ),
                       ),
+                      if (onGenerateDirect != null) ...[
+                        const SizedBox(width: 8),
+                        // "Generate"
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xFF2563EB), Color(0xFF0284C7)],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF2563EB)
+                                      .withValues(alpha: 0.3),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: FilledButton.icon(
+                              onPressed: onGenerateDirect,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 9, horizontal: 8),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                              icon: const Icon(Icons.bolt_rounded,
+                                  size: 15, color: Colors.white),
+                              label: const Text(
+                                'Generate',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                       if (onStartNewProject != null) ...[
                         const SizedBox(width: 6),
                         Tooltip(
@@ -727,14 +790,14 @@ class _WideVideoTemplateCard extends StatelessWidget {
                             onPressed: onStartNewProject,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 9),
+                                  horizontal: 8, vertical: 9),
                               side: BorderSide(color: borderColor),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
                             child: Icon(Icons.create_new_folder_outlined,
-                                size: 16, color: textColor),
+                                size: 15, color: textColor),
                           ),
                         ),
                       ],

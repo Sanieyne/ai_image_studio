@@ -62,6 +62,7 @@ class AppSidebar extends StatefulWidget {
   final ApiService? apiService;
   final ValueChanged<VideoTemplate>? onSelectVideoTemplate;
   final ValueChanged<String>? onSelectVideoModel;
+  final SidebarTab? activeTab;
 
   const AppSidebar({
     super.key,
@@ -81,6 +82,7 @@ class AppSidebar extends StatefulWidget {
     this.apiService,
     this.onSelectVideoTemplate,
     this.onSelectVideoModel,
+    this.activeTab,
   });
 
   @override
@@ -91,6 +93,23 @@ enum ProjectAction { share, rename, pin, archive, delete, moveToProject }
 
 class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateMixin {
   SidebarTab _currentTab = SidebarTab.history;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.activeTab != null) {
+      _currentTab = widget.activeTab!;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant AppSidebar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.activeTab != null && widget.activeTab != _currentTab) {
+      setState(() => _currentTab = widget.activeTab!);
+    }
+  }
+
   final _search = TextEditingController();
   String _filter = '';
 

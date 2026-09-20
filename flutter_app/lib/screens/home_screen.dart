@@ -39,6 +39,20 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSidebarCollapsed = false;
   bool _loading = true;
   bool _showVideoTemplateGallery = false;
+  bool _dismissedTemplateGallery = false;
+  SidebarTab _currentSidebarTab = SidebarTab.history;
+
+  bool get _isVideoContext {
+    if (_currentSidebarTab == SidebarTab.video) return true;
+    final title = _activeProject?.title.toLowerCase() ?? '';
+    return title.contains('video');
+  }
+
+  bool get _shouldShowVideoTemplates {
+    if (_messages.isNotEmpty) return false;
+    if (_showVideoTemplateGallery) return true;
+    return _isVideoContext && !_dismissedTemplateGallery;
+  }
 
   List<ProjectItem> _projects = [];
   ProjectItem? _activeProject;
@@ -148,7 +162,13 @@ class _HomeScreenState extends State<HomeScreen> {
     await _db.insertProject(proj);
     await _refreshProjects(selectId: proj.id);
     await _loadGenerations();
-    if (mounted) setState(() => _showVideoTemplateGallery = false);
+    if (mounted) {
+      setState(() {
+        _currentSidebarTab = SidebarTab.history;
+        _dismissedTemplateGallery = false;
+        _showVideoTemplateGallery = false;
+      });
+    }
   }
 
   Future<void> _handleCreateNewVoiceProject() async {
@@ -165,7 +185,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _promptBarKey.currentState?.clearInputs();
     _promptBarKey.currentState?.setVoiceModel('Chatterbox TTS');
     if (mounted) {
-      setState(() => _showVideoTemplateGallery = false);
+      setState(() {
+        _currentSidebarTab = SidebarTab.voice;
+        _dismissedTemplateGallery = false;
+        _showVideoTemplateGallery = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -203,7 +227,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _promptBarKey.currentState?.clearInputs();
     _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
     if (mounted) {
-      setState(() => _showVideoTemplateGallery = false);
+      setState(() {
+        _currentSidebarTab = SidebarTab.video;
+        _dismissedTemplateGallery = false;
+        _showVideoTemplateGallery = true;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -240,7 +268,11 @@ class _HomeScreenState extends State<HomeScreen> {
     await _loadGenerations();
     _promptBarKey.currentState?.applyVideoTemplate(template);
     if (mounted) {
-      setState(() => _showVideoTemplateGallery = false);
+      setState(() {
+        _currentSidebarTab = SidebarTab.video;
+        _dismissedTemplateGallery = true;
+        _showVideoTemplateGallery = false;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -250,15 +282,15 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Created project "${template.title}" with template loaded!',
+                  'Created "${template.title}" & applied template settings',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
-          backgroundColor: const Color(0xFF0F172A),
+          backgroundColor: const Color(0xFF1E293B),
         ),
       );
     }
@@ -267,6 +299,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _handleSelectProject(String id) async {
     await _refreshProjects(selectId: id);
     await _loadGenerations();
+    if (mounted) {
+      setState(() {
+        _dismissedTemplateGallery = false;
+        _showVideoTemplateGallery = false;
+      });
+    }
   }
 
   Future<void> _handleRename(String id, String title) async {
@@ -401,7 +439,11 @@ class _HomeScreenState extends State<HomeScreen> {
       isAudio: isVoiceModel,
       language: language,
     );
-    setState(() => _messages.add(item));
+    setState(() {
+      _messages.add(item);
+      _showVideoTemplateGallery = false;
+      _dismissedTemplateGallery = false;
+    });
     await _db.insertGeneration(item);
     _scrollToBottom();
 
@@ -619,12 +661,24 @@ class _HomeScreenState extends State<HomeScreen> {
             collapsed: _isSidebarCollapsed,
             projects: _projects,
             activeProjectId: _activeProject?.id,
+            activeTab: _currentSidebarTab,
+            onTabChanged: (tab) {
+              setState(() {
+                _currentSidebarTab = tab;
+                _dismissedTemplateGallery = false;
+              });
+            },
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
             onNewVideoProject: _handleCreateNewVideoProject,
+            onOpenVideoGallery: () {
+              setState(() {
+                _showVideoTemplateGallery = true;
+                _dismissedTemplateGallery = false;
+              });
+            },
             onSelectProject: (id) {
               _handleSelectProject(id);
-              setState(() => _showVideoTemplateGallery = false);
             },
             onRenameTitle: _handleRename,
             onTogglePin: _handleTogglePin,
@@ -686,18 +740,21 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 if (_loading)
                   const Center(child: CircularProgressIndicator())
-                else if (_showVideoTemplateGallery)
+                else if (_shouldShowVideoTemplates)
                   Positioned.fill(
                     child: VideoTemplateGallery(
                       isDark: widget.isDark,
                       generationsCount: _messages.length,
-                      onBackToGenerations: () =>
-                          setState(() => _showVideoTemplateGallery = false),
+                      onDismiss: () =>
+                          setState(() => _dismissedTemplateGallery = true),
+                      onBackToGenerations: () => setState(() {
+                        _showVideoTemplateGallery = false;
+                        _dismissedTemplateGallery = true;
+                      }),
                       onNewVideoProject: _handleCreateNewVideoProject,
                       onSelectTemplate: (template) {
                         _promptBarKey.currentState
                             ?.applyVideoTemplate(template);
-                        setState(() => _showVideoTemplateGallery = false);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Row(
@@ -718,6 +775,25 @@ class _HomeScreenState extends State<HomeScreen> {
                             behavior: SnackBarBehavior.floating,
                             backgroundColor: const Color(0xFF0F172A),
                           ),
+                        );
+                      },
+                      onGenerateDirect: (template) {
+                        _promptBarKey.currentState
+                            ?.applyVideoTemplate(template);
+                        setState(() {
+                          _showVideoTemplateGallery = false;
+                          _dismissedTemplateGallery = true;
+                        });
+                        _handlePromptSubmit(
+                          template.prompt,
+                          template.negativePrompt,
+                          template.aspectRatio,
+                          template.model,
+                          null,
+                          0.7,
+                          null,
+                          template.steps,
+                          template.cfgScale,
                         );
                       },
                       onStartProjectWithTemplate:
