@@ -11,6 +11,7 @@ import '../models/project_item.dart';
 import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../services/database_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
@@ -237,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Row(
             children: [
               const Icon(Icons.videocam_rounded,
-                  color: Color(0xFF38BDF8), size: 18),
+                  color: LuminaColors.primaryEnd, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -278,7 +279,7 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Row(
             children: [
               const Icon(Icons.movie_filter_rounded,
-                  color: Color(0xFF60A5FA), size: 18),
+                  color: LuminaColors.primaryEnd, size: 18),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -690,7 +691,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   content: Row(
                     children: [
                       const Icon(Icons.check_circle_rounded,
-                          color: Color(0xFF38BDF8), size: 18),
+                          color: LuminaColors.primaryEnd, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -713,7 +714,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   content: Row(
                     children: [
                       const Icon(Icons.auto_awesome_rounded,
-                          color: Color(0xFF60A5FA), size: 18),
+                          color: LuminaColors.primaryEnd, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -760,7 +761,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             content: Row(
                               children: [
                                 const Icon(Icons.auto_awesome_rounded,
-                                    color: Color(0xFF60A5FA), size: 18),
+                                    color: LuminaColors.primaryEnd, size: 18),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(

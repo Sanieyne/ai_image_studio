@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/video_template.dart';
+import '../theme/app_theme.dart';
 import 'silent_video_preview_player.dart';
 
 /// Wide responsive multi-column/row Video Template Gallery for the main content area
@@ -101,13 +102,11 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF2563EB), Color(0xFF0284C7)],
-                        ),
+                        gradient: LuminaColors.primaryGradient,
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF2563EB)
+                            color: LuminaColors.primaryGlow
                                 .withValues(alpha: 0.35),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
@@ -143,25 +142,25 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF2563EB)
+                                  color: LuminaColors.primaryStart
                                       .withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(6),
                                   border: Border.all(
-                                      color: const Color(0xFF2563EB)
-                                          .withValues(alpha: 0.3)),
+                                      color: LuminaColors.primaryStart
+                                          .withValues(alpha: 0.35)),
                                 ),
                                 child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(Icons.check_circle_rounded,
-                                        size: 12, color: Color(0xFF38BDF8)),
+                                        size: 12, color: LuminaColors.primaryEnd),
                                     SizedBox(width: 4),
                                     Text(
                                       'PRODUCTION READY',
                                       style: TextStyle(
                                         fontSize: 9.5,
                                         fontWeight: FontWeight.bold,
-                                        color: Color(0xFF38BDF8),
+                                        color: LuminaColors.primaryEnd,
                                         letterSpacing: 0.5,
                                       ),
                                     ),
@@ -229,14 +228,12 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                         // New Video Project Button
                         Container(
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                            ),
+                            gradient: LuminaColors.primaryGradient,
                             borderRadius: BorderRadius.circular(9),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF2563EB)
-                                    .withValues(alpha: 0.3),
+                                color: LuminaColors.primaryGlow
+                                    .withValues(alpha: 0.35),
                                 blurRadius: 8,
                                 offset: const Offset(0, 2),
                               ),
@@ -315,7 +312,7 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide:
-                                const BorderSide(color: Color(0xFF2563EB)),
+                                const BorderSide(color: LuminaColors.primaryStart),
                           ),
                         ),
                       ),
@@ -346,7 +343,7 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                                 ? Colors.white
                                 : (dark ? Colors.white70 : Colors.black87),
                           ),
-                          selectedColor: const Color(0xFF2563EB),
+                          selectedColor: LuminaColors.primaryStart,
                           backgroundColor: dark
                               ? Colors.white.withValues(alpha: 0.05)
                               : Colors.grey.shade200,
@@ -354,7 +351,7 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                             borderRadius: BorderRadius.circular(7),
                             side: BorderSide(
                               color: isSelected
-                                  ? const Color(0xFF2563EB)
+                                  ? LuminaColors.primaryStart
                                   : borderColor,
                             ),
                           ),
@@ -515,25 +512,25 @@ class _WideVideoTemplateCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 7, vertical: 2.5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF2563EB)
+                          color: LuminaColors.primaryStart
                               .withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(5),
                           border: Border.all(
-                              color: const Color(0xFF2563EB)
+                              color: LuminaColors.primaryStart
                                   .withValues(alpha: 0.3)),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             const Icon(Icons.bolt_rounded,
-                                size: 12, color: Color(0xFF38BDF8)),
+                                size: 12, color: LuminaColors.primaryEnd),
                             const SizedBox(width: 3),
                             Text(
                               t.model,
                               style: const TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF38BDF8),
+                                color: LuminaColors.primaryEnd,
                               ),
                             ),
                           ],
@@ -715,10 +712,10 @@ class _WideVideoTemplateCard extends StatelessWidget {
                           onPressed: onUseTemplate,
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(
-                              color: const Color(0xFF2563EB)
+                              color: LuminaColors.primaryStart
                                   .withValues(alpha: 0.45),
                             ),
-                            backgroundColor: const Color(0xFF2563EB)
+                            backgroundColor: LuminaColors.primaryStart
                                 .withValues(alpha: 0.08),
                             padding: const EdgeInsets.symmetric(
                                 vertical: 9, horizontal: 8),
@@ -727,13 +724,13 @@ class _WideVideoTemplateCard extends StatelessWidget {
                             ),
                           ),
                           icon: const Icon(Icons.tune_rounded,
-                              size: 14, color: Color(0xFF38BDF8)),
+                              size: 14, color: LuminaColors.primaryEnd),
                           label: const Text(
                             'Use Template',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: Color(0xFF38BDF8),
+                              color: LuminaColors.primaryEnd,
                             ),
                           ),
                         ),
@@ -744,15 +741,13 @@ class _WideVideoTemplateCard extends StatelessWidget {
                         Expanded(
                           child: Container(
                             decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF2563EB), Color(0xFF0284C7)],
-                              ),
+                              gradient: LuminaColors.primaryGradient,
                               borderRadius: BorderRadius.circular(8),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF2563EB)
-                                      .withValues(alpha: 0.3),
-                                  blurRadius: 6,
+                                  color: LuminaColors.primaryGlow
+                                      .withValues(alpha: 0.35),
+                                  blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
                               ],

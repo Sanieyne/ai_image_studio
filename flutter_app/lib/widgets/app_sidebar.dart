@@ -1336,10 +1336,10 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
               Container(
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.15),
+                  color: LuminaColors.primaryStart.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.videocam_rounded, size: 17, color: Color(0xFF38BDF8)),
+                child: const Icon(Icons.videocam_rounded, size: 17, color: LuminaColors.primaryEnd),
               ),
               const SizedBox(width: 8),
               const Expanded(
@@ -1365,12 +1365,10 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              gradient: const LinearGradient(
-                colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-              ),
+              gradient: LuminaColors.primaryGradient,
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.35),
+                  color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
                   blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
@@ -1500,17 +1498,17 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           padding: const EdgeInsets.all(11),
           decoration: BoxDecoration(
             color: isSelected
-                ? (dark ? const Color(0xFF2563EB).withValues(alpha: 0.14) : const Color(0xFF2563EB).withValues(alpha: 0.08))
+                ? (dark ? LuminaColors.primaryStart.withValues(alpha: 0.14) : LuminaColors.primaryStart.withValues(alpha: 0.08))
                 : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? const Color(0xFF2563EB) : border,
+              color: isSelected ? LuminaColors.primaryStart : border,
               width: isSelected ? 1.5 : 1.0,
             ),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
-                      color: const Color(0xFF2563EB).withValues(alpha: 0.20),
+                      color: LuminaColors.primaryGlow.withValues(alpha: 0.20),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -1522,17 +1520,17 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             children: [
               Row(
                 children: [
-                  // Blue Tick Icon with circular blue background badge when selected!
+                  // Tick Icon with circular red gradient badge when selected!
                   if (isSelected) ...[
                     Container(
                       width: 22,
                       height: 22,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF2563EB), // Blue tick badge
+                        gradient: LuminaColors.primaryGradient,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Color(0x662563EB),
+                            color: Color(0x66D32F2F),
                             blurRadius: 6,
                             offset: Offset(0, 1),
                           ),
@@ -1548,8 +1546,8 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                   ] else ...[
                     Icon(
                       Icons.radio_button_unchecked_rounded,
-                      size: 19,
-                      color: muted.withValues(alpha: 0.4),
+                      size: 20,
+                      color: dark ? Colors.white24 : Colors.black26,
                     ),
                     const SizedBox(width: 8),
                   ],
@@ -1559,7 +1557,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                        color: isSelected ? const Color(0xFF60A5FA) : null,
+                        color: isSelected ? LuminaColors.primaryEnd : null,
                       ),
                     ),
                   ),
@@ -1567,7 +1565,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF2563EB).withValues(alpha: 0.25)
+                          ? LuminaColors.primaryStart.withValues(alpha: 0.20)
                           : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
                       borderRadius: BorderRadius.circular(6),
                     ),
@@ -1576,7 +1574,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w600,
-                        color: isSelected ? const Color(0xFF38BDF8) : muted,
+                        color: isSelected ? LuminaColors.primaryEnd : muted,
                       ),
                     ),
                   ),
@@ -1653,12 +1651,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       ? Colors.white
                       : (dark ? Colors.white70 : Colors.black87),
                 ),
-                selectedColor: const Color(0xFF2563EB),
+                selectedColor: LuminaColors.primaryStart,
                 backgroundColor: dark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(6),
                   side: BorderSide(
-                    color: _videoTemplateCategory == cat ? const Color(0xFF2563EB) : border,
+                    color: _videoTemplateCategory == cat ? LuminaColors.primaryStart : border,
                   ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
@@ -2428,20 +2426,20 @@ class _VideoTemplateCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: isSelected
               ? (dark
-                  ? const Color(0xFF1E3A8A).withValues(alpha: 0.25)
-                  : const Color(0xFFDBEAFE).withValues(alpha: 0.5))
+                  ? LuminaColors.primaryStart.withValues(alpha: 0.16)
+                  : LuminaColors.primaryStart.withValues(alpha: 0.08))
               : (dark
                   ? Colors.white.withValues(alpha: 0.03)
                   : Colors.black.withValues(alpha: 0.02)),
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
-            color: isSelected ? const Color(0xFF2563EB) : border,
+            color: isSelected ? LuminaColors.primaryStart : border,
             width: isSelected ? 1.5 : 1.0,
           ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                    color: const Color(0xFF2563EB).withValues(alpha: 0.22),
+                    color: LuminaColors.primaryGlow.withValues(alpha: 0.22),
                     blurRadius: 10,
                     offset: const Offset(0, 3),
                   ),
@@ -2555,7 +2553,7 @@ class _VideoTemplateCard extends StatelessWidget {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isSelected
-                            ? const Color(0xFF2563EB)
+                            ? LuminaColors.primaryStart
                             : const Color(0xFF1E293B),
                         padding: const EdgeInsets.symmetric(vertical: 9),
                         shape: RoundedRectangleBorder(
