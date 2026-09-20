@@ -7,7 +7,6 @@ import 'silent_video_preview_player.dart';
 /// Wide responsive multi-column/row Video Template Gallery for the main content area
 class VideoTemplateGallery extends StatefulWidget {
   final ValueChanged<VideoTemplate> onSelectTemplate;
-  final ValueChanged<VideoTemplate>? onGenerateDirect;
   final ValueChanged<VideoTemplate>? onStartProjectWithTemplate;
   final VoidCallback? onNewVideoProject;
   final VoidCallback? onBackToGenerations;
@@ -18,7 +17,6 @@ class VideoTemplateGallery extends StatefulWidget {
   const VideoTemplateGallery({
     super.key,
     required this.onSelectTemplate,
-    this.onGenerateDirect,
     this.onStartProjectWithTemplate,
     this.onNewVideoProject,
     this.onBackToGenerations,
@@ -413,7 +411,7 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                     crossAxisCount: crossAxisCount,
                     crossAxisSpacing: 18,
                     mainAxisSpacing: 18,
-                    mainAxisExtent: 510,
+                    mainAxisExtent: 540,
                   ),
                   itemCount: templates.length,
                   itemBuilder: (context, index) {
@@ -426,9 +424,6 @@ class _VideoTemplateGalleryState extends State<VideoTemplateGallery> {
                       textColor: textColor,
                       mutedColor: mutedColor,
                       onUseTemplate: () => widget.onSelectTemplate(t),
-                      onGenerateDirect: widget.onGenerateDirect != null
-                          ? () => widget.onGenerateDirect!(t)
-                          : null,
                       onStartNewProject: widget.onStartProjectWithTemplate != null
                           ? () => widget.onStartProjectWithTemplate!(t)
                           : null,
@@ -454,7 +449,6 @@ class _WideVideoTemplateCard extends StatelessWidget {
   final Color textColor;
   final Color mutedColor;
   final VoidCallback onUseTemplate;
-  final VoidCallback? onGenerateDirect;
   final VoidCallback? onStartNewProject;
 
   const _WideVideoTemplateCard({
@@ -465,7 +459,6 @@ class _WideVideoTemplateCard extends StatelessWidget {
     required this.textColor,
     required this.mutedColor,
     required this.onUseTemplate,
-    this.onGenerateDirect,
     this.onStartNewProject,
   });
 
@@ -490,11 +483,17 @@ class _WideVideoTemplateCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 1. Silent Video Preview Player (with title inside viewport, REC timecode, NO SOUND badge)
-          SilentVideoPreviewPlayer(
-            template: t,
-            aspectRatio: 16 / 9,
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(11)),
+          GestureDetector(
+            onTap: onUseTemplate,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: SilentVideoPreviewPlayer(
+                template: t,
+                aspectRatio: 16 / 9,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(11)),
+              ),
+            ),
           ),
 
           // 2. Card Body
@@ -584,6 +583,52 @@ class _WideVideoTemplateCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),
+
+                  // Attachment Requirement Indicator
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4.5),
+                    decoration: BoxDecoration(
+                      color: t.requiresAttachment
+                          ? const Color(0xFFF59E0B).withValues(alpha: 0.12)
+                          : const Color(0xFF10B981).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: t.requiresAttachment
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
+                            : const Color(0xFF10B981).withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          t.requiresImageAttachment
+                              ? Icons.add_photo_alternate_outlined
+                              : (t.requiresCharacterOrMotion
+                                  ? Icons.video_call_outlined
+                                  : Icons.check_circle_outline_rounded),
+                          size: 13,
+                          color: t.requiresAttachment
+                              ? const Color(0xFFF59E0B)
+                              : const Color(0xFF10B981),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            t.attachmentBadgeLabel,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: t.requiresAttachment
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFF10B981),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
 
                   // Prompt Preview Box
                   Expanded(
@@ -706,77 +751,45 @@ class _WideVideoTemplateCard extends StatelessWidget {
                   // Action Buttons Row
                   Row(
                     children: [
-                      // "Use Template" / "Load to Prompt"
+                      // "Use Template" Primary Button
                       Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: onUseTemplate,
-                          style: OutlinedButton.styleFrom(
-                            side: BorderSide(
-                              color: LuminaColors.primaryStart
-                                  .withValues(alpha: 0.45),
-                            ),
-                            backgroundColor: LuminaColors.primaryStart
-                                .withValues(alpha: 0.08),
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 9, horizontal: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LuminaColors.primaryGradient,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                color: LuminaColors.primaryGlow
+                                    .withValues(alpha: 0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
-                          icon: const Icon(Icons.tune_rounded,
-                              size: 14, color: LuminaColors.primaryEnd),
-                          label: const Text(
-                            'Use Template',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: LuminaColors.primaryEnd,
+                          child: FilledButton.icon(
+                            onPressed: onUseTemplate,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 10, horizontal: 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            icon: const Icon(Icons.tune_rounded,
+                                size: 15, color: Colors.white),
+                            label: const Text(
+                              'Use Template',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
                       ),
-                      if (onGenerateDirect != null) ...[
-                        const SizedBox(width: 8),
-                        // "Generate"
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LuminaColors.primaryGradient,
-                              borderRadius: BorderRadius.circular(8),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: LuminaColors.primaryGlow
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: FilledButton.icon(
-                              onPressed: onGenerateDirect,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.transparent,
-                                shadowColor: Colors.transparent,
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 9, horizontal: 8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              icon: const Icon(Icons.bolt_rounded,
-                                  size: 15, color: Colors.white),
-                              label: const Text(
-                                'Generate',
-                                style: TextStyle(
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
                       if (onStartNewProject != null) ...[
                         const SizedBox(width: 6),
                         Tooltip(

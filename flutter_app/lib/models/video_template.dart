@@ -11,6 +11,7 @@ class VideoTemplate {
   final String aspectRatio;
   final int steps;
   final double cfgScale;
+  final double strength;
   final String duration;
   final int fps;
   final String cameraMotion;
@@ -28,6 +29,7 @@ class VideoTemplate {
     this.aspectRatio = '16:9',
     this.steps = 30,
     this.cfgScale = 5.0,
+    this.strength = 0.70,
     this.duration = '4.0s',
     this.fps = 24,
     required this.cameraMotion,
@@ -35,6 +37,34 @@ class VideoTemplate {
     required this.tags,
     required this.description,
   });
+
+  bool get requiresImageAttachment =>
+      model == 'Wan 2.1 I2V 14B' || model == 'Wan 2.1 FLF2V 14B';
+
+  bool get requiresCharacterOrMotion =>
+      model == 'Wan 2.2 Animate 14B';
+
+  bool get requiresAttachment =>
+      requiresImageAttachment || requiresCharacterOrMotion;
+
+  String get attachmentBadgeLabel {
+    if (model == 'Wan 2.1 I2V 14B') return 'Requires Input Image';
+    if (model == 'Wan 2.1 FLF2V 14B') return 'Requires Start & End Frames';
+    if (model == 'Wan 2.2 Animate 14B') return 'Requires Character / Video';
+    return 'Text-to-Video (Ready)';
+  }
+
+  String get attachmentGuidance {
+    if (model == 'Wan 2.1 I2V 14B') {
+      return 'Please attach an input image using the photo icon 📷 to animate.';
+    } else if (model == 'Wan 2.1 FLF2V 14B') {
+      return 'Please attach both start and end frame images 🖼️ before generating.';
+    } else if (model == 'Wan 2.2 Animate 14B') {
+      return 'Please attach a character image or driving motion video 🎬.';
+    } else {
+      return 'Settings loaded (CFG: $cfgScale, Steps: $steps). Click Animate or attach an optional image.';
+    }
+  }
 
   /// Curated list of high-impact production templates across popular video genres
   static const List<VideoTemplate> curatedTemplates = [

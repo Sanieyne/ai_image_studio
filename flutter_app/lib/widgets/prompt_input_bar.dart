@@ -83,6 +83,7 @@ class PromptInputBarState extends State<PromptInputBar> {
   final _instructionController = TextEditingController();
   final _refTextController = TextEditingController();
   bool _showNegativePrompt = false;
+  String? _videoTemplateNotice;
 
   /// Programmatically populate the prompt bar with a full VideoTemplate
   void applyVideoTemplate(VideoTemplate template) {
@@ -97,6 +98,13 @@ class PromptInputBarState extends State<PromptInputBar> {
       _ratio = template.aspectRatio;
       _steps = template.steps;
       _cfg = template.cfgScale;
+      _strength = template.strength;
+      _showTune = true;
+      if (template.requiresAttachment) {
+        _videoTemplateNotice = template.attachmentGuidance;
+      } else {
+        _videoTemplateNotice = null;
+      }
     });
   }
 
@@ -139,6 +147,7 @@ class PromptInputBarState extends State<PromptInputBar> {
       _endImageBase64 = null;
       _garmentBytes = null;
       _garmentName = null;
+      _videoTemplateNotice = null;
     });
   }
 
@@ -263,6 +272,9 @@ class PromptInputBarState extends State<PromptInputBar> {
           _referenceBytes = bytes;
           _referenceName = file.name;
           _referenceBase64 = base64Encode(bytes);
+          if (_model == 'Wan 2.1 I2V 14B') {
+            _videoTemplateNotice = null;
+          }
         });
       }
     } catch (e) {
@@ -451,6 +463,61 @@ class PromptInputBarState extends State<PromptInputBar> {
         _pickGarmentImage();
         return;
       }
+    }
+
+    if (_isWan21I2V && _referenceBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Wan 2.1 I2V (Image-to-Video) requires an input image to animate. Please attach one using the photo icon.'),
+          backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _pickReferenceImage();
+      return;
+    }
+
+    if (_isWan21FLF2V) {
+      if (_referenceBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Wan 2.1 FLF2V requires a starting frame image. Please attach one.'),
+            backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _pickReferenceImage();
+        return;
+      }
+      if (_endImageBytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Wan 2.1 FLF2V requires an ending frame image. Please attach one.'),
+            backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        _pickEndImage();
+        return;
+      }
+    }
+
+    if (_model == 'Wan 2.2 Animate 14B' &&
+        _referenceBytes == null &&
+        _referenceVideoBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+              'Wan 2.2 Animate requires a character image or driving motion video. Please attach one.'),
+          backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _pickReferenceImage();
+      return;
     }
 
     final text = _controller.text.trim();
@@ -958,6 +1025,8 @@ class PromptInputBarState extends State<PromptInputBar> {
                 if (_isTryOnMode)
                   _buildTryOnSlots(dark, border, muted)
                 else ...[
+                  if (_videoTemplateNotice != null)
+                    _buildTemplateAttachmentNotice(dark, border),
                   _buildReferenceImagePreview(dark, border, muted),
                   _buildGarmentImagePreview(dark, border, muted),
                   _buildReferenceVideoPreview(dark, border, muted),
@@ -1296,6 +1365,48 @@ class PromptInputBarState extends State<PromptInputBar> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTemplateAttachmentNotice(bool dark, Color border) {
+    if (_videoTemplateNotice == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: LuminaColors.primaryStart.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: LuminaColors.primaryEnd.withValues(alpha: 0.4),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.info_outline_rounded,
+                size: 16, color: LuminaColors.primaryEnd),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _videoTemplateNotice!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: dark ? Colors.white : const Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            InkWell(
+              onTap: () => setState(() => _videoTemplateNotice = null),
+              child: const Padding(
+                padding: EdgeInsets.all(3),
+                child: Icon(Icons.close, size: 14, color: Colors.white70),
+              ),
+            ),
+          ],
         ),
       ),
     );

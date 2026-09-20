@@ -275,13 +275,15 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Created "${template.title}" & applied template settings',
+                  template.requiresAttachment
+                      ? 'Created "${proj.title}". ${template.attachmentGuidance}'
+                      : 'Created "${proj.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
-          duration: const Duration(seconds: 2),
+          duration: const Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
           backgroundColor: const Color(0xFF1E293B),
         ),
@@ -706,6 +708,9 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             onSelectVideoTemplate: (VideoTemplate template) {
               _promptBarKey.currentState?.applyVideoTemplate(template);
+              setState(() {
+                _dismissedTemplateGallery = true;
+              });
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Row(
@@ -715,13 +720,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Loaded "${template.title}" into Prompt Container',
+                          template.requiresAttachment
+                              ? 'Loaded "${template.title}". ${template.attachmentGuidance}'
+                              : 'Loaded "${template.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
                     ],
                   ),
-                  duration: const Duration(seconds: 3),
+                  duration: const Duration(seconds: 4),
                   behavior: SnackBarBehavior.floating,
                   backgroundColor: const Color(0xFF0F172A),
                 ),
@@ -752,6 +759,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       onSelectTemplate: (template) {
                         _promptBarKey.currentState
                             ?.applyVideoTemplate(template);
+                        setState(() {
+                          _dismissedTemplateGallery = true;
+                        });
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Row(
@@ -761,35 +771,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Loaded "${template.title}" into Prompt Container',
+                                    template.requiresAttachment
+                                        ? 'Loaded "${template.title}". ${template.attachmentGuidance}'
+                                        : 'Loaded "${template.title}" (CFG: ${template.cfgScale}, Steps: ${template.steps}, Strength: ${template.strength}). Ready to generate!',
                                     style: const TextStyle(
                                         fontWeight: FontWeight.w600),
                                   ),
                                 ),
                               ],
                             ),
-                            duration: const Duration(seconds: 3),
+                            duration: const Duration(seconds: 4),
                             behavior: SnackBarBehavior.floating,
                             backgroundColor: const Color(0xFF0F172A),
                           ),
-                        );
-                      },
-                      onGenerateDirect: (template) {
-                        _promptBarKey.currentState
-                            ?.applyVideoTemplate(template);
-                        setState(() {
-                          _dismissedTemplateGallery = true;
-                        });
-                        _handlePromptSubmit(
-                          template.prompt,
-                          template.negativePrompt,
-                          template.aspectRatio,
-                          template.model,
-                          null,
-                          0.7,
-                          null,
-                          template.steps,
-                          template.cfgScale,
                         );
                       },
                       onStartProjectWithTemplate:
