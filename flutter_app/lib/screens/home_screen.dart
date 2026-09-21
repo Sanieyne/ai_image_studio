@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Timer? _healthTimer;
   bool _engineOnline = false;
+  int _consecutiveHealthFailures = 0;
   bool _isSidebarCollapsed = false;
   bool _loading = true;
   bool _dismissedTemplateGallery = false;
@@ -76,8 +77,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkHealth() async {
     final ok = await _api.checkHealth();
-    if (mounted && ok != _engineOnline) {
-      setState(() => _engineOnline = ok);
+    if (!mounted) return;
+    if (ok) {
+      _consecutiveHealthFailures = 0;
+      if (!_engineOnline) {
+        setState(() => _engineOnline = true);
+      }
+    } else {
+      _consecutiveHealthFailures++;
+      // Require 2 consecutive failures before declaring the engine offline.
+      // This eliminates UI flickering due to transient network/tunnel packet drops.
+      if (_consecutiveHealthFailures >= 2 && _engineOnline) {
+        setState(() => _engineOnline = false);
+      }
     }
   }
 

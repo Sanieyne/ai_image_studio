@@ -86,6 +86,8 @@ class SDXLEngine:
             self._load_flux_pipeline(model_id, hf_token)
         elif self.family == "zimage":
             self._load_zimage_pipeline(model_id, hf_token)
+        elif self.family == "qwen_image":
+            self._load_qwen_image_pipeline(model_id, hf_token)
         else:
             self._load_sdxl_pipeline(model_id, hf_token)
         self.current_model_id = model_id
@@ -221,6 +223,43 @@ class SDXLEngine:
         else:
             self.pipe.to("cpu")
         print(f"[OK] Z-Image pipeline ready with '{model_id}'.")
+
+    def _load_qwen_image_pipeline(self, model_id: str, hf_token=None) -> None:
+        """Qwen-Image-2.1 (7B Single-Stream DiT) — 40 steps, bfloat16, native 2K."""
+        try:
+            from diffusers import QwenImage21Pipeline
+            pipeline_cls = QwenImage21Pipeline
+        except ImportError:
+            from diffusers import AutoPipelineForText2Image
+            pipeline_cls = AutoPipelineForText2Image
+
+        dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
+        print(f"[*] Loading Qwen-Image model '{model_id}' ({dtype})...")
+
+        self.pipe = pipeline_cls.from_pretrained(
+            model_id,
+            torch_dtype=dtype,
+            token=hf_token,
+        )
+        if self.device == "cuda":
+            total_vram_gb = (
+                torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            )
+            if total_vram_gb < 32 or os.environ.get("FORCE_CPU_OFFLOAD") == "1":
+                print(f"[*] VRAM ({total_vram_gb:.1f} GB): enabling model CPU offload for Qwen-Image.")
+                self.pipe.enable_model_cpu_offload()
+            else:
+                print(f"[*] High VRAM ({total_vram_gb:.1f} GB): loading Qwen-Image directly into CUDA.")
+                self.pipe.to("cuda")
+            try:
+                if hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
+                    self.pipe.vae.enable_tiling()
+                    self.pipe.vae.enable_slicing()
+            except Exception:
+                pass
+        else:
+            self.pipe.to("cpu")
+        print(f"[OK] Qwen-Image-2.1 pipeline ready with '{model_id}'.")
 
     def switch_model(self, model_id: str) -> str:
         """Dynamically unload current model and load a new one."""
@@ -517,6 +556,41 @@ class SDXLEngine:
             )
             return result.images[0]
 
+        # Qwen-Image family: unified 7B DiT with 2K and transparent editing.
+        if getattr(self, "family", "sdxl") == "qwen_image":
+            if init_image is not None:
+                if self.img2img_pipe is None:
+                    try:
+                        from diffusers import QwenImage21Img2ImgPipeline
+                        self.img2img_pipe = QwenImage21Img2ImgPipeline.from_pipe(self.pipe)
+                    except Exception:
+                        from diffusers import AutoPipelineForImage2Image
+                        self.img2img_pipe = AutoPipelineForImage2Image.from_pipe(self.pipe)
+                init_img = init_image.convert("RGB").resize(
+                    (width, height), Image.Resampling.LANCZOS
+                )
+                result = self.img2img_pipe(
+                    prompt=prompt,
+                    image=init_img,
+                    strength=strength,
+                    height=height,
+                    width=width,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    generator=generator,
+                )
+                return result.images[0]
+
+            result = self.pipe(
+                prompt=prompt,
+                height=height,
+                width=width,
+                num_inference_steps=num_inference_steps,
+                guidance_scale=guidance_scale,
+                generator=generator,
+            )
+            return result.images[0]
+
         if init_image is not None:
             if self.img2img_pipe is None:
                 from diffusers import AutoPipelineForImage2Image
@@ -574,7 +648,8 @@ class SDXLEngine:
                 for name, data in self.active_loras.items()
             )
         ref_text = "\n[Mode: Image Reference / Img2Img]" if init_image is not None else ""
-        text = (f"MOCK SDXL PREVIEW{ref_text}\nResolution: {width}x{height}\n"
+        family_tag = getattr(self, "family", "sdxl").upper()
+        text = (f"MOCK {family_tag} PREVIEW ({self.current_model_id}){ref_text}\nResolution: {width}x{height}\n"
                 f"Prompt: {prompt[:70]}...\n{lora_lines}")
         draw.text((40, 40), text, fill=(210, 210, 210))
         return img

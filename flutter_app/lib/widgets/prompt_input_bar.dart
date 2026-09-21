@@ -63,6 +63,7 @@ class PromptInputBar extends StatefulWidget {
     'Wan 2.1 I2V 14B': 'Wan-AI/Wan2.1-I2V-14B-480P-Diffusers',
     'Wan 2.1 FLF2V 14B': 'Wan-AI/Wan2.1-FLF2V-14B-720P-Diffusers',
     'Wan 2.2 Animate 14B': 'Wan-AI/Wan2.2-Animate-14B',
+    'Qwen-Image 2.1': 'Qwen/Qwen-Image-2.1',
     'FLUX.1 Kontext [dev]': 'black-forest-labs/FLUX.1-Kontext-dev',
     'SDXL Base 1.0': 'stabilityai/stable-diffusion-xl-base-1.0',
     'Z-Image Turbo': 'Tongyi-MAI/Z-Image-Turbo',
@@ -261,6 +262,7 @@ class PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
     _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
     _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
+    _MenuOption('Qwen-Image 2.1', 'Unified 7B DiT · Native 2K', Icons.auto_awesome),
     _MenuOption('FLUX.1 Kontext [dev]', 'Img2Img / Edit (12B)', Icons.auto_fix_high),
     _MenuOption('FASHN VTON 1.5', 'Virtual Try-On (972M)', Icons.checkroom_rounded),
     _MenuOption('Z-Image Turbo', 'Fast 6B DiT · 8 steps', Icons.bolt_rounded),
@@ -785,6 +787,10 @@ class PromptInputBarState extends State<PromptInputBar> {
                           _mode = 'Voice Studio';
                           _cfg = (v == 'Breeze TTS 2') ? 4.0 : 0.5;
                           _exaggeration = 0.5;
+                        } else if (v == 'Qwen-Image 2.1') {
+                          _mode = 'Image Mode';
+                          _steps = 40;
+                          _cfg = 1.0;
                         } else if (v == 'FLUX.1 Kontext [dev]') {
                           _mode = 'Image Mode';
                           _steps = 16;
@@ -1017,6 +1023,16 @@ class PromptInputBarState extends State<PromptInputBar> {
                                         textAlign: TextAlign.end)),
                               ],
                             ),
+                            if (_model == 'Qwen-Image 2.1')
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  'Qwen-Image 2.1 (7B): Unified generation & editing DiT with 2K resolution & transparent RGBA.',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic),
+                                ),
+                              ),
                             if (_model == 'FLUX.1 Kontext [dev]')
                               const Padding(
                                 padding: EdgeInsets.only(bottom: 4),

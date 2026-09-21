@@ -75,6 +75,23 @@ class ImageTemplate {
   /// Curated list of high-impact production templates across popular image genres
   static const List<ImageTemplate> curatedTemplates = [
     ImageTemplate(
+      id: 'qwen_neon_typography_2k',
+      title: 'Qwen 2K Neon Glass Pavilion & Typography',
+      category: 'Architecture & Nature',
+      model: 'Qwen-Image 2.1',
+      prompt:
+          'Ultra-high-definition 2K photograph of a minimalist Tokyo glass pavilion at dusk. Bold glowing neon typography signage that reads "QWEN 2.1 STUDIO" seamlessly integrated into the architectural glass facade. Transparent reflections of twilight city lights on polished marble flooring, wet asphalt reflections, hyper-sharp textures and pristine typography clarity, 8k professional architectural photography.',
+      negativePrompt:
+          'blurry, illegible letters, deformed text, low resolution, artifacts, noisy',
+      aspectRatio: '16:9',
+      steps: 40,
+      cfgScale: 1.0,
+      strength: 0.75,
+      gradientColors: [Color(0xFF0C4A6E), Color(0xFF0284C7), Color(0xFF38BDF8), Color(0xFFF43F5E)],
+      tags: ['Qwen 2.1', '2K Resolution', 'Typography', 'Glass & Neon'],
+      description: 'Ultra-crisp 2K architectural rendering featuring flawless integrated typography and glass transparency.',
+    ),
+    ImageTemplate(
       id: 'cyberpunk_neon_portrait',
       title: 'Cyberpunk Neon Holographic Portrait',
       category: 'Portrait & Character',

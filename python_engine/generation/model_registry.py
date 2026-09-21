@@ -7,8 +7,16 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-# family: "sdxl" | "flux" | "zimage"
+# family: "sdxl" | "flux" | "zimage" | "qwen_image"
 MODELS: Dict[str, dict] = {
+    "Qwen/Qwen-Image-2.1": {
+        "family": "qwen_image",
+        "label": "Qwen-Image 2.1",
+        "default_steps": 40,
+        "default_guidance": 1.0,
+        "gated": False,
+        "note": "Qwen-Image 2.1 (7B Single-Stream DiT). Native 2K, 40 steps, transparent/RGBA support.",
+    },
     "Tongyi-MAI/Z-Image-Turbo": {
         "family": "zimage",
         "label": "Z-Image Turbo",

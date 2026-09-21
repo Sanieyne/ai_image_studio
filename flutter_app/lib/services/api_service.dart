@@ -32,23 +32,31 @@ class ApiService {
   String? activeDeviceName;
 
   /// GET /health -> true when the engine answers 200.
-  Future<bool> checkHealth() async {
-    try {
-      final response = await _client
-          .get(Uri.parse('$baseUrl/health'))
-          .timeout(const Duration(seconds: 3));
-      if (response.statusCode == 200) {
-        try {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          activeDevice = data['device'] as String?;
-          activeDeviceName = data['device_name'] as String?;
-        } catch (_) {}
-        return true;
+  Future<bool> checkHealth({int retries = 1}) async {
+    for (int attempt = 0; attempt <= retries; attempt++) {
+      try {
+        final response = await _client
+            .get(
+              Uri.parse('$baseUrl/health'),
+              headers: const {'Connection': 'close'},
+            )
+            .timeout(const Duration(seconds: 5));
+        if (response.statusCode == 200) {
+          try {
+            final data = jsonDecode(response.body) as Map<String, dynamic>;
+            activeDevice = data['device'] as String?;
+            activeDeviceName = data['device_name'] as String?;
+          } catch (_) {}
+          return true;
+        }
+      } catch (_) {
+        if (attempt == retries) {
+          return false;
+        }
+        await Future.delayed(const Duration(milliseconds: 200));
       }
-      return false;
-    } catch (_) {
-      return false;
     }
+    return false;
   }
 
   /// POST /generate -> decoded image bytes + metadata.

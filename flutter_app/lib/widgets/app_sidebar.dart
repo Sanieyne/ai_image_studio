@@ -261,6 +261,14 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
 
   static const List<Map<String, String>> _imageModels = [
     {
+      'id': 'Qwen-Image 2.1',
+      'name': 'Qwen-Image 2.1',
+      'tag': 'New 7B DiT',
+      'desc': 'Unified 7B single-stream DiT for generation & editing with native 2K and transparent RGBA',
+      'resolution': 'Up to 2048px',
+      'speed': 'Fast (~8s)',
+    },
+    {
       'id': 'FLUX.1 Kontext [dev]',
       'name': 'FLUX.1 Kontext [dev]',
       'tag': 'Flagship 12B',

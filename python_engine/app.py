@@ -80,5 +80,5 @@ if __name__ == "__main__":
     import uvicorn
     from config.config import settings
 
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    uvicorn.run(app, host=settings.host, port=settings.port, timeout_keep_alive=65)
 
