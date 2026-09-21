@@ -553,7 +553,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           _buildRailTabIcon(
             tab: SidebarTab.image,
             icon: Icons.image_outlined,
-            tooltip: 'Image Studio & FLUX',
+            tooltip: 'Image Studio (Qwen / FLUX / DiT)',
             dark: dark,
           ),
           const SizedBox(height: 8),
