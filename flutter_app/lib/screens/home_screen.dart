@@ -341,6 +341,47 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _handleCreateNewEnhanceProject() async {
+    final proj = ProjectItem(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: 'Enhancement ${_projects.length + 1}',
+      isPinned: false,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    await _db.insertProject(proj);
+    await _refreshProjects(selectId: proj.id);
+    await _loadGenerations();
+    _promptBarKey.currentState?.clearInputs();
+    _promptBarKey.currentState?.setEnhancerModel('Real-ESRGAN x4plus');
+    if (mounted) {
+      setState(() {
+        _currentSidebarTab = SidebarTab.enhancer;
+        _dismissedTemplateGallery = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.auto_fix_high_rounded,
+                  color: LuminaColors.primaryEnd, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Started fresh Enhancement: "${proj.title}". Drop an image to upscale!',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E293B),
+        ),
+      );
+    }
+  }
+
   Future<void> _handleStartImageProjectWithTemplate(ImageTemplate template) async {
     final proj = ProjectItem(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -468,6 +509,8 @@ class _HomeScreenState extends State<HomeScreen> {
       String? endImageBase64,
       Uint8List? endImageBytes,
       String? endImageName,
+      int? upscaleScale,
+      bool? faceEnhance,
   }) async {
     if (_activeProject == null) {
       final newProj = ProjectItem(
@@ -508,6 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final isMiniMaxModel = model.contains('MiniMax');
     final isVoiceModel = model.contains('Chatterbox') || model.contains('Breeze');
     final isTryOnModel = model.contains('FASHN') || model.contains('Try-On');
+    final isEnhancerModel = model.contains('Real-ESRGAN') || model.contains('Enhance');
     final item = GenerationItem(
       id: genId,
       projectId: currentProjId,
@@ -533,7 +577,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _scrollToBottom();
 
     GenerationResult result;
-    if (isTryOnModel) {
+    if (isEnhancerModel) {
+      if (imageBase64 == null || imageBase64.isEmpty) {
+        result = GenerationResult.failure(
+            'Enhancer requires an image to upscale. Please attach or drop an image.');
+      } else {
+        result = await _api.enhanceImage(
+          imageBase64: imageBase64,
+          scale: upscaleScale ?? 4,
+          faceEnhance: faceEnhance ?? true,
+          modelName: model,
+        );
+      }
+    } else if (isTryOnModel) {
       if ((imageBase64 == null || imageBase64.isEmpty) ||
           (garmentBase64 == null || garmentBase64.isEmpty)) {
         result = GenerationResult.failure(
@@ -758,12 +814,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
               } else if (tab == SidebarTab.voice) {
                 _promptBarKey.currentState?.setVoiceModel('Chatterbox TTS');
+              } else if (tab == SidebarTab.enhancer) {
+                _promptBarKey.currentState?.setEnhancerModel('Real-ESRGAN x4plus');
               }
             },
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
             onNewVideoProject: _handleCreateNewVideoProject,
             onNewImageProject: _handleCreateNewImageProject,
+            onNewEnhanceProject: _handleCreateNewEnhanceProject,
             onOpenVideoGallery: () {
               setState(() {
                 _currentSidebarTab = SidebarTab.video;
@@ -817,6 +876,29 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: Text(
                           'Active Image Model: $model',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  duration: const Duration(seconds: 2),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: const Color(0xFF1E293B),
+                ),
+              );
+            },
+            onSelectEnhancerModel: (model) {
+              _promptBarKey.currentState?.setEnhancerModel(model);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Row(
+                    children: [
+                      const Icon(Icons.auto_fix_high_rounded,
+                          color: LuminaColors.primaryEnd, size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Active Enhancer Model: $model',
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
@@ -986,34 +1068,119 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   )
                 else if (_messages.isEmpty)
-                  Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.draw_outlined,
-                          size: 48,
-                          color: Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withValues(alpha: 0.25),
+                  if (_currentSidebarTab == SidebarTab.enhancer)
+                    Center(
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        padding: const EdgeInsets.all(28),
+                        decoration: BoxDecoration(
+                          color: (widget.isDark ? LuminaColors.darkCard : Colors.white).withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: widget.isDark ? LuminaColors.darkBorder : LuminaColors.lightBorder,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: widget.isDark ? 0.3 : 0.08),
+                              blurRadius: 20,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _activeProject == null
-                              ? 'Create a project to begin'
-                              : 'Your creations will appear here',
-                          style: TextStyle(
-                            fontSize: 14,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                gradient: LuminaColors.primaryGradient,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.auto_fix_high_rounded,
+                                size: 36,
+                                color: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'AI Image Enhancer & Upscaler',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Upload any low-resolution photo, digital art, or anime illustration to upscale 4× into high-definition clarity with Real-ESRGAN.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: widget.isDark ? Colors.white60 : Colors.black54,
+                                height: 1.4,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.center,
+                              children: [
+                                _buildEnhancerHeroBadge('4× Super-Resolution', Icons.hd_rounded),
+                                _buildEnhancerHeroBadge('Blind Artifact Removal', Icons.auto_awesome_rounded),
+                                _buildEnhancerHeroBadge('GFPGAN Face Restoration', Icons.face_retouching_natural_rounded),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              '👇 Drop or attach an image in the control bar below to begin',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: LuminaColors.primaryEnd,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.draw_outlined,
+                            size: 48,
                             color: Theme.of(context)
                                 .colorScheme
                                 .onSurface
-                                .withValues(alpha: 0.5),
+                                .withValues(alpha: 0.25),
                           ),
-                        ),
-                      ],
-                    ),
-                  )
+                          const SizedBox(height: 12),
+                          Text(
+                            _activeProject == null
+                                ? 'Create a project to begin'
+                                : 'Your creations will appear here',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withValues(alpha: 0.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
                 else
                   ListView.builder(
                     controller: _scrollController,
@@ -1045,6 +1212,30 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEnhancerHeroBadge(String text, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: widget.isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: widget.isDark ? Colors.white12 : Colors.black12,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: LuminaColors.primaryEnd),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
           ),
         ],
       ),

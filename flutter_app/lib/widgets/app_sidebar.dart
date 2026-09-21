@@ -18,6 +18,7 @@ enum SidebarTab {
   voice,
   video,
   image,
+  enhancer,
 }
 
 /// Voice preset with preview metadata
@@ -54,6 +55,7 @@ class AppSidebar extends StatefulWidget {
   final VoidCallback? onNewVoiceProject;
   final VoidCallback? onNewVideoProject;
   final VoidCallback? onNewImageProject;
+  final VoidCallback? onNewEnhanceProject;
   final VoidCallback? onOpenVideoGallery;
   final VoidCallback? onOpenImageGallery;
   final ValueChanged<SidebarTab>? onTabChanged;
@@ -67,6 +69,7 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<String>? onSelectVideoModel;
   final ValueChanged<ImageTemplate>? onSelectImageTemplate;
   final ValueChanged<String>? onSelectImageModel;
+  final ValueChanged<String>? onSelectEnhancerModel;
   final SidebarTab? activeTab;
 
   const AppSidebar({
@@ -78,6 +81,7 @@ class AppSidebar extends StatefulWidget {
     this.onNewVoiceProject,
     this.onNewVideoProject,
     this.onNewImageProject,
+    this.onNewEnhanceProject,
     this.onOpenVideoGallery,
     this.onOpenImageGallery,
     this.onTabChanged,
@@ -91,6 +95,7 @@ class AppSidebar extends StatefulWidget {
     this.onSelectVideoModel,
     this.onSelectImageTemplate,
     this.onSelectImageModel,
+    this.onSelectEnhancerModel,
     this.activeTab,
   });
 
@@ -131,6 +136,11 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   String _selectedImageModel = 'FLUX.1 Kontext [dev]';
   String? _selectedImageTemplateId;
   String _imageTemplateCategory = 'All';
+
+  // ─── Enhancer Mode State ──────────────────────────────────
+  String _selectedEnhancerModel = 'Real-ESRGAN x4plus';
+  int _enhancerScale = 4;
+  bool _enhancerFaceRestore = true;
 
   // ─── Voice Mode State ─────────────────────────────────────
   String _selectedVoiceModel = 'Chatterbox TTS';
@@ -281,6 +291,25 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
       'desc': 'Virtual try-on replacing outfits & garments while maintaining exact pose & identity',
       'resolution': 'High-Res VTON',
       'speed': 'Specialized (~18s)',
+    },
+  ];
+
+  static const List<Map<String, String>> _enhancerModels = [
+    {
+      'id': 'Real-ESRGAN x4plus',
+      'name': 'Real-ESRGAN x4plus',
+      'tag': 'Official 4×',
+      'desc': 'Practical blind super-resolution with high-order degradation for photos & AI art',
+      'resolution': '4× Super-Res (up to 4K)',
+      'speed': 'Fast (~3s)',
+    },
+    {
+      'id': 'Real-ESRGAN Anime 6B',
+      'name': 'Real-ESRGAN Anime 6B',
+      'tag': 'Anime 6B',
+      'desc': 'Compact 6-block model designed for anime illustrations & crisp clean 2D lineart',
+      'resolution': '4× Super-Res',
+      'speed': 'Ultra-Fast (~1.5s)',
     },
   ];
 
@@ -519,6 +548,13 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             tooltip: 'Image Studio & FLUX',
             dark: dark,
           ),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.enhancer,
+            icon: Icons.auto_fix_high_rounded,
+            tooltip: 'AI Enhancer (Real-ESRGAN)',
+            dark: dark,
+          ),
 
           const SizedBox(height: 14),
           Divider(color: dark ? Colors.white12 : Colors.black12, height: 1),
@@ -679,6 +715,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             icon: Icons.photo_rounded,
             dark: dark,
           ),
+          _buildTabButton(
+            tab: SidebarTab.enhancer,
+            label: 'Enhance',
+            icon: Icons.auto_fix_high_rounded,
+            dark: dark,
+          ),
         ],
       ),
     );
@@ -758,6 +800,8 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
         return _buildVideoModePanel(dark, border, muted);
       case SidebarTab.image:
         return _buildImageModePanel(dark, border, muted);
+      case SidebarTab.enhancer:
+        return _buildEnhancerModePanel(dark, border, muted);
       case SidebarTab.history:
         return _buildHistoryPanel(dark, border, muted, card);
     }
@@ -2087,6 +2131,358 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // TAB 5: AI ENHANCER PANEL (Real-ESRGAN x4plus & Anime 6B)
+  // ─────────────────────────────────────────────────────────────
+  Widget _buildEnhancerModePanel(bool dark, Color border, Color muted) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(right: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: LuminaColors.primaryStart.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.auto_fix_high_rounded, size: 17, color: LuminaColors.primaryEnd),
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI Image Enhancer',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      'Real-ESRGAN 4× Super-Resolution & Clarity',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // New Enhance Project Button
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: LuminaColors.primaryGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: FilledButton.icon(
+              onPressed: widget.onNewEnhanceProject ?? widget.onNewProject,
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+              icon: const Icon(Icons.add_photo_alternate_rounded, size: 18, color: Colors.white),
+              label: const Text(
+                'New Enhancement',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          // Section Title: Models
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'ENHANCER ENGINE',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                  color: muted,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: LuminaColors.primaryStart.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'RRDBNet 4×',
+                  style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: LuminaColors.primaryEnd),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Model Cards
+          ..._enhancerModels.map((m) {
+            final isSelected = _selectedEnhancerModel == m['id'];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: InkWell(
+                onTap: () {
+                  setState(() => _selectedEnhancerModel = m['id']!);
+                  widget.onSelectEnhancerModel?.call(m['id']!);
+                },
+                borderRadius: BorderRadius.circular(10),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? (dark ? const Color(0xFF281F26) : const Color(0xFFFFF0F3))
+                        : (dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isSelected ? LuminaColors.primaryStart : border,
+                      width: isSelected ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                            size: 16,
+                            color: isSelected ? LuminaColors.primaryStart : muted,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              m['name']!,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? (dark ? Colors.white : LuminaColors.primaryStart) : null,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white10 : Colors.black12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              m['tag']!,
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: isSelected ? Colors.white : muted,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        m['desc']!,
+                        style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.photo_size_select_large_rounded, size: 12, color: muted),
+                          const SizedBox(width: 4),
+                          Text(m['resolution']!, style: TextStyle(fontSize: 10.5, color: muted)),
+                          const Spacer(),
+                          const Icon(Icons.bolt_rounded, size: 12, color: LuminaColors.primaryEnd),
+                          const SizedBox(width: 2),
+                          Text(m['speed']!, style: TextStyle(fontSize: 10.5, color: muted)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+
+          const SizedBox(height: 10),
+
+          // Scale Selector
+          Text(
+            'UPSCALE SCALE',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+              color: muted,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _buildScaleChip(
+                  scale: 4,
+                  label: '4× Ultra 4K',
+                  subtitle: 'Highest clarity & super-res',
+                  dark: dark,
+                  border: border,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildScaleChip(
+                  scale: 2,
+                  label: '2× Fast HD',
+                  subtitle: 'Quick crisp sharpening',
+                  dark: dark,
+                  border: border,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Face Restoration Toggle
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.face_retouching_natural_rounded, size: 20, color: LuminaColors.primaryEnd),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Face Restoration (GFPGAN)',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      Text(
+                        'Sharpen eyes, skin & facial contours',
+                        style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _enhancerFaceRestore,
+                  onChanged: (val) => setState(() => _enhancerFaceRestore = val),
+                  activeThumbColor: LuminaColors.primaryStart,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Pro Tips Info Card
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF1E2430) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.tips_and_updates_rounded, size: 15, color: Colors.amber),
+                    const SizedBox(width: 6),
+                    Text(
+                      'HOW AI ENHANCER WORKS',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: dark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '• Real-ESRGAN operates purely in high-fidelity pixel space without needing a text prompt.\n• Upload low-res, compressed, or blurry photos to upscale 4× into crystal-clear detail.\n• Great for vintage photos, AI art upscaling, and anime wallpapers.',
+                  style: TextStyle(fontSize: 10.5, color: muted, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScaleChip({
+    required int scale,
+    required String label,
+    required String subtitle,
+    required bool dark,
+    required Color border,
+  }) {
+    final isSelected = _enhancerScale == scale;
+    return InkWell(
+      onTap: () => setState(() => _enhancerScale = scale),
+      borderRadius: BorderRadius.circular(8),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? (dark ? const Color(0xFF281F26) : const Color(0xFFFFF0F3))
+              : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: isSelected ? LuminaColors.primaryStart : border,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold,
+                color: isSelected ? LuminaColors.primaryStart : null,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 9.5, color: isSelected ? LuminaColors.primaryStart.withValues(alpha: 0.8) : Colors.grey),
+            ),
+          ],
+        ),
       ),
     );
   }

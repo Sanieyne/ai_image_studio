@@ -166,4 +166,21 @@ class Wan2_1Request(BaseModel):
     seed: Optional[int] = -1
 
 
+class EnhanceRequest(BaseModel):
+    image_base64: str = Field(..., description="Base64-encoded source image to enhance/upscale")
+    model_name: str = Field(default="amd/realesrgan-x4plus", description="Model identifier: amd/realesrgan-x4plus or anime-6b")
+    scale: int = Field(default=4, ge=2, le=4, description="Target upscale factor: 2 or 4")
+    face_enhance: bool = Field(default=False, description="Enable GFPGAN facial restoration")
+    denoise_strength: float = Field(default=0.5, ge=0.0, le=1.0, description="Denoise strength for cleaning artifacts")
 
+
+class EnhanceResponse(BaseModel):
+    success: bool = True
+    image_base64: str
+    width: int
+    height: int
+    original_width: int
+    original_height: int
+    scale: int = 4
+    model_name: str = "amd/realesrgan-x4plus"
+    inference_time_ms: int = 0

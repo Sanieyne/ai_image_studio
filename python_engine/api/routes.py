@@ -26,6 +26,8 @@ from api.schemas import (
     TryOnRequest,
     TryOnResponse,
     Wan2_1Request,
+    EnhanceRequest,
+    EnhanceResponse,
 )
 from generation.pipeline import (
     ASPECT_RATIO_BUCKETS,
@@ -622,4 +624,63 @@ def virtual_tryon(req: TryOnRequest) -> TryOnResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Virtual try-on failed: {e}",
         )
+
+
+@router.post("/enhance", response_model=EnhanceResponse)
+def enhance_image(req: EnhanceRequest) -> EnhanceResponse:
+    """Real-ESRGAN x4plus AI Image Enhancement & Super-Resolution endpoint."""
+    from generation.enhancer_pipeline import get_enhancer_engine
+
+    raw_img = req.image_base64
+    if "," in raw_img:
+        raw_img = raw_img.split(",", 1)[1]
+    try:
+        img_bytes = base64.b64decode(raw_img)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid image_base64 attachment: {e}",
+        )
+
+    t0 = time.perf_counter()
+    try:
+        engine = get_enhancer_engine()
+        png_bytes, w, h, orig_w, orig_h = engine.enhance(
+            image_bytes=img_bytes,
+            scale=req.scale,
+            model_name=req.model_name,
+            face_enhance=req.face_enhance,
+            denoise_strength=req.denoise_strength,
+        )
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+        img_b64 = base64.b64encode(png_bytes).decode("utf-8")
+        if not img_b64.startswith("data:image"):
+            img_b64 = f"data:image/png;base64,{img_b64}"
+
+        return EnhanceResponse(
+            success=True,
+            image_base64=img_b64,
+            width=w,
+            height=h,
+            original_width=orig_w,
+            original_height=orig_h,
+            scale=req.scale,
+            model_name=req.model_name,
+            inference_time_ms=elapsed_ms,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        log.exception("Image enhancement failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Image enhancement failed: {e}",
+        )
+
 

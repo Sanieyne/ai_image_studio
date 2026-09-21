@@ -495,6 +495,70 @@ class ApiService {
     }
   }
 
+  /// POST /enhance -> Real-ESRGAN x4plus AI Image Enhancement & Super-Resolution
+  Future<GenerationResult> enhanceImage({
+    required String imageBase64,
+    String modelName = 'amd/realesrgan-x4plus',
+    int scale = 4,
+    bool faceEnhance = false,
+    double denoiseStrength = 0.5,
+  }) async {
+    try {
+      final cleanImageB64 = imageBase64.contains(',')
+          ? imageBase64.split(',').last
+          : imageBase64;
+
+      final body = {
+        'image_base64': cleanImageB64,
+        'model_name': modelName,
+        'scale': scale,
+        'face_enhance': faceEnhance,
+        'denoise_strength': denoiseStrength,
+      };
+
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/enhance'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(minutes: 3));
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data =
+            jsonDecode(response.body) as Map<String, dynamic>;
+        final String rawB64 = data['image_base64'] as String? ?? '';
+        final String cleanResultB64 =
+            rawB64.contains(',') ? rawB64.split(',').last : rawB64;
+        final Uint8List imageBytes = base64Decode(cleanResultB64);
+        final int elapsed = (data['inference_time_ms'] as num?)?.toInt() ?? 0;
+        final int width = (data['width'] as num?)?.toInt() ?? 1024;
+        final int height = (data['height'] as num?)?.toInt() ?? 1024;
+
+        return GenerationResult(
+          success: true,
+          imageBytes: imageBytes,
+          rawBase64: cleanResultB64,
+          seed: -1,
+          inferenceTimeMs: elapsed,
+          width: width,
+          height: height,
+          aspectRatio: '$width:$height',
+          activeLoras: const {},
+        );
+      }
+      String detail = 'Server returned code ${response.statusCode}';
+      try {
+        final Map<String, dynamic> errorBody =
+            jsonDecode(response.body) as Map<String, dynamic>;
+        detail = errorBody['detail']?.toString() ?? detail;
+      } catch (_) {}
+      return GenerationResult.failure(detail);
+    } catch (e) {
+      return GenerationResult.failure('Image enhancement failed: $e');
+    }
+  }
+
   /// GET /loras -> active adapters ({} when offline).
   Future<Map<String, LoraInfo>> getActiveLoras() async {
     try {

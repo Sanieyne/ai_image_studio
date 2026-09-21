@@ -41,6 +41,8 @@ typedef PromptGenerateCallback = FutureOr<void> Function(
   String? endImageBase64,
   Uint8List? endImageBytes,
   String? endImageName,
+  int? upscaleScale,
+  bool? faceEnhance,
 });
 
 /// Floating frosted prompt bar: dropdown selector pills on top, pill
@@ -65,6 +67,8 @@ class PromptInputBar extends StatefulWidget {
     'SDXL Base 1.0': 'stabilityai/stable-diffusion-xl-base-1.0',
     'Z-Image Turbo': 'Tongyi-MAI/Z-Image-Turbo',
     'FASHN VTON 1.5': 'fashn-ai/fashn-vton-1.5',
+    'Real-ESRGAN x4plus': 'amd/realesrgan-x4plus',
+    'Real-ESRGAN Anime 6B': 'amd/realesrgan-anime-6b',
   };
 
   @override
@@ -156,6 +160,14 @@ class PromptInputBarState extends State<PromptInputBar> {
     });
   }
 
+  /// Programmatically set the enhancer model
+  void setEnhancerModel(String modelName) {
+    setState(() {
+      _model = modelName;
+      _mode = 'AI Enhancer';
+    });
+  }
+
   /// Programmatically set the generation mode
   void setMode(String mode) {
     setState(() {
@@ -194,6 +206,11 @@ class PromptInputBarState extends State<PromptInputBar> {
       _model == 'Wan 2.2 Animate 14B' || _isWan21Model || _isMiniMaxModel;
   bool get _isTryOnModel => _model.contains('FASHN');
   bool get _isTryOnMode => _mode == 'Virtual Try-On' || _isTryOnModel;
+  bool get _isEnhancerModel =>
+      _model.contains('Real-ESRGAN') || _mode == 'AI Enhancer' || _mode == 'Enhancer';
+  bool get _isEnhancerMode => _isEnhancerModel;
+  int _enhancerScale = 4;
+  bool _enhancerFaceRestore = true;
 
   Uint8List? _referenceBytes;
   String? _referenceName;
@@ -248,6 +265,8 @@ class PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('FASHN VTON 1.5', 'Virtual Try-On (972M)', Icons.checkroom_rounded),
     _MenuOption('Z-Image Turbo', 'Fast 6B DiT · 8 steps', Icons.bolt_rounded),
     _MenuOption('SDXL Base 1.0', 'Base Model', Icons.science_outlined),
+    _MenuOption('Real-ESRGAN x4plus', '4× Photo & Art Super-Res', Icons.auto_fix_high_rounded),
+    _MenuOption('Real-ESRGAN Anime 6B', '4× Anime & 2D Art', Icons.brush_rounded),
     _MenuOption('Offline Mock Mode', 'Test Only', Icons.laptop_chromebook),
   ];
 
@@ -257,6 +276,7 @@ class PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('Motion Animate', 'Video & Motion (Wan / MiniMax)', Icons.animation),
     _MenuOption('Video Mode', 'Multi frame', Icons.videocam_outlined),
     _MenuOption('Voice Studio', 'TTS & Voice Cloning', Icons.record_voice_over_rounded),
+    _MenuOption('AI Enhancer', 'Super-Resolution 4×', Icons.auto_fix_high_rounded),
   ];
 
   static const _languages = [
@@ -463,7 +483,40 @@ class PromptInputBarState extends State<PromptInputBar> {
     }
   }
 
+  void _submitEnhancer() {
+    if (_referenceBytes == null || _referenceBase64 == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please upload or attach an image to upscale.'),
+          backgroundColor: Color(0xFFEF4444),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      _pickReferenceImage();
+      return;
+    }
+
+    widget.onGenerate?.call(
+      'AI Upscale $_enhancerScale× ($_model)',
+      '',
+      '1:1',
+      _model,
+      _referenceBase64,
+      1.0,
+      _referenceBytes,
+      20,
+      0.0,
+      upscaleScale: _enhancerScale,
+      faceEnhance: _enhancerFaceRestore,
+    );
+  }
+
   void _submit() {
+    if (_isEnhancerMode) {
+      _submitEnhancer();
+      return;
+    }
+
     if (_isTryOnMode) {
       if (_referenceBytes == null && _garmentBytes == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -673,10 +726,12 @@ class PromptInputBarState extends State<PromptInputBar> {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: border),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+            child: _isEnhancerMode
+                ? _buildEnhancerPromptContainer(dark, border, muted)
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                 // Top row: dropdown selector pills.
                 Wrap(
                   spacing: 8,
@@ -1230,6 +1285,377 @@ class PromptInputBarState extends State<PromptInputBar> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancerPromptContainer(bool dark, Color border, Color muted) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Top Control Row: Mode badge, Model picker, Scale selector, Face restore
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            // Mode Indicator Badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                gradient: LuminaColors.primaryGradient,
+                borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                boxShadow: [
+                  BoxShadow(
+                    color: LuminaColors.primaryGlow.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.auto_fix_high_rounded, size: 14, color: Colors.white),
+                  SizedBox(width: 6),
+                  Text(
+                    'AI Enhancer',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Enhancer Model Selector
+            _SelectorMenu(
+              options: const [
+                _MenuOption('Real-ESRGAN x4plus', '4× Photo & Art (Official)', Icons.auto_fix_high_rounded),
+                _MenuOption('Real-ESRGAN Anime 6B', '4× Anime & 2D Art', Icons.brush_rounded),
+              ],
+              value: _model.contains('Anime') ? 'Real-ESRGAN Anime 6B' : 'Real-ESRGAN x4plus',
+              muted: muted,
+              border: border,
+              menuOffset: const Offset(0, -110),
+              onSelected: (v) => setState(() => _model = v),
+            ),
+
+            // Scale Toggle Chips
+            Container(
+              decoration: BoxDecoration(
+                color: dark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                border: Border.all(color: border),
+              ),
+              padding: const EdgeInsets.all(2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildMiniScaleChip(4, '4× Ultra 4K', dark),
+                  _buildMiniScaleChip(2, '2× HD', dark),
+                ],
+              ),
+            ),
+
+            // GFPGAN Face Restoration Toggle
+            InkWell(
+              onTap: () => setState(() => _enhancerFaceRestore = !_enhancerFaceRestore),
+              borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _enhancerFaceRestore
+                      ? LuminaColors.primaryStart.withValues(alpha: 0.15)
+                      : (dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04)),
+                  borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                  border: Border.all(
+                    color: _enhancerFaceRestore ? LuminaColors.primaryStart : border,
+                    width: _enhancerFaceRestore ? 1.2 : 1.0,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _enhancerFaceRestore ? Icons.face_retouching_natural_rounded : Icons.face_rounded,
+                      size: 14,
+                      color: _enhancerFaceRestore ? LuminaColors.primaryEnd : muted,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      _enhancerFaceRestore ? 'Face Restore: ON' : 'Face Restore: OFF',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: _enhancerFaceRestore ? FontWeight.bold : FontWeight.w500,
+                        color: _enhancerFaceRestore ? LuminaColors.primaryEnd : muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Switch Back To Image Generator
+            Tooltip(
+              message: 'Switch back to Text-to-Image Generation',
+              child: InkWell(
+                onTap: () => setState(() {
+                  _mode = 'Image Mode';
+                  _model = 'FLUX.1 Kontext [dev]';
+                }),
+                borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                    border: Border.all(color: border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.close_rounded, size: 13, color: muted),
+                      const SizedBox(width: 4),
+                      Text('Exit Enhancer', style: TextStyle(fontSize: 11, color: muted)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        // Dedicated Friendly Image Dropzone & Preview Box
+        if (_referenceBytes == null)
+          InkWell(
+            onTap: _pickReferenceImage,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              height: 115,
+              decoration: BoxDecoration(
+                color: dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: LuminaColors.primaryStart.withValues(alpha: 0.35),
+                  width: 1.5,
+                ),
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: LuminaColors.primaryStart.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.add_photo_alternate_rounded,
+                        size: 24,
+                        color: LuminaColors.primaryEnd,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Click to select or upload an image to enhance',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Supports JPG, PNG, WEBP · Super-resolution up to 4K · No prompt needed',
+                      style: TextStyle(fontSize: 11, color: muted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: dark ? const Color(0xFF1E2430) : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: LuminaColors.primaryStart.withValues(alpha: 0.4), width: 1.2),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.memory(
+                    _referenceBytes!,
+                    width: 72,
+                    height: 72,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _referenceName ?? 'Source Image',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: LuminaColors.primaryStart.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${(_referenceBytes!.lengthInBytes / 1024).toStringAsFixed(1)} KB',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: LuminaColors.primaryEnd,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Target Output: $_enhancerScale× Super-Resolution (${_model.contains('Anime') ? 'Anime 6B' : 'Official x4plus'})${_enhancerFaceRestore ? ' + GFPGAN Face Restore' : ''}',
+                        style: TextStyle(fontSize: 11.5, color: muted),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: _pickReferenceImage,
+                            icon: const Icon(Icons.refresh_rounded, size: 14),
+                            label: const Text('Change Image', style: TextStyle(fontSize: 11)),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _referenceBytes = null;
+                                _referenceBase64 = null;
+                                _referenceName = null;
+                              });
+                            },
+                            icon: const Icon(Icons.delete_outline_rounded, size: 14, color: Colors.redAccent),
+                            label: const Text('Remove', style: TextStyle(fontSize: 11, color: Colors.redAccent)),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        const SizedBox(height: 12),
+
+        // Action Row: Hint & Red Gradient Enhance Button
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  const Icon(Icons.bolt_rounded, size: 16, color: LuminaColors.primaryEnd),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      'Blind degradation removal · Operates directly on pixel tensors',
+                      style: TextStyle(fontSize: 11, color: muted, fontStyle: FontStyle.italic),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                gradient: LuminaColors.primaryGradient,
+                boxShadow: [
+                  BoxShadow(
+                    color: LuminaColors.primaryGlow.withValues(alpha: 0.40),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: FilledButton.icon(
+                onPressed: _submitEnhancer,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                ),
+                icon: const Icon(Icons.auto_fix_high_rounded, size: 18, color: Colors.white),
+                label: Text(
+                  'Enhance & Upscale $_enhancerScale×',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMiniScaleChip(int scale, String label, bool dark) {
+    final isSelected = _enhancerScale == scale;
+    return InkWell(
+      onTap: () => setState(() => _enhancerScale = scale),
+      borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? LuminaColors.primaryStart
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected
+                ? Colors.white
+                : (dark ? Colors.white70 : Colors.black87),
           ),
         ),
       ),
