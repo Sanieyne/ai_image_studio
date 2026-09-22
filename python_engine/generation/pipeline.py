@@ -236,10 +236,33 @@ class SDXLEngine:
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
         print(f"[*] Loading Qwen-Image model '{model_id}' ({dtype})...")
 
+        te = None
+        if self.device == "cuda":
+            try:
+                from transformers import BitsAndBytesConfig, Qwen3VLForConditionalGeneration
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=dtype,
+                    bnb_4bit_quant_type="nf4",
+                )
+                print("[*] Loading 4-bit text encoder for Qwen-Image to preserve RAM...")
+                te = Qwen3VLForConditionalGeneration.from_pretrained(
+                    model_id,
+                    subfolder="text_encoder",
+                    quantization_config=bnb_config,
+                    torch_dtype=dtype,
+                    token=hf_token,
+                )
+            except Exception as e:
+                print(f"[WARN] 4-bit text encoder load failed ({e}), falling back to default.")
+
+        kwargs = {"torch_dtype": dtype, "token": hf_token}
+        if te is not None:
+            kwargs["text_encoder"] = te
+
         self.pipe = pipeline_cls.from_pretrained(
             model_id,
-            torch_dtype=dtype,
-            token=hf_token,
+            **kwargs,
         )
         if self.device == "cuda":
             total_vram_gb = (
@@ -254,7 +277,6 @@ class SDXLEngine:
             try:
                 if hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
                     self.pipe.vae.enable_tiling()
-                    self.pipe.vae.enable_slicing()
             except Exception:
                 pass
         else:
@@ -558,37 +580,21 @@ class SDXLEngine:
 
         # Qwen-Image family: unified 7B DiT with 2K and transparent editing.
         if getattr(self, "family", "sdxl") == "qwen_image":
+            kwargs = {
+                "prompt": prompt,
+                "height": height,
+                "width": width,
+                "num_inference_steps": num_inference_steps,
+                "true_cfg_scale": guidance_scale,
+                "generator": generator,
+            }
+            if negative_prompt and negative_prompt.strip():
+                kwargs["negative_prompt"] = negative_prompt
             if init_image is not None:
-                if self.img2img_pipe is None:
-                    try:
-                        from diffusers import QwenImage21Img2ImgPipeline
-                        self.img2img_pipe = QwenImage21Img2ImgPipeline.from_pipe(self.pipe)
-                    except Exception:
-                        from diffusers import AutoPipelineForImage2Image
-                        self.img2img_pipe = AutoPipelineForImage2Image.from_pipe(self.pipe)
-                init_img = init_image.convert("RGB").resize(
+                kwargs["image"] = init_image.convert("RGB").resize(
                     (width, height), Image.Resampling.LANCZOS
                 )
-                result = self.img2img_pipe(
-                    prompt=prompt,
-                    image=init_img,
-                    strength=strength,
-                    height=height,
-                    width=width,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator,
-                )
-                return result.images[0]
-
-            result = self.pipe(
-                prompt=prompt,
-                height=height,
-                width=width,
-                num_inference_steps=num_inference_steps,
-                guidance_scale=guidance_scale,
-                generator=generator,
-            )
+            result = self.pipe(**kwargs)
             return result.images[0]
 
         if init_image is not None:
