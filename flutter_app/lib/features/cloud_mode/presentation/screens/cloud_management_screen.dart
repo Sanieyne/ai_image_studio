@@ -94,7 +94,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
             Text('Recommended Volume: ${_recommendation?.recommendedStorage.name ?? 'Starter 30GB'}'),
             const SizedBox(height: 14),
             const Text(
-              'The Cloud Orchestrator backend on Contabo will allocate GPU instances via Vast.ai, download the model weights into your isolated volume, and connect your studio in seconds.',
+              'The Cloud Orchestrator will allocate dedicated GPU instances, stream the model weights into your isolated volume, and connect your studio in seconds.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
@@ -173,7 +173,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Dynamic VRAM recommendation, multi-model storage footprinting & Vast.ai cloud instances.',
+                          'Dynamic VRAM recommendation, multi-model storage footprinting & high-throughput cloud instances.',
                           style: TextStyle(fontSize: 12, color: muted),
                         ),
                       ],
@@ -199,7 +199,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _backendOnline ? 'Cloud Backend: 45.140.185.248' : 'Cloud Backend: Offline / Fallback',
+                            _backendOnline ? 'Cloud Cluster: Connected (EU-Central)' : 'Cloud Cluster: Offline',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,

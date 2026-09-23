@@ -357,7 +357,7 @@ class _CloudStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = LuminaTheme.isDark(context);
     final muted = dark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
-    final label = online ? 'Contabo VPS Ready' : 'Cloud Offline';
+    final label = online ? 'Cloud GPU Network: Ready' : 'Cloud Offline';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
