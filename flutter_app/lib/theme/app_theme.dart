@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 /// deep obsidian dark theme <-> warm cream frosted light theme.
 class LuminaColors {
   static const violet = Color(0xFF8A42D5);
+  static const purple = Color(0xFF9C27B0);
   static const cyan = Color(0xFF35B6C4);
   static const amber = Color(0xFFF5B942);
   static const infoBlue = Color(0xFF3368A8);

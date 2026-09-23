@@ -19,6 +19,9 @@ import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
 import '../widgets/video_template_gallery.dart';
 import '../widgets/image_template_gallery.dart';
+import '../features/cloud_mode/data/models/cloud_model.dart';
+import '../features/cloud_mode/data/services/cloud_api_service.dart';
+import '../features/cloud_mode/presentation/screens/cloud_management_screen.dart';
 
 /// Lumina studio: DB-backed projects + generation feed.
 class HomeScreen extends StatefulWidget {
@@ -35,10 +38,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final _db = DatabaseService.instance;
   final _api = ApiService();
+  final _cloudApi = CloudApiService.instance;
   final _promptBarKey = GlobalKey<PromptInputBarState>();
 
+  StudioExecutionMode _executionMode = StudioExecutionMode.local;
   Timer? _healthTimer;
   bool _engineOnline = false;
+  bool _cloudOnline = false;
   int _consecutiveHealthFailures = 0;
   bool _isSidebarCollapsed = false;
   bool _loading = true;
@@ -77,7 +83,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkHealth() async {
     final ok = await _api.checkHealth();
+    final cloudOk = await _cloudApi.checkHealth();
+
     if (!mounted) return;
+    if (cloudOk != _cloudOnline) {
+      setState(() => _cloudOnline = cloudOk);
+    }
+
     if (ok) {
       _consecutiveHealthFailures = 0;
       if (!_engineOnline) {
@@ -793,6 +805,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: TopBar(
         engineOnline: _engineOnline,
+        cloudOnline: _cloudOnline,
+        executionMode: _executionMode,
+        onExecutionModeChanged: (mode) => setState(() => _executionMode = mode),
         deviceName: _api.activeDeviceName,
         isDark: widget.isDark,
         workspaceLabel: _activeProject?.title ?? 'Creative Studio',
@@ -807,7 +822,9 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         },
       ),
-      body: Row(
+      body: _executionMode == StudioExecutionMode.cloud
+          ? CloudManagementScreen(isDark: widget.isDark)
+          : Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppSidebar(
