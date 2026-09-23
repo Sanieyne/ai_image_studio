@@ -20,6 +20,7 @@ server.log
 *.mp4
 *.png
 !assets/**/*.png
-cloud_backend/
 flutter_app/vast_batch/
 flutter_app/fa-brands-400.woff2
+cloud_backend/node_modules/
+cloud_backend/.env
