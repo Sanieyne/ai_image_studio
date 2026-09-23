@@ -61,6 +61,26 @@ class ModelSwitchRequest(BaseModel):
     model_id: str = Field(..., min_length=1)
 
 
+class ModelItem(BaseModel):
+    id: str
+    label: str
+    family: str
+    mode: str = "image"
+    is_active: bool = False
+    is_downloaded: bool = False
+    default_steps: int = 30
+    default_guidance: float = 7.0
+    gated: bool = False
+    note: str = ""
+
+
+class AvailableModelsResponse(BaseModel):
+    active_model: Optional[str] = None
+    device: str = "cuda"
+    models: List[ModelItem] = []
+
+
+
 class VideoRequest(BaseModel):
     prompt: str = Field(..., min_length=1)
     image_base64: Optional[str] = None

@@ -8,6 +8,7 @@ import 'package:ai_image_studio/models/generation_request.dart';
 import 'package:ai_image_studio/models/generation_result.dart';
 import 'package:ai_image_studio/services/api_service.dart';
 import 'package:ai_image_studio/widgets/app_sidebar.dart';
+import 'package:ai_image_studio/widgets/prompt_input_bar.dart';
 import 'package:ai_image_studio/widgets/settings_dialog.dart';
 
 void main() {
@@ -342,5 +343,60 @@ void main() {
     expect(result.audioBytes![1], 0x49);
     expect(result.audioBytes![2], 0x46);
     expect(result.audioBytes![3], 0x46);
+  });
+
+  test('AvailableModelInfo fromJson parses fields accurately', () {
+    final info = AvailableModelInfo.fromJson({
+      'id': 'Qwen/Qwen-Image-2.1',
+      'label': 'Qwen-Image 2.1',
+      'family': 'qwen',
+      'mode': 'image',
+      'is_active': true,
+      'is_downloaded': true,
+      'default_steps': 40,
+      'default_guidance': 1.0,
+      'gated': false,
+      'note': 'Unified 7B DiT',
+    });
+
+    expect(info.id, 'Qwen/Qwen-Image-2.1');
+    expect(info.label, 'Qwen-Image 2.1');
+    expect(info.family, 'qwen');
+    expect(info.mode, 'image');
+    expect(info.isActive, isTrue);
+    expect(info.isDownloaded, isTrue);
+    expect(info.defaultSteps, 40);
+    expect(info.defaultGuidance, 1.0);
+  });
+
+  testWidgets('PromptInputBar programmatic mode switch updates model to mode models',
+      (tester) async {
+    final key = GlobalKey<PromptInputBarState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PromptInputBar(key: key),
+        ),
+      ),
+    );
+
+    // Initial state is 'Motion Animate' with 'Wan 2.2 Animate 14B'
+    expect(find.text('Motion Animate'), findsOneWidget);
+    expect(find.text('Wan 2.2 Animate 14B'), findsOneWidget);
+
+    // Programmatically switch mode to 'Image Mode'
+    key.currentState!.setMode('Image Mode');
+    await tester.pumpAndSettle();
+
+    // Now mode is 'Image Mode' and model switched to 'Qwen-Image 2.1'
+    expect(find.text('Image Mode'), findsOneWidget);
+    expect(find.text('Qwen-Image 2.1'), findsOneWidget);
+
+    // Programmatically switch mode to 'Voice Studio'
+    key.currentState!.setMode('Voice Studio');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Voice Studio'), findsOneWidget);
+    expect(find.text('Chatterbox TTS'), findsOneWidget);
   });
 }

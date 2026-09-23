@@ -5,8 +5,11 @@ import logging
 import sys
 import os
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 # Allow running as `python app.py` or `uvicorn app:app` from python_engine/.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 # PyInstaller frozen app compatibility for packages that inspect metadata (diffusers, transformers)
 if getattr(sys, "frozen", False):

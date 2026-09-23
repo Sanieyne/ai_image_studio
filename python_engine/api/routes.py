@@ -28,7 +28,10 @@ from api.schemas import (
     Wan2_1Request,
     EnhanceRequest,
     EnhanceResponse,
+    AvailableModelsResponse,
+    ModelItem,
 )
+
 from generation.pipeline import (
     ASPECT_RATIO_BUCKETS,
     get_pipeline,
@@ -245,6 +248,21 @@ def get_current_model():
         "device": pipe.device,
         "model_loaded": pipe.model_loaded,
     }
+
+
+@router.get("/models/available", response_model=AvailableModelsResponse)
+@router.get("/models", response_model=AvailableModelsResponse)
+def get_available_models_endpoint() -> AvailableModelsResponse:
+    from generation.model_registry import get_available_models
+    pipe = get_pipeline()
+    active_id = getattr(pipe, "current_model", None)
+    models_list = get_available_models(active_model_id=active_id)
+    return AvailableModelsResponse(
+        active_model=active_id,
+        device=getattr(pipe, "device", "cuda"),
+        models=[ModelItem(**m) for m in models_list],
+    )
+
 
 
 @router.post("/models/switch")

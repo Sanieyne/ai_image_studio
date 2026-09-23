@@ -9,10 +9,52 @@ import 'package:http/http.dart' as http;
 import '../models/generation_request.dart';
 import '../models/generation_result.dart';
 import '../models/lora.dart';
+/// Information about an available model returned by GET /models/available
+class AvailableModelInfo {
+  final String id;
+  final String label;
+  final String family;
+  final String mode; // 'image', 'video', 'voice', 'tryon', 'enhancer'
+  final bool isActive;
+  final bool isDownloaded;
+  final int defaultSteps;
+  final double defaultGuidance;
+  final bool gated;
+  final String note;
+
+  const AvailableModelInfo({
+    required this.id,
+    required this.label,
+    required this.family,
+    required this.mode,
+    this.isActive = false,
+    this.isDownloaded = false,
+    this.defaultSteps = 30,
+    this.defaultGuidance = 7.0,
+    this.gated = false,
+    this.note = '',
+  });
+
+  factory AvailableModelInfo.fromJson(Map<String, dynamic> json) {
+    return AvailableModelInfo(
+      id: json['id'] as String? ?? '',
+      label: json['label'] as String? ?? '',
+      family: json['family'] as String? ?? '',
+      mode: json['mode'] as String? ?? 'image',
+      isActive: json['is_active'] as bool? ?? false,
+      isDownloaded: json['is_downloaded'] as bool? ?? false,
+      defaultSteps: (json['default_steps'] as num?)?.toInt() ?? 30,
+      defaultGuidance: (json['default_guidance'] as num?)?.toDouble() ?? 7.0,
+      gated: json['gated'] as bool? ?? false,
+      note: json['note'] as String? ?? '',
+    );
+  }
+}
 
 /// HTTP client for the Python engine (Part 4/5): generation + LoRA
 /// management + health, with offline mock fallback.
 class ApiService {
+
   static const String baseUrl = 'http://127.0.0.1:8000';
   static const Duration requestTimeout = Duration(minutes: 5);
 
@@ -668,6 +710,27 @@ class ApiService {
     }
     return null;
   }
+
+  /// GET /models/available -> list of models with live download & active status
+  Future<List<AvailableModelInfo>> getAvailableModels() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/models/available'))
+          .timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final list = data['models'] as List<dynamic>? ?? [];
+        return list
+            .map((item) =>
+                AvailableModelInfo.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[ApiService] Failed to fetch available models: $e');
+    }
+    return [];
+  }
+
 
   /// Offline stand-in: delay + prompt-seeded picsum image at bucket size.
   Future<GenerationResult> _mockFallback(GenerationRequest req) async {

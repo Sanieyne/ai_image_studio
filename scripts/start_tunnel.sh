@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# start_tunnel.sh - Forward local port 8000 to Vast.ai RTX 5090 instance
-echo "=== Establishing SSH Tunnel: Localhost:8000 -> Vast.ai RTX 5090:8000 ==="
-# Instance: vast.ai #51223084 — RTX 5090 32GB, CN
-# SSH port: 53262, IP: 113.207.71.6
+# start_tunnel.sh - Forward local ports 8000 and 8080 to Vast.ai instance
+echo "=== Establishing SSH Tunnel: Localhost:8000 (Engine) & 8080 (Jupyter) -> Vast.ai RTX 3090 ==="
+# Instance: vast.ai — RTX 3090 24GB
+# SSH port: 41504, IP: 106.184.52.80
 fuser -k 8000/tcp 2>/dev/null || true
-ssh -p 53262 \
+ssh -p 41504 \
     -i ~/.ssh/id_ed25519 \
     -N \
     -L 8000:localhost:8000 \
+    -L 8080:localhost:8080 \
     -o ServerAliveInterval=15 \
     -o ServerAliveCountMax=6 \
     -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=no \
-    root@113.207.71.6
+    root@106.184.52.80
+
 

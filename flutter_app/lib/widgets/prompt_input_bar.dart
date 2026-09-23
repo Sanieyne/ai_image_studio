@@ -123,7 +123,7 @@ class PromptInputBarState extends State<PromptInputBar> {
         _showNegativePrompt = true;
       }
       _model = template.model;
-      _mode = template.isTryOnModel ? 'Virtual Try-On' : 'Text to Image';
+      _mode = template.isTryOnModel ? 'Virtual Try-On' : 'Image Mode';
       _ratio = template.aspectRatio;
       _steps = template.steps;
       _cfg = template.cfgScale;
@@ -141,7 +141,8 @@ class PromptInputBarState extends State<PromptInputBar> {
   void setImageModel(String modelName) {
     setState(() {
       _model = modelName;
-      _mode = modelName.contains('FASHN') ? 'Virtual Try-On' : 'Text to Image';
+      _mode = modelName.contains('FASHN') ? 'Virtual Try-On' : 'Image Mode';
+      _applyModelDefaults(modelName);
     });
   }
 
@@ -150,6 +151,7 @@ class PromptInputBarState extends State<PromptInputBar> {
     setState(() {
       _model = modelName;
       _mode = 'Video Mode';
+      _applyModelDefaults(modelName);
     });
   }
 
@@ -157,7 +159,8 @@ class PromptInputBarState extends State<PromptInputBar> {
   void setVoiceModel(String modelName) {
     setState(() {
       _model = modelName;
-      _mode = 'Voice Mode';
+      _mode = 'Voice Studio';
+      _applyModelDefaults(modelName);
     });
   }
 
@@ -166,6 +169,7 @@ class PromptInputBarState extends State<PromptInputBar> {
     setState(() {
       _model = modelName;
       _mode = 'AI Enhancer';
+      _applyModelDefaults(modelName);
     });
   }
 
@@ -173,6 +177,11 @@ class PromptInputBarState extends State<PromptInputBar> {
   void setMode(String mode) {
     setState(() {
       _mode = mode;
+      final modeModels = _modelsForMode(mode);
+      if (!modeModels.any((m) => m.value == _model)) {
+        _model = modeModels.first.value;
+      }
+      _applyModelDefaults(_model);
     });
   }
 
@@ -253,24 +262,101 @@ class PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('model', 'Worn by Model', Icons.person_outline),
     _MenuOption('flat-lay', 'Flat-Lay Product Shot', Icons.layers_outlined),
   ];
-  static const _models = [
-    _MenuOption('Chatterbox TTS', 'Resemble AI Voice (500M)', Icons.record_voice_over_rounded),
-    _MenuOption('Chatterbox Multilingual V3', '23+ Languages TTS', Icons.language_rounded),
-    _MenuOption('Breeze TTS 2', 'BreezeBlue Voice Design (3.4B)', Icons.graphic_eq_rounded),
-    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+  static const _imageModels = [
+    _MenuOption('Qwen-Image 2.1', 'Unified 7B DiT · Native 2K', Icons.auto_awesome),
+    _MenuOption('SDXL Base 1.0', 'Base Model', Icons.science_outlined),
+    _MenuOption('FLUX.1 Kontext [dev]', 'Img2Img / Edit (12B)', Icons.auto_fix_high),
+    _MenuOption('Z-Image Turbo', 'Fast 6B DiT · 8 steps', Icons.bolt_rounded),
+    _MenuOption('Offline Mock Mode', 'Test Only', Icons.laptop_chromebook),
+  ];
+  static const _videoModels = [
     _MenuOption('Wan 2.1 T2V 1.3B', 'Fast Text-to-Video (1.3B)', Icons.videocam_rounded),
     _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
     _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
     _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
-    _MenuOption('Qwen-Image 2.1', 'Unified 7B DiT · Native 2K', Icons.auto_awesome),
-    _MenuOption('FLUX.1 Kontext [dev]', 'Img2Img / Edit (12B)', Icons.auto_fix_high),
+    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+  ];
+  static const _motionAnimateModels = [
+    _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
+    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+    _MenuOption('Wan 2.1 T2V 1.3B', 'Fast Text-to-Video (1.3B)', Icons.videocam_rounded),
+    _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
+    _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
+  ];
+  static const _voiceModels = [
+    _MenuOption('Chatterbox TTS', 'Resemble AI Voice (500M)', Icons.record_voice_over_rounded),
+    _MenuOption('Chatterbox Multilingual V3', '23+ Languages TTS', Icons.language_rounded),
+    _MenuOption('Breeze TTS 2', 'BreezeBlue Voice Design (3.4B)', Icons.graphic_eq_rounded),
+  ];
+  static const _tryonModels = [
     _MenuOption('FASHN VTON 1.5', 'Virtual Try-On (972M)', Icons.checkroom_rounded),
-    _MenuOption('Z-Image Turbo', 'Fast 6B DiT · 8 steps', Icons.bolt_rounded),
-    _MenuOption('SDXL Base 1.0', 'Base Model', Icons.science_outlined),
+  ];
+  static const _enhancerModels = [
     _MenuOption('Real-ESRGAN x4plus', '4× Photo & Art Super-Res', Icons.auto_fix_high_rounded),
     _MenuOption('Real-ESRGAN Anime 6B', '4× Anime & 2D Art', Icons.brush_rounded),
-    _MenuOption('Offline Mock Mode', 'Test Only', Icons.laptop_chromebook),
   ];
+
+  static List<_MenuOption> _modelsForMode(String mode) {
+    switch (mode) {
+      case 'Image Mode':
+      case 'Text to Image':
+        return _imageModels;
+      case 'Virtual Try-On':
+        return _tryonModels;
+      case 'Motion Animate':
+        return _motionAnimateModels;
+      case 'Video Mode':
+        return _videoModels;
+      case 'Voice Studio':
+      case 'Voice Mode':
+        return _voiceModels;
+      case 'AI Enhancer':
+      case 'Enhancer':
+        return _enhancerModels;
+      default:
+        return _imageModels;
+    }
+  }
+
+  List<_MenuOption> get _currentModeModels => _modelsForMode(_mode);
+
+  void _applyModelDefaults(String modelName) {
+    if (modelName == 'FASHN VTON 1.5') {
+      _steps = 30;
+      _cfg = 1.5;
+    } else if (modelName == 'Wan 2.1 T2V 1.3B' ||
+        modelName == 'Wan 2.1 I2V 14B' ||
+        modelName == 'Wan 2.1 FLF2V 14B') {
+      _steps = 30;
+      _cfg = 5.0;
+    } else if (modelName == 'Wan 2.2 Animate 14B') {
+      _steps = 4;
+      _cfg = 1.0;
+    } else if (modelName == 'MiniMax-H3 Video+Audio') {
+      _steps = 30;
+      _cfg = 6.0;
+    } else if (modelName == 'Chatterbox TTS' ||
+        modelName == 'Chatterbox Multilingual V3' ||
+        modelName == 'Breeze TTS 2') {
+      _cfg = (modelName == 'Breeze TTS 2') ? 4.0 : 0.5;
+      _exaggeration = 0.5;
+    } else if (modelName == 'Qwen-Image 2.1') {
+      _steps = 40;
+      _cfg = 1.0;
+    } else if (modelName == 'FLUX.1 Kontext [dev]') {
+      _steps = 16;
+      _cfg = 3.5;
+    } else if (modelName == 'Z-Image Turbo') {
+      _steps = 9;
+      _cfg = 0.0;
+    } else if (modelName == 'SDXL Base 1.0') {
+      _steps = 30;
+      _cfg = 7.0;
+    } else if (modelName.contains('Real-ESRGAN')) {
+      _steps = 20;
+      _cfg = 1.0;
+    }
+  }
 
   static const _modes = [
     _MenuOption('Image Mode', 'Single frame', Icons.image_outlined),
@@ -303,6 +389,27 @@ class PromptInputBarState extends State<PromptInputBar> {
   String _ratio = '9:16';
   String _model = 'Wan 2.2 Animate 14B';
   String _mode = 'Motion Animate';
+  Map<String, AvailableModelInfo> _availableModelsMap = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAvailableModels();
+  }
+
+  Future<void> _fetchAvailableModels() async {
+    try {
+      final service = widget.apiService ?? ApiService();
+      final models = await service.getAvailableModels();
+      if (mounted && models.isNotEmpty) {
+        setState(() {
+          _availableModelsMap = {
+            for (final m in models) m.label: m,
+          };
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -750,63 +857,6 @@ class PromptInputBarState extends State<PromptInputBar> {
                           setState(() => _ratio = v),
                     ),
                     _SelectorMenu(
-                      options: _models,
-                      value: _model,
-                      muted: muted,
-                      border: border,
-                      menuOffset: const Offset(0, -220),
-                      onSelected: (v) => setState(() {
-                        _model = v;
-                        if (v == 'FASHN VTON 1.5') {
-                          _mode = 'Virtual Try-On';
-                          _steps = 30;
-                          _cfg = 1.5;
-                        } else if (v == 'Wan 2.1 T2V 1.3B') {
-                          _mode = 'Video Mode';
-                          _steps = 30;
-                          _cfg = 5.0;
-                        } else if (v == 'Wan 2.1 I2V 14B') {
-                          _mode = 'Video Mode';
-                          _steps = 30;
-                          _cfg = 5.0;
-                        } else if (v == 'Wan 2.1 FLF2V 14B') {
-                          _mode = 'Video Mode';
-                          _steps = 30;
-                          _cfg = 5.0;
-                        } else if (v == 'Wan 2.2 Animate 14B') {
-                          _mode = 'Motion Animate';
-                          _steps = 4;
-                          _cfg = 1.0;
-                        } else if (v == 'MiniMax-H3 Video+Audio') {
-                          _mode = 'Motion Animate';
-                          _steps = 30;
-                          _cfg = 6.0;
-                        } else if (v == 'Chatterbox TTS' ||
-                            v == 'Chatterbox Multilingual V3' ||
-                            v == 'Breeze TTS 2') {
-                          _mode = 'Voice Studio';
-                          _cfg = (v == 'Breeze TTS 2') ? 4.0 : 0.5;
-                          _exaggeration = 0.5;
-                        } else if (v == 'Qwen-Image 2.1') {
-                          _mode = 'Image Mode';
-                          _steps = 40;
-                          _cfg = 1.0;
-                        } else if (v == 'FLUX.1 Kontext [dev]') {
-                          _mode = 'Image Mode';
-                          _steps = 16;
-                          _cfg = 3.5;
-                        } else if (v == 'Z-Image Turbo') {
-                          _mode = 'Image Mode';
-                          _steps = 9;
-                          _cfg = 0.0;
-                        } else {
-                          _mode = 'Image Mode';
-                          _steps = 30;
-                          _cfg = 7.0;
-                        }
-                      }),
-                    ),
-                    _SelectorMenu(
                       options: _modes,
                       value: _mode,
                       muted: muted,
@@ -814,27 +864,24 @@ class PromptInputBarState extends State<PromptInputBar> {
                       menuOffset: const Offset(0, -180),
                       onSelected: (v) => setState(() {
                         _mode = v;
-                        if (v == 'Virtual Try-On') {
-                          _model = 'FASHN VTON 1.5';
-                          _steps = 30;
-                          _cfg = 1.5;
-                        } else if (v == 'Voice Studio') {
-                          if (!_isVoiceModel) {
-                            _model = 'Breeze TTS 2';
-                          }
-                          _cfg = _model.contains('Breeze') ? 4.0 : 0.5;
-                          _exaggeration = 0.5;
-                        } else if (v == 'Motion Animate' || v == 'Video Mode') {
-                          if (!_isVideoModel) {
-                            _model = 'MiniMax-H3 Video+Audio';
-                          }
-                          _steps = _isMiniMaxModel ? 30 : 4;
-                          _cfg = _isMiniMaxModel ? 6.0 : 1.0;
-                        } else if (_isVideoModel || _isVoiceModel || _isTryOnModel) {
-                          _model = 'FLUX.1 Kontext [dev]';
-                          _steps = 16;
-                          _cfg = 3.5;
+                        final modeModels = _modelsForMode(v);
+                        if (!modeModels.any((m) => m.value == _model)) {
+                          _model = modeModels.first.value;
                         }
+                        _applyModelDefaults(_model);
+                      }),
+                    ),
+                    _SelectorMenu(
+                      options: _currentModeModels,
+                      value: _model,
+                      muted: muted,
+                      border: border,
+                      menuOffset: const Offset(0, -220),
+                      modelStatusMap: _availableModelsMap,
+                      onMenuOpened: _fetchAvailableModels,
+                      onSelected: (v) => setState(() {
+                        _model = v;
+                        _applyModelDefaults(v);
                       }),
                     ),
                     if (_isTryOnMode) ...[
@@ -2624,6 +2671,8 @@ class _SelectorMenu extends StatelessWidget {
   final Color border;
   final Offset menuOffset;
   final ValueChanged<String> onSelected;
+  final Map<String, AvailableModelInfo>? modelStatusMap;
+  final VoidCallback? onMenuOpened;
 
   const _SelectorMenu({
     required this.options,
@@ -2632,17 +2681,171 @@ class _SelectorMenu extends StatelessWidget {
     required this.border,
     this.menuOffset = Offset.zero,
     required this.onSelected,
+    this.modelStatusMap,
+    this.onMenuOpened,
   });
+
+  Widget _buildStatusDot(AvailableModelInfo status) {
+    final Color dotColor;
+    final String tooltip;
+    if (status.isActive) {
+      dotColor = const Color(0xFF10B981);
+      tooltip = 'Active in GPU memory';
+    } else if (status.isDownloaded) {
+      dotColor = const Color(0xFF3B82F6);
+      tooltip = 'Downloaded & cached on disk';
+    } else {
+      dotColor = Colors.grey.withValues(alpha: 0.5);
+      tooltip = 'Available online';
+    }
+    return Tooltip(
+      message: tooltip,
+      child: Container(
+        width: 7,
+        height: 7,
+        decoration: BoxDecoration(
+          color: dotColor,
+          shape: BoxShape.circle,
+          boxShadow: status.isActive
+              ? [
+                  BoxShadow(
+                    color: dotColor.withValues(alpha: 0.7),
+                    blurRadius: 5,
+                    spreadRadius: 1,
+                  )
+                ]
+              : null,
+        ),
+      ),
+    );
+  }
+
+  Widget? _buildStatusBadge(String modelValue) {
+    if (modelValue == 'Offline Mock Mode') {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: Colors.amber.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.amber.withValues(alpha: 0.5), width: 0.8),
+        ),
+        child: const Text(
+          'MOCK',
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+            color: Colors.amber,
+            letterSpacing: 0.4,
+          ),
+        ),
+      );
+    }
+
+    final status = modelStatusMap?[modelValue];
+    if (status == null) return null;
+
+    if (status.isActive) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF10B981), width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 5,
+              height: 5,
+              decoration: const BoxDecoration(
+                color: Color(0xFF10B981),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 3),
+            const Text(
+              'ACTIVE',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF10B981),
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (status.isDownloaded) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3B82F6).withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFF3B82F6), width: 0.8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 5,
+              height: 5,
+              decoration: const BoxDecoration(
+                color: Color(0xFF3B82F6),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 3),
+            const Text(
+              'READY',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF3B82F6),
+                letterSpacing: 0.4,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.8),
+      ),
+      child: const Text(
+        'ONLINE',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final dark = LuminaTheme.isDark(context);
-    final current = options.firstWhere((o) => o.value == value,
-        orElse: () => options.first);
+    final current = options.firstWhere(
+      (o) => o.value == value,
+      orElse: () => options.isNotEmpty
+          ? options.first
+          : const _MenuOption('', '', Icons.help_outline),
+    );
+    final currentStatus = modelStatusMap?[current.value];
 
     return PopupMenuButton<String>(
       initialValue: value,
       onSelected: onSelected,
+      onOpened: onMenuOpened,
       offset: menuOffset,
       tooltip: 'Choose option',
       color: dark ? LuminaColors.darkCard : LuminaColors.lightCard,
@@ -2663,13 +2866,28 @@ class _SelectorMenu extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(o.value,
-                          style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              o.value,
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (modelStatusMap != null) ...[
+                            const SizedBox(width: 6),
+                            _buildStatusBadge(o.value) ??
+                                const SizedBox.shrink(),
+                          ],
+                        ],
+                      ),
                       Text(o.hint,
                           style: TextStyle(
-                              fontSize: 11, color: muted)),
+                              fontSize: 11, color: muted),
+                          overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -2696,6 +2914,10 @@ class _SelectorMenu extends StatelessWidget {
             Text(current.value,
                 style: const TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w600)),
+            if (currentStatus != null) ...[
+              const SizedBox(width: 6),
+              _buildStatusDot(currentStatus),
+            ],
             const SizedBox(width: 4),
             Icon(Icons.expand_more, size: 14, color: muted),
           ],
