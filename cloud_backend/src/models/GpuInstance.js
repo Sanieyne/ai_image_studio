@@ -84,6 +84,30 @@ const gpuInstanceSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    vastOffer: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    pricing: {
+      dph_total: { type: Number, default: 0 },
+      storageCost: { type: Number, default: 0 },
+      bandwidthCost: { type: Number, default: 0 },
+      totalPerHour: { type: Number, default: 0 },
+    },
+    network: {
+      inet_up: { type: Number, default: 0 },
+      inet_down: { type: Number, default: 0 },
+      reliability: { type: Number, default: 1.0 },
+      geolocation: { type: String, default: 'Global' },
+    },
+    specs: {
+      cudaVersion: { type: Number, default: 12.1 },
+      driver: { type: String, default: null },
+      directPortCount: { type: Number, default: 1 },
+      cpuCores: { type: Number, default: 8 },
+      ramGB: { type: Number, default: 32 },
+      diskGB: { type: Number, default: 100 },
+    },
     provisioningLogs: {
       type: [logEntrySchema],
       default: [],

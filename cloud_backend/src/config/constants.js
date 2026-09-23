@@ -112,3 +112,16 @@ export const STORAGE_PLANS = Object.freeze([
   { id: '200gb', sizeGB: 200, pricePerMonth: 16, name: 'Pro 200GB' },
   { id: '500gb', sizeGB: 500, pricePerMonth: 35, name: 'Enterprise 500GB' },
 ]);
+
+// Vast.ai Marketplace & Provisioning Constants
+export const BANDWIDTH_COST_PER_GB = 0.02; // $0.02 per GB network egress/ingress fallback
+export const VASTAI_OFFERS_CACHE_TTL_MS = 30000; // 30s cache TTL to avoid rate limiting
+
+export const VASTAI_GPU_NAME_MAP = Object.freeze({
+  'RTX 3060': ['RTX 3060', 'GeForce RTX 3060', 'RTX 3060 Ti'],
+  'RTX 3090': ['RTX 3090', 'GeForce RTX 3090', 'RTX 3090 Ti'],
+  'RTX 4090': ['RTX 4090', 'GeForce RTX 4090'],
+  'A100': ['A100', 'A100-SXM4-40GB', 'A100-SXM4-80GB', 'A100-PCIE-40GB', 'A100-PCIE-80GB'],
+  'H100': ['H100', 'H100 80GB HBM3', 'H100-PCIE-80GB'],
+});
+

@@ -11,6 +11,7 @@ import { env } from './config/env.js';
 import { ModelCatalog } from './models/ModelCatalog.js';
 import { MODEL_MODES } from './config/constants.js';
 import { authenticateWebSocket, handleRecommendationWS } from './websocket/recommendation.ws.js';
+import { handleGpuMarketWS } from './websocket/gpuMarket.ws.js';
 
 // Default AI model registry to seed on initial database setup
 const INITIAL_MODELS = [
@@ -163,16 +164,47 @@ async function startServer() {
     const app = createApp();
     const server = http.createServer(app);
 
-    // 4. Initialize WebSocket Server for Real-Time Recommendations
-    const wss = new WebSocketServer({ server, path: '/ws/recommendations' });
+    // 4. Initialize WebSocket Servers (Multiplexed on HTTP server via upgrade)
+    const wssRecommendations = new WebSocketServer({ noServer: true });
+    const wssGpuMarket = new WebSocketServer({ noServer: true });
 
-    wss.on('connection', async (ws, req) => {
+    wssRecommendations.on('connection', async (ws, req) => {
       try {
         const user = await authenticateWebSocket(req);
         await handleRecommendationWS(ws, req, user);
       } catch (error) {
         ws.send(JSON.stringify({ type: 'ERROR', message: error.message }));
         ws.close(1008, error.message);
+      }
+    });
+
+    wssGpuMarket.on('connection', async (ws, req) => {
+      try {
+        const user = await authenticateWebSocket(req);
+        await handleGpuMarketWS(ws, req, user);
+      } catch (error) {
+        ws.send(JSON.stringify({ type: 'ERROR', message: error.message }));
+        ws.close(1008, error.message);
+      }
+    });
+
+    server.on('upgrade', (request, socket, head) => {
+      try {
+        const { pathname } = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+
+        if (pathname === '/ws/recommendations') {
+          wssRecommendations.handleUpgrade(request, socket, head, (ws) => {
+            wssRecommendations.emit('connection', ws, request);
+          });
+        } else if (pathname === '/ws/gpu-market') {
+          wssGpuMarket.handleUpgrade(request, socket, head, (ws) => {
+            wssGpuMarket.emit('connection', ws, request);
+          });
+        } else {
+          socket.destroy();
+        }
+      } catch (err) {
+        socket.destroy();
       }
     });
 
@@ -183,15 +215,17 @@ async function startServer() {
       console.info(`📡 Port:        ${env.PORT}`);
       console.info(`🌍 Environment: ${env.NODE_ENV}`);
       console.info(`🩺 Health Check: http://localhost:${env.PORT}/api/v1/health`);
-      console.info(`⚡ WebSocket:    ws://localhost:${env.PORT}/ws/recommendations`);
+      console.info(`⚡ WS Recs:     ws://localhost:${env.PORT}/ws/recommendations`);
+      console.info(`⚡ WS Market:   ws://localhost:${env.PORT}/ws/gpu-market`);
       console.info('=====================================================');
     });
 
     // 6. Graceful Termination Handlers
     const shutdown = async (signal) => {
       console.info(`\n[Server] Received ${signal}. Commencing graceful shutdown...`);
-      wss.close(() => {
-        console.info('[Server] WebSocket server closed.');
+      wssRecommendations.close();
+      wssGpuMarket.close(() => {
+        console.info('[Server] WebSocket servers closed.');
       });
       server.close(async () => {
         console.info('[Server] HTTP connections closed.');

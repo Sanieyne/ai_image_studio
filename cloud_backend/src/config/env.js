@@ -43,4 +43,7 @@ export const env = Object.freeze({
 
   BCRYPT_SALT: parseInt(process.env.BCRYPT_SALT || '12', 10),
   FREE_CREDITS: parseInt(process.env.FREE_CREDITS || '10', 10),
+
+  VASTAI_API_KEY: process.env.VASTAI_API_KEY || '',
+  VASTAI_API_BASE: process.env.VASTAI_API_BASE || 'https://console.vast.ai/api/v0',
 });
