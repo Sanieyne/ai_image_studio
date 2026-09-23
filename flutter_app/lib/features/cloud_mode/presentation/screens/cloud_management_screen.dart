@@ -23,6 +23,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   List<CloudModel> _models = [];
   Set<String> _selectedModelIds = {'sdxl-base-1.0'};
   RecommendationResult? _recommendation;
+  MarketplaceRecommendedResult? _marketplaceResult;
 
   @override
   void initState() {
@@ -35,12 +36,14 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     final online = await _cloudApi.checkHealth();
     final models = await _cloudApi.fetchModels();
     final rec = await _cloudApi.calculateRecommendations(_selectedModelIds.toList());
+    final market = await _cloudApi.fetchRecommendedGpuOffers(_selectedModelIds.toList());
 
     if (!mounted) return;
     setState(() {
       _backendOnline = online;
       _models = models;
       _recommendation = rec;
+      _marketplaceResult = market;
       _loading = false;
     });
   }
@@ -48,14 +51,18 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   Future<void> _onSelectionChanged(Set<String> newSelection) async {
     setState(() => _selectedModelIds = newSelection);
     final rec = await _cloudApi.calculateRecommendations(newSelection.toList());
+    final market = await _cloudApi.fetchRecommendedGpuOffers(newSelection.toList());
     if (!mounted) return;
-    setState(() => _recommendation = rec);
+    setState(() {
+      _recommendation = rec;
+      _marketplaceResult = market;
+    });
   }
 
-  void _handleLaunchInstance() {
+  void _handleLaunchInstance([MarketplaceOffer? offer]) {
     final primaryGpu = _recommendation?.compatibleGPUs.firstOrNull;
-    final gpuName = primaryGpu?.name ?? 'Cloud GPU';
-    final price = primaryGpu?.pricePerHour ?? 0.44;
+    final gpuName = offer?.gpuName ?? primaryGpu?.name ?? 'Cloud GPU';
+    final price = offer?.totalHourlyCost ?? primaryGpu?.pricePerHour ?? 0.44;
 
     showDialog(
       context: context,
@@ -242,6 +249,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                             flex: 4,
                             child: GpuRecommendationCard(
                               result: _recommendation,
+                              marketplaceResult: _marketplaceResult,
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
                             ),
@@ -278,6 +286,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                             flex: 1,
                             child: GpuRecommendationCard(
                               result: _recommendation,
+                              marketplaceResult: _marketplaceResult,
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
                             ),

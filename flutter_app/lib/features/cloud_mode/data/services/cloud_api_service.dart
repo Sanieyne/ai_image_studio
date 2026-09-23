@@ -72,6 +72,65 @@ class CloudApiService {
     return _calculateOfflineFallback(modelIds);
   }
 
+  /// Query live Vast.ai marketplace GPU offers for current model selection
+  Future<List<MarketplaceOffer>> fetchGpuOffers({
+    List<String>? selectedModelIds,
+    double? minVramGB,
+    double? maxPrice,
+    int limit = 20,
+    String orderBy = 'price',
+  }) async {
+    try {
+      final queryParams = <String, String>{
+        'limit': limit.toString(),
+        'orderBy': orderBy,
+      };
+      if (selectedModelIds != null && selectedModelIds.isNotEmpty) {
+        queryParams['selectedModelIds'] = selectedModelIds.join(',');
+      }
+      if (minVramGB != null && minVramGB > 0) {
+        queryParams['minVramGB'] = minVramGB.toString();
+      }
+      if (maxPrice != null && maxPrice > 0) {
+        queryParams['maxPrice'] = maxPrice.toString();
+      }
+
+      final uri = Uri.parse('$baseUrl/gpu/offers').replace(queryParameters: queryParams);
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>;
+        final offersList = data['offers'] as List<dynamic>? ?? [];
+        return offersList
+            .map((item) => MarketplaceOffer.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList();
+      }
+    } catch (e) {
+      // Return fallback
+    }
+    return [];
+  }
+
+  /// Query ranked GPU recommendations (cheapest, fastest, most reliable, balanced)
+  Future<MarketplaceRecommendedResult?> fetchRecommendedGpuOffers(List<String> modelIds) async {
+    try {
+      final uri = Uri.parse('$baseUrl/gpu/recommended').replace(
+        queryParameters: {'modelIds': modelIds.join(',')},
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>;
+        return MarketplaceRecommendedResult.fromJson(data);
+      }
+    } catch (e) {
+      // Fallback
+    }
+    return null;
+  }
+
   /// Local fallback calculation when backend is momentarily offline or in airplane mode
   RecommendationResult _calculateOfflineFallback(List<String> modelIds) {
     final selected = _fallbackModels.where((m) => modelIds.contains(m.modelId)).toList();

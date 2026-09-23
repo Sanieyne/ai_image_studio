@@ -211,3 +211,151 @@ class RecommendationResult {
     );
   }
 }
+
+/// Real-time live GPU marketplace bundle from Vast.ai
+class MarketplaceOffer {
+  final String id;
+  final String provider;
+  final String gpuName;
+  final double vramGB;
+  final int numGpus;
+  final double totalFlops;
+  final double pricePerHour;
+  final double dphBase;
+  final double storageCostPerHour;
+  final double bandwidthCostPerGB;
+  final double totalHourlyCost;
+  final int inetUp;
+  final int inetDown;
+  final double reliability;
+  final double cudaVersion;
+  final String driverVersion;
+  final String geolocation;
+  final int directPortCount;
+  final int cpuCores;
+  final double ramGB;
+  final int diskGB;
+  final double dlperf;
+  final bool verified;
+  final bool rentable;
+  final double headroomVramGB;
+  final String fit; // 'optimal' | 'tight' | 'minimum'
+  final String fitReason;
+  final double estimatedDownloadTimeMinutes;
+
+  const MarketplaceOffer({
+    required this.id,
+    required this.provider,
+    required this.gpuName,
+    required this.vramGB,
+    required this.numGpus,
+    required this.totalFlops,
+    required this.pricePerHour,
+    required this.dphBase,
+    required this.storageCostPerHour,
+    required this.bandwidthCostPerGB,
+    required this.totalHourlyCost,
+    required this.inetUp,
+    required this.inetDown,
+    required this.reliability,
+    required this.cudaVersion,
+    required this.driverVersion,
+    required this.geolocation,
+    required this.directPortCount,
+    required this.cpuCores,
+    required this.ramGB,
+    required this.diskGB,
+    required this.dlperf,
+    required this.verified,
+    required this.rentable,
+    required this.headroomVramGB,
+    required this.fit,
+    required this.fitReason,
+    required this.estimatedDownloadTimeMinutes,
+  });
+
+  factory MarketplaceOffer.fromJson(Map<String, dynamic> json) {
+    return MarketplaceOffer(
+      id: json['id']?.toString() ?? '',
+      provider: json['provider']?.toString() ?? 'vastai',
+      gpuName: json['gpuName']?.toString() ?? 'GPU',
+      vramGB: (json['vramGB'] as num?)?.toDouble() ?? 0.0,
+      numGpus: json['numGpus'] as int? ?? 1,
+      totalFlops: (json['totalFlops'] as num?)?.toDouble() ?? 0.0,
+      pricePerHour: (json['pricePerHour'] as num?)?.toDouble() ?? 0.0,
+      dphBase: (json['dphBase'] as num?)?.toDouble() ?? 0.0,
+      storageCostPerHour: (json['storageCostPerHour'] as num?)?.toDouble() ?? 0.0,
+      bandwidthCostPerGB: (json['bandwidthCostPerGB'] as num?)?.toDouble() ?? 0.02,
+      totalHourlyCost: (json['totalHourlyCost'] as num?)?.toDouble() ?? 0.0,
+      inetUp: (json['inetUp'] as num?)?.toInt() ?? 100,
+      inetDown: (json['inetDown'] as num?)?.toInt() ?? 250,
+      reliability: (json['reliability'] as num?)?.toDouble() ?? 0.98,
+      cudaVersion: (json['cudaVersion'] as num?)?.toDouble() ?? 12.4,
+      driverVersion: json['driverVersion']?.toString() ?? '550.54.14',
+      geolocation: json['geolocation']?.toString() ?? 'Global',
+      directPortCount: json['directPortCount'] as int? ?? 1,
+      cpuCores: json['cpuCores'] as int? ?? 8,
+      ramGB: (json['ramGB'] as num?)?.toDouble() ?? 32.0,
+      diskGB: (json['diskGB'] as num?)?.toInt() ?? 100,
+      dlperf: (json['dlperf'] as num?)?.toDouble() ?? 30.0,
+      verified: json['verified'] as bool? ?? true,
+      rentable: json['rentable'] as bool? ?? true,
+      headroomVramGB: (json['headroomVramGB'] as num?)?.toDouble() ?? 0.0,
+      fit: json['fit']?.toString() ?? 'optimal',
+      fitReason: json['fitReason']?.toString() ?? '',
+      estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble() ?? 2.5,
+    );
+  }
+}
+
+/// Ranked recommendations from live marketplace
+class MarketplaceRecommendedResult {
+  final Map<String, dynamic> requirements;
+  final MarketplaceOffer? cheapestOffer;
+  final MarketplaceOffer? fastestOffer;
+  final MarketplaceOffer? mostReliableOffer;
+  final MarketplaceOffer? balancedOffer;
+  final List<MarketplaceOffer> allOffers;
+
+  const MarketplaceRecommendedResult({
+    required this.requirements,
+    this.cheapestOffer,
+    this.fastestOffer,
+    this.mostReliableOffer,
+    this.balancedOffer,
+    required this.allOffers,
+  });
+
+  factory MarketplaceRecommendedResult.fromJson(Map<String, dynamic> json) {
+    final all = (json['allOffers'] as List<dynamic>?)
+            ?.map((e) => MarketplaceOffer.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList() ??
+        [];
+
+    final cheapest = json['cheapestOffer'] != null
+        ? MarketplaceOffer.fromJson(Map<String, dynamic>.from(json['cheapestOffer'] as Map))
+        : null;
+
+    final fastest = json['fastestOffer'] != null
+        ? MarketplaceOffer.fromJson(Map<String, dynamic>.from(json['fastestOffer'] as Map))
+        : null;
+
+    final mostReliable = json['mostReliableOffer'] != null
+        ? MarketplaceOffer.fromJson(Map<String, dynamic>.from(json['mostReliableOffer'] as Map))
+        : null;
+
+    final balanced = json['balancedOffer'] != null
+        ? MarketplaceOffer.fromJson(Map<String, dynamic>.from(json['balancedOffer'] as Map))
+        : null;
+
+    return MarketplaceRecommendedResult(
+      requirements: Map<String, dynamic>.from(json['requirements'] as Map? ?? {}),
+      cheapestOffer: cheapest,
+      fastestOffer: fastest,
+      mostReliableOffer: mostReliable,
+      balancedOffer: balanced,
+      allOffers: all,
+    );
+  }
+}
+
