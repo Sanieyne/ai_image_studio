@@ -4,11 +4,13 @@
  */
 
 import http from 'http';
+import { WebSocketServer } from 'ws';
 import { createApp } from './app.js';
 import { connectDB, disconnectDB } from './config/database.js';
 import { env } from './config/env.js';
 import { ModelCatalog } from './models/ModelCatalog.js';
 import { MODEL_MODES } from './config/constants.js';
+import { authenticateWebSocket, handleRecommendationWS } from './websocket/recommendation.ws.js';
 
 // Default AI model registry to seed on initial database setup
 const INITIAL_MODELS = [
@@ -157,23 +159,40 @@ async function startServer() {
     // 2. Seed Default Model Catalog
     await seedModelCatalog();
 
-    // 3. Create Express App
+    // 3. Create Express App & HTTP Server
     const app = createApp();
     const server = http.createServer(app);
 
-    // 4. Start HTTP Listener
+    // 4. Initialize WebSocket Server for Real-Time Recommendations
+    const wss = new WebSocketServer({ server, path: '/ws/recommendations' });
+
+    wss.on('connection', async (ws, req) => {
+      try {
+        const user = await authenticateWebSocket(req);
+        await handleRecommendationWS(ws, req, user);
+      } catch (error) {
+        ws.send(JSON.stringify({ type: 'ERROR', message: error.message }));
+        ws.close(1008, error.message);
+      }
+    });
+
+    // 5. Start HTTP Listener
     server.listen(env.PORT, '0.0.0.0', () => {
       console.info('=====================================================');
       console.info(`🚀 AI Image Studio Cloud Orchestrator Started`);
       console.info(`📡 Port:        ${env.PORT}`);
       console.info(`🌍 Environment: ${env.NODE_ENV}`);
       console.info(`🩺 Health Check: http://localhost:${env.PORT}/api/v1/health`);
+      console.info(`⚡ WebSocket:    ws://localhost:${env.PORT}/ws/recommendations`);
       console.info('=====================================================');
     });
 
-    // 5. Graceful Termination Handlers
+    // 6. Graceful Termination Handlers
     const shutdown = async (signal) => {
       console.info(`\n[Server] Received ${signal}. Commencing graceful shutdown...`);
+      wss.close(() => {
+        console.info('[Server] WebSocket server closed.');
+      });
       server.close(async () => {
         console.info('[Server] HTTP connections closed.');
         await disconnectDB();
