@@ -51,8 +51,9 @@ class VastaiService {
     const ramGB = Math.round(((raw.cpu_ram || 32000) / 1000) * 10) / 10;
     const diskGB = Math.round(raw.disk_space || 100);
     const dphTotal = Math.round((raw.dph_total || 0.44) * 1000) / 1000;
-    const storageCostPerHour = Math.round(((raw.storage_cost || 0.0002) * diskGB) * 1000) / 1000;
-    const totalHourlyCost = Math.round((dphTotal + storageCostPerHour) * 1000) / 1000;
+    const dphBase = Math.round((raw.dph_base || dphTotal) * 1000) / 1000;
+    const storageCostPerHour = Math.max(0, Math.round((dphTotal - dphBase) * 1000) / 1000);
+    const totalHourlyCost = dphTotal;
     const inetDown = Math.round(raw.inet_down || 250);
     const inetUp = Math.round(raw.inet_up || 100);
 
@@ -69,13 +70,13 @@ class VastaiService {
       numGpus: raw.num_gpus || 1,
       totalFlops: raw.total_flops || 0,
       pricePerHour: dphTotal,
-      dphBase: Math.round((raw.dph_base || dphTotal) * 1000) / 1000,
+      dphBase,
       storageCostPerHour,
       bandwidthCostPerGB: BANDWIDTH_COST_PER_GB,
       totalHourlyCost,
       inetUp,
       inetDown,
-      reliability: Math.round((raw.reliability2 != null ? raw.reliability2 : 0.98) * 100) / 100,
+      reliability: Math.round((raw.reliability2 != null ? raw.reliability2 : (raw.reliability || 0.98)) * 100) / 100,
       cudaVersion: raw.cuda_max_good || 12.4,
       driverVersion: raw.driver_version || '550.54.14',
       geolocation: raw.geolocation || 'North America (US-East)',
@@ -128,46 +129,54 @@ class VastaiService {
       return cached.data;
     }
 
-    // Build Vast.ai query criteria
-    const q = {
+    // Build Vast.ai query criteria at the top level
+    const body = {
       num_gpus: { eq: 1 },
-      cuda_max_good: { gte: 12.0 },
+      order: [['dph_total', 'asc']],
+      limit: Math.max(limit, 30),
     };
 
-    if (rentableOnly) q.rented = { eq: false };
-    if (verifiedOnly) q.verified = { eq: true };
-    if (minVramGB) q.gpu_ram = { gte: minVramGB * 1000 };
-    if (minRamGB) q.cpu_ram = { gte: minRamGB * 1000 };
-    if (minDiskGB) q.disk_space = { gte: minDiskGB };
-    if (minInetDown) q.inet_down = { gte: minInetDown };
-    if (minInetUp) q.inet_up = { gte: minInetUp };
-    if (minReliability) q.reliability2 = { gte: minReliability };
-    if (gpuName) q.gpu_name = { eq: gpuName };
+    if (rentableOnly) body.rented = { eq: false };
+    if (verifiedOnly) body.verified = { eq: true };
+    if (minVramGB && minVramGB > 0) body.gpu_ram = { gte: minVramGB * 1000 };
+    if (minRamGB && minRamGB > 0) body.cpu_ram = { gte: minRamGB * 1000 };
+    if (minDiskGB && minDiskGB > 0) body.disk_space = { gte: minDiskGB };
+    if (minInetDown && minInetDown > 0) body.inet_down = { gte: minInetDown };
+    if (minInetUp && minInetUp > 0) body.inet_up = { gte: minInetUp };
+    if (minReliability && minReliability > 0) body.reliability2 = { gte: minReliability };
+    if (gpuName) body.gpu_name = { eq: gpuName };
 
     try {
-      if (!env.VASTAI_API_KEY) {
-        // Fallback to high-fidelity live sandbox offers if API key not configured yet
-        const mockOffers = this._generateSandboxOffers(filters, totalModelSizeGB);
-        this._cache.set(cacheKey, { timestamp: Date.now(), data: mockOffers });
-        return mockOffers;
-      }
-
       const response = await this._requestWithRetry(() =>
-        this.client.post('/bundles/', {
-          q,
-          type: 'on-demand',
-          order: [['dph_total', 'asc']],
-          limit,
-        })
+        this.client.post('/bundles/', body)
       );
 
       const rawOffers = response.data?.offers || [];
-      const normalized = rawOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
+      if (rawOffers.length > 0) {
+        const normalized = rawOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
+        this._cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
+        return normalized;
+      }
 
-      this._cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
-      return normalized;
+      // If strict reliability filter resulted in 0 offers, retry without reliability constraint
+      if (body.reliability2) {
+        delete body.reliability2;
+        const retryRes = await this._requestWithRetry(() =>
+          this.client.post('/bundles/', body)
+        );
+        const retryOffers = retryRes.data?.offers || [];
+        if (retryOffers.length > 0) {
+          const normalized = retryOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
+          this._cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
+          return normalized;
+        }
+      }
+
+      console.warn('[Vast.ai] 0 offers from live API matching query. Serving sandbox offers.');
+      const fallback = this._generateSandboxOffers(filters, totalModelSizeGB);
+      return fallback;
     } catch (error) {
-      console.warn(`[Vast.ai API Warning] ${error.message}. Serving resilient sandbox offers.`);
+      console.warn(`[Vast.ai API Error] ${error.message}. Serving resilient sandbox offers.`);
       const fallback = this._generateSandboxOffers(filters, totalModelSizeGB);
       return fallback;
     }
@@ -184,13 +193,11 @@ class VastaiService {
     if (found) return found;
 
     try {
-      if (env.VASTAI_API_KEY) {
-        const response = await this._requestWithRetry(() =>
-          this.client.get(`/bundles/${offerId}/`)
-        );
-        if (response.data) {
-          return this.normalizeOffer(response.data);
-        }
+      const response = await this._requestWithRetry(() =>
+        this.client.get(`/bundles/${offerId}/`)
+      );
+      if (response.data) {
+        return this.normalizeOffer(response.data);
       }
     } catch (e) {
       // Fallback

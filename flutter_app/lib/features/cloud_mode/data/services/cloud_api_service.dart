@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/cloud_model.dart';
 
@@ -96,7 +97,7 @@ class CloudApiService {
       }
 
       final uri = Uri.parse('$baseUrl/gpu/offers').replace(queryParameters: queryParams);
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -107,7 +108,7 @@ class CloudApiService {
             .toList();
       }
     } catch (e) {
-      // Return fallback
+      debugPrint('[CloudApiService] fetchGpuOffers error: $e');
     }
     return [];
   }
@@ -118,7 +119,7 @@ class CloudApiService {
       final uri = Uri.parse('$baseUrl/gpu/recommended').replace(
         queryParameters: {'modelIds': modelIds.join(',')},
       );
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+      final res = await http.get(uri).timeout(const Duration(seconds: 15));
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -126,7 +127,7 @@ class CloudApiService {
         return MarketplaceRecommendedResult.fromJson(data);
       }
     } catch (e) {
-      // Fallback
+      debugPrint('[CloudApiService] fetchRecommendedGpuOffers error: $e');
     }
     return null;
   }
