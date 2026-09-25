@@ -41,7 +41,7 @@ class CloudModel {
       hfRepoId: json['hfRepoId'] as String? ?? '',
       sizeGB: (json['sizeGB'] as num?)?.toDouble() ?? 0.0,
       requiredVramGB: (json['requiredVramGB'] as num?)?.toDouble() ?? 0.0,
-      defaultSteps: json['defaultSteps'] as int? ?? 30,
+      defaultSteps: (json['defaultSteps'] as num?)?.toInt() ?? 30,
       defaultGuidance: (json['defaultGuidance'] as num?)?.toDouble() ?? 5.0,
       isEnabled: json['isEnabled'] as bool? ?? true,
     );
@@ -145,7 +145,7 @@ class RecommendationRequirements {
 
   factory RecommendationRequirements.fromJson(Map<String, dynamic> json) {
     return RecommendationRequirements(
-      modelCount: json['modelCount'] as int? ?? 0,
+      modelCount: (json['modelCount'] as num?)?.toInt() ?? 0,
       totalModelSizeGB: (json['totalModelSizeGB'] as num?)?.toDouble() ?? 0.0,
       baseOverheadGB: (json['baseOverheadGB'] as num?)?.toDouble() ?? 7.0,
       bufferGB: (json['bufferGB'] as num?)?.toDouble() ?? 0.0,
@@ -280,7 +280,7 @@ class MarketplaceOffer {
       provider: json['provider']?.toString() ?? 'vastai',
       gpuName: json['gpuName']?.toString() ?? 'GPU',
       vramGB: (json['vramGB'] as num?)?.toDouble() ?? 0.0,
-      numGpus: json['numGpus'] as int? ?? 1,
+      numGpus: (json['numGpus'] as num?)?.toInt() ?? 1,
       totalFlops: (json['totalFlops'] as num?)?.toDouble() ?? 0.0,
       pricePerHour: (json['pricePerHour'] as num?)?.toDouble() ?? 0.0,
       dphBase: (json['dphBase'] as num?)?.toDouble() ?? 0.0,
@@ -293,8 +293,8 @@ class MarketplaceOffer {
       cudaVersion: (json['cudaVersion'] as num?)?.toDouble() ?? 12.4,
       driverVersion: json['driverVersion']?.toString() ?? '550.54.14',
       geolocation: json['geolocation']?.toString() ?? 'Global',
-      directPortCount: json['directPortCount'] as int? ?? 1,
-      cpuCores: json['cpuCores'] as int? ?? 8,
+      directPortCount: (json['directPortCount'] as num?)?.toInt() ?? 1,
+      cpuCores: (json['cpuCores'] as num?)?.toInt() ?? 8,
       ramGB: (json['ramGB'] as num?)?.toDouble() ?? 32.0,
       diskGB: (json['diskGB'] as num?)?.toInt() ?? 100,
       dlperf: (json['dlperf'] as num?)?.toDouble() ?? 30.0,
