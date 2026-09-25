@@ -21,8 +21,15 @@ class GpuRecommendationCard extends StatefulWidget {
 }
 
 class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
+  final ScrollController _scrollController = ScrollController();
   String _selectedRankMode = 'balanced'; // 'balanced' | 'cheapest' | 'fastest' | 'reliable'
   MarketplaceOffer? _selectedOfferOverride;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,350 +125,374 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
             const SizedBox(height: 12),
           ],
 
-          // Primary Recommendation Hero Card
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: LinearGradient(
-                colors: [
-                  LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.2 : 0.1),
-                  LuminaColors.primaryEnd.withValues(alpha: widget.isDark ? 0.15 : 0.05),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              border: Border.all(
-                color: LuminaColors.infoBlue.withValues(alpha: 0.5),
-                width: 1.5,
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          displayName,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                        if (activeOffer != null) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              '${activeOffer.inetDown} Mbps ↓',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.greenAccent.shade700,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          '\$${price.toStringAsFixed(2)} / hr',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: LuminaColors.amber,
-                          ),
-                        ),
-                        Text(
-                          '(\$${totalHourly.toStringAsFixed(3)} w/ storage)',
-                          style: TextStyle(fontSize: 10.5, color: muted),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  activeOffer?.fitReason ?? 'Best balance of VRAM headroom, network bandwidth, and cost.',
-                  style: TextStyle(fontSize: 12, color: muted),
-                ),
-                const SizedBox(height: 12),
-
-                // VRAM Usage Progress Bar
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('VRAM Required: ${maxVram.toStringAsFixed(0)} GB',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    Text(
-                      '${vramTotal.toStringAsFixed(0)} GB Total (+${headroom.toStringAsFixed(0)} GB Headroom)',
-                      style: const TextStyle(fontSize: 12, color: LuminaColors.infoBlue, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: LinearProgressIndicator(
-                    value: (maxVram / vramTotal).clamp(0.0, 1.0),
-                    minHeight: 8,
-                    backgroundColor: widget.isDark ? Colors.white12 : Colors.black12,
-                    valueColor: AlwaysStoppedAnimation<Color>(_fitColor(fit)),
-                  ),
-                ),
-
-                if (activeOffer != null) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: border.withValues(alpha: 0.5)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.speed_rounded,
-                                label: 'Network',
-                                value: '↓ ${activeOffer.inetDown}M / ↑ ${activeOffer.inetUp}M',
-                                color: Colors.greenAccent.shade700,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.data_usage_rounded,
-                                label: 'Bandwidth',
-                                value: '\$${activeOffer.bandwidthCostPerGB.toStringAsFixed(2)}/GB',
-                                color: LuminaColors.infoBlue,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.timer_outlined,
-                                label: 'Download',
-                                value: '~${activeOffer.estimatedDownloadTimeMinutes}m',
-                                color: Colors.orangeAccent,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.location_on_outlined,
-                                label: 'Location',
-                                value: activeOffer.geolocation.isNotEmpty ? activeOffer.geolocation : 'Global',
-                                color: Colors.purpleAccent.shade100,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.verified_user_outlined,
-                                label: 'Uptime',
-                                value: '${(activeOffer.reliability * 100).toStringAsFixed(1)}%',
-                                color: Colors.tealAccent.shade400,
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildTelemetryBadge(
-                                icon: Icons.bolt_rounded,
-                                label: 'AI Compute',
-                                value: '${activeOffer.dlperf.toStringAsFixed(1)} dlperf',
-                                color: LuminaColors.amber,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: _buildTelemetryBadge(
-                                icon: Icons.memory_rounded,
-                                label: 'System',
-                                value: '${activeOffer.cpuCores} vCPU · ${activeOffer.ramGB.toInt()}GB RAM · ${activeOffer.diskGB}GB Disk',
-                                color: muted,
-                              ),
-                            ),
-                            Expanded(
-                              flex: 2,
-                              child: _buildTelemetryBadge(
-                                icon: Icons.developer_board_rounded,
-                                label: 'NVIDIA',
-                                value: 'CUDA ${activeOffer.cudaVersion} (v${activeOffer.driverVersion})',
-                                color: muted,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Text(
-                'Live Available GPU Instances (${mr?.allOffers.length ?? widget.result?.compatibleGPUs.length ?? 0})',
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              if (_selectedOfferOverride != null)
-                InkWell(
-                  onTap: () => setState(() => _selectedOfferOverride = null),
-                  child: const Text(
-                    'Reset to Recommended',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: LuminaColors.infoBlue,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Compatible Offers List
+          // Scrollable Content Area: Hero Card + Telemetry + Available GPU Offers
           Expanded(
-            child: ListView.separated(
-              itemCount: mr?.allOffers.length ?? widget.result?.compatibleGPUs.length ?? 0,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, idx) {
-                if (mr != null && mr.allOffers.isNotEmpty) {
-                  final offer = mr.allOffers[idx];
-                  final isSelected = offer.id == activeOffer?.id;
-
-                  return InkWell(
-                    onTap: () {
-                      setState(() {
-                        _selectedOfferOverride = offer;
-                      });
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Scrollbar(
+              controller: _scrollController,
+              thumbVisibility: true,
+              radius: const Radius.circular(8),
+              child: SingleChildScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(right: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Primary Recommendation Hero Card
+                    Container(
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isSelected
-                              ? LuminaColors.infoBlue
-                              : border,
-                          width: isSelected ? 1.5 : 1.0,
+                        borderRadius: BorderRadius.circular(14),
+                        gradient: LinearGradient(
+                          colors: [
+                            LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.2 : 0.1),
+                            LuminaColors.primaryEnd.withValues(alpha: widget.isDark ? 0.15 : 0.05),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                        color: isSelected
-                            ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.15 : 0.08)
-                            : (widget.isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
+                        border: Border.all(
+                          color: LuminaColors.infoBlue.withValues(alpha: 0.5),
+                          width: 1.5,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(
-                                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                                size: 16,
-                                color: isSelected ? LuminaColors.infoBlue : muted,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                offer.gpuName,
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                decoration: BoxDecoration(
-                                  color: LuminaColors.infoBlue.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  '${offer.vramGB.toInt()}GB VRAM',
-                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: LuminaColors.infoBlue),
-                                ),
-                              ),
-                              if (offer.geolocation.isNotEmpty) ...[
-                                const SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    '📍 ${offer.geolocation}',
-                                    style: TextStyle(fontSize: 11, color: muted),
-                                    overflow: TextOverflow.ellipsis,
+                              Row(
+                                children: [
+                                  Text(
+                                    displayName,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: -0.2,
+                                    ),
                                   ),
-                                ),
-                              ],
-                              const Spacer(),
-                              Text(
-                                '\$${offer.pricePerHour.toStringAsFixed(2)}/hr',
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                                  if (activeOffer != null) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        '${activeOffer.inetDown} Mbps ↓',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.greenAccent.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    '\$${price.toStringAsFixed(2)} / hr',
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: LuminaColors.amber,
+                                    ),
+                                  ),
+                                  Text(
+                                    '(\$${totalHourly.toStringAsFixed(3)} w/ storage)',
+                                    style: TextStyle(fontSize: 10.5, color: muted),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                           const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
+                          Text(
+                            activeOffer?.fitReason ?? 'Best balance of VRAM headroom, network bandwidth, and cost.',
+                            style: TextStyle(fontSize: 12, color: muted),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // VRAM Usage Progress Bar
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
-                              _buildMiniTag('\$${offer.bandwidthCostPerGB.toStringAsFixed(2)}/GB egress', Colors.cyanAccent.shade700),
-                              _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
-                              _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
-                              _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
-                              _buildMiniTag('⏱ ~${offer.estimatedDownloadTimeMinutes}m dl', Colors.orangeAccent),
+                              Text('VRAM Required: ${maxVram.toStringAsFixed(0)} GB',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(
+                                '${vramTotal.toStringAsFixed(0)} GB Total (+${headroom.toStringAsFixed(0)} GB Headroom)',
+                                style: const TextStyle(fontSize: 12, color: LuminaColors.infoBlue, fontWeight: FontWeight.w600),
+                              ),
                             ],
                           ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: LinearProgressIndicator(
+                              value: (maxVram / vramTotal).clamp(0.0, 1.0),
+                              minHeight: 8,
+                              backgroundColor: widget.isDark ? Colors.white12 : Colors.black12,
+                              valueColor: AlwaysStoppedAnimation<Color>(_fitColor(fit)),
+                            ),
+                          ),
+
+                          if (activeOffer != null) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: border.withValues(alpha: 0.5)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.speed_rounded,
+                                          label: 'Network',
+                                          value: '↓ ${activeOffer.inetDown}M / ↑ ${activeOffer.inetUp}M',
+                                          color: Colors.greenAccent.shade700,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.data_usage_rounded,
+                                          label: 'Bandwidth',
+                                          value: '\$${activeOffer.bandwidthCostPerGB.toStringAsFixed(2)}/GB',
+                                          color: LuminaColors.infoBlue,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.timer_outlined,
+                                          label: 'Download',
+                                          value: '~${activeOffer.estimatedDownloadTimeMinutes}m',
+                                          color: Colors.orangeAccent,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.location_on_outlined,
+                                          label: 'Location',
+                                          value: activeOffer.geolocation.isNotEmpty ? activeOffer.geolocation : 'Global',
+                                          color: Colors.purpleAccent.shade100,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.verified_user_outlined,
+                                          label: 'Uptime',
+                                          value: '${(activeOffer.reliability * 100).toStringAsFixed(1)}%',
+                                          color: Colors.tealAccent.shade400,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.bolt_rounded,
+                                          label: 'AI Compute',
+                                          value: '${activeOffer.dlperf.toStringAsFixed(1)} dlperf',
+                                          color: LuminaColors.amber,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.memory_rounded,
+                                          label: 'System',
+                                          value: '${activeOffer.cpuCores} vCPU · ${activeOffer.ramGB.toInt()}GB RAM · ${activeOffer.diskGB}GB Disk',
+                                          color: muted,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        flex: 2,
+                                        child: _buildTelemetryBadge(
+                                          icon: Icons.developer_board_rounded,
+                                          label: 'NVIDIA',
+                                          value: 'CUDA ${activeOffer.cudaVersion} (v${activeOffer.driverVersion})',
+                                          color: muted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
-                  );
-                }
 
-                // Fallback rendering
-                final gpu = widget.result!.compatibleGPUs[idx];
-                final isBest = idx == 0;
-                return Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: isBest ? LuminaColors.infoBlue.withValues(alpha: 0.4) : border),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(gpu.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
-                      const Spacer(),
-                      Text('\$${gpu.pricePerHour.toStringAsFixed(2)}/hr',
-                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                );
-              },
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Text(
+                          'Live Available GPU Instances (${mr?.allOffers.length ?? widget.result?.compatibleGPUs.length ?? 0})',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                        const Spacer(),
+                        if (_selectedOfferOverride != null)
+                          InkWell(
+                            onTap: () => setState(() => _selectedOfferOverride = null),
+                            child: const Text(
+                              'Reset to Recommended',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: LuminaColors.infoBlue,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+
+                    // Compatible Offers List
+                    if (mr != null && mr.allOffers.isNotEmpty)
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: mr.allOffers.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final offer = mr.allOffers[idx];
+                          final isSelected = offer.id == activeOffer?.id;
+
+                          return InkWell(
+                            onTap: () {
+                              setState(() {
+                                _selectedOfferOverride = offer;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? LuminaColors.infoBlue
+                                      : border,
+                                  width: isSelected ? 1.5 : 1.0,
+                                ),
+                                color: isSelected
+                                    ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.15 : 0.08)
+                                    : (widget.isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                                        size: 16,
+                                        color: isSelected ? LuminaColors.infoBlue : muted,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        offer.gpuName,
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: LuminaColors.infoBlue.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          '${offer.vramGB.toInt()}GB VRAM',
+                                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: LuminaColors.infoBlue),
+                                        ),
+                                      ),
+                                      if (offer.geolocation.isNotEmpty) ...[
+                                        const SizedBox(width: 6),
+                                        Flexible(
+                                          child: Text(
+                                            '📍 ${offer.geolocation}',
+                                            style: TextStyle(fontSize: 11, color: muted),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                      const Spacer(),
+                                      Text(
+                                        '\$${offer.pricePerHour.toStringAsFixed(2)}/hr',
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    children: [
+                                      _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
+                                      _buildMiniTag('\$${offer.bandwidthCostPerGB.toStringAsFixed(2)}/GB egress', Colors.cyanAccent.shade700),
+                                      _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
+                                      _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
+                                      _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
+                                      _buildMiniTag('⏱ ~${offer.estimatedDownloadTimeMinutes}m dl', Colors.orangeAccent),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    else if (widget.result?.compatibleGPUs.isNotEmpty ?? false)
+                      ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: widget.result!.compatibleGPUs.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, idx) {
+                          final gpu = widget.result!.compatibleGPUs[idx];
+                          final isBest = idx == 0;
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: isBest ? LuminaColors.infoBlue.withValues(alpha: 0.4) : border),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(gpu.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                                const Spacer(),
+                                Text('\$${gpu.pricePerHour.toStringAsFixed(2)}/hr',
+                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           // Launch Instance Button
           SizedBox(
             width: double.infinity,
