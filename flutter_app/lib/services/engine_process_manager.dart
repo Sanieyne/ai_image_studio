@@ -27,20 +27,51 @@ class EngineProcessManager {
 
     // 2. Locate bundled engine executable relative to the Flutter app executable.
     final engineExe = _findEngineExecutable();
-    if (engineExe == null || !engineExe.existsSync()) {
-      debugPrint(
-        '[EngineManager] No bundled engine found at: ${engineExe?.path}. Assuming remote or external server.',
+    if (engineExe != null && engineExe.existsSync()) {
+      return _launchProcess(
+        executable: engineExe.path,
+        args: [],
+        workingDir: engineExe.parent.path,
+        isDev: false,
       );
-      return false;
     }
 
-    // 3. Launch engine as a child process.
+    // 3. In development mode (flutter run), locate python_engine source in monorepo
+    final devScript = _findDevEngineScript();
+    if (devScript != null && devScript.existsSync()) {
+      final pythonCmd = Platform.isWindows ? 'python' : 'python3';
+      return _launchProcess(
+        executable: pythonCmd,
+        args: [devScript.path],
+        workingDir: devScript.parent.path,
+        environment: {
+          'AI_STUDIO_MOCK': '1',
+          'PYTHONUNBUFFERED': '1',
+        },
+        isDev: true,
+      );
+    }
+
+    debugPrint(
+      '[EngineManager] No bundled engine or dev python_engine found. Assuming remote or external server.',
+    );
+    return false;
+  }
+
+  Future<bool> _launchProcess({
+    required String executable,
+    required List<String> args,
+    required String workingDir,
+    Map<String, String>? environment,
+    required bool isDev,
+  }) async {
     try {
-      debugPrint('[EngineManager] Launching engine: ${engineExe.path}');
+      debugPrint('[EngineManager] Launching ${isDev ? 'dev' : 'bundled'} engine: $executable ${args.join(' ')}');
       _process = await Process.start(
-        engineExe.path,
-        [],
-        workingDirectory: engineExe.parent.path,
+        executable,
+        args,
+        workingDirectory: workingDir,
+        environment: environment,
       );
       _spawnedByUs = true;
 
@@ -111,6 +142,42 @@ class EngineProcessManager {
       return candidate;
     } catch (e) {
       debugPrint('[EngineManager] Error resolving executable path: $e');
+      return null;
+    }
+  }
+
+  File? _findDevEngineScript() {
+    try {
+      final exePath = Platform.resolvedExecutable;
+      var dir = Directory(p.dirname(exePath));
+
+      // Walk up directories from the build bundle output to find the monorepo root
+      for (int i = 0; i < 7; i++) {
+        final script = File(p.join(dir.path, 'python_engine', 'launcher.py'));
+        if (script.existsSync()) return script;
+
+        final candidateInDir = File(p.join(dir.path, 'launcher.py'));
+        if (candidateInDir.existsSync()) return candidateInDir;
+
+        final parent = dir.parent;
+        if (parent.path == dir.path) break;
+        dir = parent;
+      }
+
+      // Check relative to current working directory as well
+      final cwdCandidates = [
+        File(p.join(Directory.current.path, '..', 'python_engine', 'launcher.py')),
+        File(p.join(Directory.current.path, 'python_engine', 'launcher.py')),
+        File(p.join(Directory.current.path, 'launcher.py')),
+      ];
+
+      for (final candidate in cwdCandidates) {
+        if (candidate.existsSync()) return candidate;
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('[EngineManager] Error searching for dev python engine: $e');
       return null;
     }
   }

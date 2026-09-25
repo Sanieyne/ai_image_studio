@@ -94,6 +94,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _consecutiveHealthFailures = 0;
       if (!_engineOnline) {
         setState(() => _engineOnline = true);
+        unawaited(_api.getAvailableModels().then((_) {
+          if (mounted) setState(() {});
+        }));
       }
     } else {
       _consecutiveHealthFailures++;
