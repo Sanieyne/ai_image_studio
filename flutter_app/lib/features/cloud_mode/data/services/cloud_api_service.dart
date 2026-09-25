@@ -132,6 +132,12 @@ class CloudApiService {
     return null;
   }
 
+  /// Expose fallback models for instant zero-latency UI initialization
+  List<CloudModel> get fallbackModels => _fallbackModels;
+
+  /// Local fallback calculation when backend is momentarily offline or in airplane mode
+  RecommendationResult calculateOfflineFallback(List<String> modelIds) => _calculateOfflineFallback(modelIds);
+
   /// Local fallback calculation when backend is momentarily offline or in airplane mode
   RecommendationResult _calculateOfflineFallback(List<String> modelIds) {
     final selected = _fallbackModels.where((m) => modelIds.contains(m.modelId)).toList();

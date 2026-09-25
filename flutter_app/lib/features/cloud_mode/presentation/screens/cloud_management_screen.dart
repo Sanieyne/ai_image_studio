@@ -18,9 +18,9 @@ class CloudManagementScreen extends StatefulWidget {
 class _CloudManagementScreenState extends State<CloudManagementScreen> {
   final _cloudApi = CloudApiService.instance;
 
-  bool _loading = true;
+  bool _syncing = false;
   bool _backendOnline = false;
-  List<CloudModel> _models = [];
+  late List<CloudModel> _models;
   Set<String> _selectedModelIds = {'sdxl-base-1.0'};
   RecommendationResult? _recommendation;
   MarketplaceRecommendedResult? _marketplaceResult;
@@ -28,35 +28,64 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   @override
   void initState() {
     super.initState();
+    _models = _cloudApi.fallbackModels;
+    _recommendation = _cloudApi.calculateOfflineFallback(_selectedModelIds.toList());
     _loadCloudData();
   }
 
   Future<void> _loadCloudData() async {
-    setState(() => _loading = true);
-    final online = await _cloudApi.checkHealth();
-    final models = await _cloudApi.fetchModels();
-    final rec = await _cloudApi.calculateRecommendations(_selectedModelIds.toList());
-    final market = await _cloudApi.fetchRecommendedGpuOffers(_selectedModelIds.toList());
+    setState(() => _syncing = true);
+    try {
+      final results = await Future.wait([
+        _cloudApi.checkHealth(),
+        _cloudApi.fetchModels(),
+        _cloudApi.calculateRecommendations(_selectedModelIds.toList()),
+        _cloudApi.fetchRecommendedGpuOffers(_selectedModelIds.toList()),
+      ]);
 
-    if (!mounted) return;
-    setState(() {
-      _backendOnline = online;
-      _models = models;
-      _recommendation = rec;
-      _marketplaceResult = market;
-      _loading = false;
-    });
+      if (!mounted) return;
+      final online = results[0] as bool;
+      final models = results[1] as List<CloudModel>;
+      final rec = results[2] as RecommendationResult?;
+      final market = results[3] as MarketplaceRecommendedResult?;
+
+      setState(() {
+        _backendOnline = online;
+        if (models.isNotEmpty) _models = models;
+        if (rec != null) _recommendation = rec;
+        if (market != null) _marketplaceResult = market;
+        _syncing = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   Future<void> _onSelectionChanged(Set<String> newSelection) async {
-    setState(() => _selectedModelIds = newSelection);
-    final rec = await _cloudApi.calculateRecommendations(newSelection.toList());
-    final market = await _cloudApi.fetchRecommendedGpuOffers(newSelection.toList());
-    if (!mounted) return;
     setState(() {
-      _recommendation = rec;
-      _marketplaceResult = market;
+      _selectedModelIds = newSelection;
+      _recommendation = _cloudApi.calculateOfflineFallback(newSelection.toList());
+      _syncing = true;
     });
+
+    try {
+      final results = await Future.wait([
+        _cloudApi.calculateRecommendations(newSelection.toList()),
+        _cloudApi.fetchRecommendedGpuOffers(newSelection.toList()),
+      ]);
+
+      if (!mounted) return;
+      final rec = results[0] as RecommendationResult?;
+      final market = results[1] as MarketplaceRecommendedResult?;
+
+      setState(() {
+        if (rec != null) _recommendation = rec;
+        if (market != null) _marketplaceResult = market;
+        _syncing = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   void _handleLaunchInstance([MarketplaceOffer? offer]) {
@@ -138,10 +167,6 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     final border = widget.isDark ? LuminaColors.darkBorder : LuminaColors.lightBorder;
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= 1050;
@@ -206,7 +231,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _backendOnline ? 'Cloud Cluster: Connected (EU-Central)' : 'Cloud Cluster: Offline',
+                            _backendOnline ? 'Cloud Cluster: Connected (EU-Central)' : 'Cloud Cluster: Connecting...',
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -225,7 +250,16 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 14),
+              if (_syncing) ...[
+                const SizedBox(height: 6),
+                const ClipRRect(
+                  borderRadius: BorderRadius.all(Radius.circular(2)),
+                  child: LinearProgressIndicator(minHeight: 2.5),
+                ),
+                const SizedBox(height: 8),
+              ] else ...[
+                const SizedBox(height: 14),
+              ],
 
               // Responsive Columns
               Expanded(
