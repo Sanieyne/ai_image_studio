@@ -9,7 +9,7 @@ class CloudApiService {
   CloudApiService._();
   factory CloudApiService() => instance;
 
-  String baseUrl = 'http://45.140.185.248:5000/api/v1';
+  String baseUrl = 'https://nass-works.com/ai-api/api/v1';
 
   /// Check connectivity to remote Cloud Orchestrator backend
   Future<bool> checkHealth() async {
