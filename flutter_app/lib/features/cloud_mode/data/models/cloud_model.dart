@@ -65,6 +65,7 @@ class GpuTier {
   final double headroomVramGB;
   final String fit; // 'optimal' | 'tight' | 'minimum'
   final String? reason;
+  final double? customCreditsPerHour;
 
   const GpuTier({
     required this.id,
@@ -78,6 +79,7 @@ class GpuTier {
     this.headroomVramGB = 0,
     this.fit = 'optimal',
     this.reason,
+    this.customCreditsPerHour,
   });
 
   factory GpuTier.fromJson(Map<String, dynamic> json) {
@@ -93,11 +95,12 @@ class GpuTier {
       headroomVramGB: (json['headroomVramGB'] as num?)?.toDouble() ?? 0.0,
       fit: json['fit'] as String? ?? 'optimal',
       reason: json['reason'] as String?,
+      customCreditsPerHour: (json['creditsPerHour'] as num?)?.toDouble(),
     );
   }
 
-  /// Hourly compute cost in credits (1 USD = 50 credits, with 25% markup on raw Vast.ai)
-  double get creditsPerHour => (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
+  /// Server-provided hourly compute cost in credits (authoritative), or fallback
+  double get creditsPerHour => customCreditsPerHour ?? (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
 }
 
 /// Storage volume sizing plan
@@ -108,6 +111,8 @@ class StoragePlan {
   final double pricePerMonth;
   final double freeAfterGB;
   final bool fits;
+  final double? customCreditsPerMonth;
+  final double? customCreditsPerHour;
 
   const StoragePlan({
     required this.id,
@@ -116,6 +121,8 @@ class StoragePlan {
     required this.pricePerMonth,
     this.freeAfterGB = 0,
     this.fits = true,
+    this.customCreditsPerMonth,
+    this.customCreditsPerHour,
   });
 
   factory StoragePlan.fromJson(Map<String, dynamic> json) {
@@ -126,11 +133,16 @@ class StoragePlan {
       pricePerMonth: (json['pricePerMonth'] as num?)?.toDouble() ?? 0.0,
       freeAfterGB: (json['freeAfterGB'] as num?)?.toDouble() ?? 0.0,
       fits: json['fits'] as bool? ?? true,
+      customCreditsPerMonth: (json['creditsPerMonth'] as num?)?.toDouble(),
+      customCreditsPerHour: (json['creditsPerHour'] as num?)?.toDouble(),
     );
   }
 
-  /// Monthly storage plan price in credits (1 USD = 50 credits, with 25% markup)
-  double get creditsPerMonth => (pricePerMonth * kVastPriceMarkup * kCreditsPerUsd);
+  /// Server-provided monthly storage plan price in credits (authoritative)
+  double get creditsPerMonth => customCreditsPerMonth ?? (pricePerMonth * kVastPriceMarkup * kCreditsPerUsd);
+
+  /// Server-provided hourly amortized storage cost in credits
+  double get creditsPerHour => customCreditsPerHour ?? (creditsPerMonth / 720.0);
 }
 
 /// Sizing requirements calculations
@@ -396,4 +408,37 @@ class MarketplaceRecommendedResult {
     );
   }
 }
+
+/// Server Pricing & Token Value Policy
+class PricingPolicyConfig {
+  final double tokenValue;
+  final double creditsPerUsd;
+  final double markupPercentage;
+  final double markupMultiplier;
+  final double minLaunchCredits;
+  final String? notes;
+
+  const PricingPolicyConfig({
+    this.tokenValue = 50.0,
+    this.creditsPerUsd = 50.0,
+    this.markupPercentage = 25.0,
+    this.markupMultiplier = 1.25,
+    this.minLaunchCredits = 10.0,
+    this.notes,
+  });
+
+  factory PricingPolicyConfig.fromJson(Map<String, dynamic> json) {
+    final token = (json['tokenValue'] as num?)?.toDouble() ?? (json['creditsPerUsd'] as num?)?.toDouble() ?? 50.0;
+    final markup = (json['markupPercentage'] as num?)?.toDouble() ?? 25.0;
+    return PricingPolicyConfig(
+      tokenValue: token,
+      creditsPerUsd: token,
+      markupPercentage: markup,
+      markupMultiplier: (json['markupMultiplier'] as num?)?.toDouble() ?? (1.0 + markup / 100.0),
+      minLaunchCredits: (json['minLaunchCredits'] as num?)?.toDouble() ?? 10.0,
+      notes: json['notes'] as String?,
+    );
+  }
+}
+
 

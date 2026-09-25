@@ -7,6 +7,7 @@
 import { vastaiService } from './vastai.service.js';
 import { recommendationService } from './recommendation.service.js';
 import { creditService } from './credit.service.js';
+import { pricingService } from './pricing.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { GPU_STATUS, GPU_PROVIDERS, BANDWIDTH_COST_PER_GB } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -187,6 +188,14 @@ class GpuProviderService {
     const storageCost = Math.round(storageRatePerHour * hours * 1000) / 1000;
     const bandwidthCost = Math.round(bandwidthGB * (offer.bandwidthCostPerGB || BANDWIDTH_COST_PER_GB) * 1000) / 1000;
     const totalCost = Math.round((computeCost + storageCost + bandwidthCost) * 1000) / 1000;
+    const costPerHour = Math.round((offer.pricePerHour + storageRatePerHour) * 1000) / 1000;
+
+    // Server-computed authoritative credit values
+    const computeCredits = pricingService.usdToCredits(computeCost, 1);
+    const storageCredits = pricingService.usdToCredits(storageCost, 2);
+    const bandwidthCredits = pricingService.usdToCredits(bandwidthCost, 2);
+    const totalCredits = pricingService.usdToCredits(totalCost, 1);
+    const creditsPerHour = pricingService.usdToCredits(costPerHour, 1);
 
     return {
       offerId: offer.id,
@@ -198,9 +207,16 @@ class GpuProviderService {
         computeCost,
         storageCost,
         bandwidthCost,
+        computeCredits,
+        storageCredits,
+        bandwidthCredits,
       },
       totalCost,
-      costPerHour: Math.round((offer.pricePerHour + storageRatePerHour) * 1000) / 1000,
+      costPerHour,
+      totalCredits,
+      creditsPerHour,
+      creditsPerUsd: pricingService.getCachedConfig().tokenValue,
+      markupPercentage: pricingService.getCachedConfig().markupPercentage,
     };
   }
 
@@ -218,13 +234,17 @@ class GpuProviderService {
     // 1. Fetch offer details
     const offer = await vastaiService.getOffer(offerId);
 
-    // 2. Compute minimum initial funding required (at least 1 hour total cost)
-    const initialRequirement = Math.max(1, offer.totalHourlyCost);
-    const hasSufficientCredits = await creditService.hasEnough(userId, initialRequirement);
+    // 2. Compute minimum initial funding required in CREDITS (at least 1 hour total cost or minLaunchCredits)
+    const minLaunch = pricingService.getCachedConfig().minLaunchCredits || 10;
+    const initialCreditsRequired = Math.max(
+      minLaunch,
+      offer.totalCreditsPerHour ?? pricingService.usdToCredits(offer.totalHourlyCost, 1)
+    );
+    const hasSufficientCredits = await creditService.hasEnough(userId, initialCreditsRequired);
 
     if (!hasSufficientCredits) {
       throw ApiError.paymentRequired(
-        `Insufficient credit balance. You need at least ${initialRequirement} credits to launch this ${offer.gpuName} instance.`
+        `Insufficient credit balance. You need at least ${initialCreditsRequired} credits to launch this ${offer.gpuName} instance.`
       );
     }
 
@@ -244,6 +264,11 @@ class GpuProviderService {
         storageCost: offer.storageCostPerHour,
         bandwidthCost: offer.bandwidthCostPerGB,
         totalPerHour: offer.totalHourlyCost,
+        creditsPerHour: offer.creditsPerHour,
+        totalCreditsPerHour: offer.totalCreditsPerHour,
+        storageCreditsPerHour: offer.storageCreditsPerHour,
+        bandwidthCreditsPerGB: offer.bandwidthCreditsPerGB,
+        creditsPerUsd: pricingService.getCachedConfig().tokenValue,
       },
       network: {
         inet_up: offer.inetUp,

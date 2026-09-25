@@ -8,6 +8,7 @@ import authRoutes from './auth.routes.js';
 import userRoutes from './user.routes.js';
 import modelRoutes from './model.routes.js';
 import gpuRoutes from './gpu.routes.js';
+import pricingRoutes from './pricing.routes.js';
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/models', modelRoutes);
 router.use('/gpu', gpuRoutes);
+router.use('/pricing', pricingRoutes);
 
 export default router;

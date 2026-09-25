@@ -6,6 +6,7 @@
 import { GpuInstance } from '../models/GpuInstance.js';
 import { User } from '../models/User.js';
 import { BANDWIDTH_COST_PER_GB } from '../config/constants.js';
+import { pricingService } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
 class PriceTrackerService {
@@ -15,6 +16,16 @@ class PriceTrackerService {
    * @returns {Object}
    */
   calculateBurnRate(instance) {
+    const creditsPerHour =
+      instance.pricing?.totalCreditsPerHour ??
+      instance.pricing?.creditsPerHour ??
+      pricingService.usdToCredits(instance.pricing?.totalPerHour ?? instance.costPerHour ?? 0.44, 1);
+
+    const creditsPerMinute = Math.round((creditsPerHour / 60) * 1000) / 1000;
+    const creditsPerSecond = Math.round((creditsPerHour / 3600) * 100000) / 100000;
+    const dailyCredits = Math.round(creditsPerHour * 24 * 10) / 10;
+    const monthlyCredits = Math.round(creditsPerHour * 24 * 30 * 10) / 10;
+
     const perHour = instance.pricing?.totalPerHour ?? instance.costPerHour ?? 0.44;
     const perMinute = Math.round((perHour / 60) * 10000) / 10000;
     const perSecond = Math.round((perHour / 3600) * 100000) / 100000;
@@ -25,6 +36,11 @@ class PriceTrackerService {
     const bandwidthEstimate = Math.round((100 * BANDWIDTH_COST_PER_GB) * 100) / 100;
 
     return {
+      creditsPerHour,
+      creditsPerMinute,
+      creditsPerSecond,
+      dailyCredits,
+      monthlyCredits,
       perHour,
       perMinute,
       perSecond,
@@ -59,8 +75,14 @@ class PriceTrackerService {
     const ratePerHour = instance.pricing?.totalPerHour || instance.costPerHour || 0.44;
     const totalCostSoFar = Math.round(hoursElapsed * ratePerHour * 1000) / 1000;
 
+    const creditsRatePerHour =
+      instance.pricing?.totalCreditsPerHour ??
+      instance.pricing?.creditsPerHour ??
+      pricingService.usdToCredits(ratePerHour, 1);
+    const creditsBurnedSoFar = Math.round(hoursElapsed * creditsRatePerHour * 10) / 10;
+
     const burnRate = this.calculateBurnRate(instance);
-    const lowBalanceWarning = user.credits < ratePerHour * 2;
+    const lowBalanceWarning = user.credits < creditsRatePerHour * 2;
 
     return {
       instanceId: String(instance._id),
@@ -69,12 +91,13 @@ class PriceTrackerService {
       elapsedSeconds,
       hoursElapsed: Math.round(hoursElapsed * 100) / 100,
       totalCostSoFar,
+      creditsBurnedSoFar,
       currentBalance: user.credits,
-      creditsRemaining: Math.max(0, Math.round((user.credits - totalCostSoFar) * 1000) / 1000),
+      creditsRemaining: Math.max(0, Math.round((user.credits - creditsBurnedSoFar) * 10) / 10),
       burnRate,
       lowBalanceWarning,
       warningMessage: lowBalanceWarning
-        ? `Warning: Balance (${user.credits.toFixed(2)}) is below 2 hours of runtime for ${instance.gpuType}. Please recharge credits.`
+        ? `Warning: Balance (${user.credits.toFixed(1)} credits) is below 2 hours of runtime for ${instance.gpuType}. Please recharge credits.`
         : null,
     };
   }
@@ -90,13 +113,17 @@ class PriceTrackerService {
     if (!user) return { isLow: false, credits: 0 };
 
     const ratePerHour = instance.pricing?.totalPerHour || instance.costPerHour || 0.44;
-    const isLow = user.credits < ratePerHour * 2;
+    const creditsRatePerHour =
+      instance.pricing?.totalCreditsPerHour ??
+      instance.pricing?.creditsPerHour ??
+      pricingService.usdToCredits(ratePerHour, 1);
+    const isLow = user.credits < creditsRatePerHour * 2;
 
     return {
       isLow,
       currentCredits: user.credits,
-      ratePerHour,
-      hoursRemaining: ratePerHour > 0 ? Math.round((user.credits / ratePerHour) * 10) / 10 : 0,
+      creditsRatePerHour,
+      hoursRemaining: creditsRatePerHour > 0 ? Math.round((user.credits / creditsRatePerHour) * 10) / 10 : 0,
       message: isLow
         ? `Your balance (${user.credits.toFixed(2)}) will deplete in less than 2 hours.`
         : 'Credit balance healthy.',

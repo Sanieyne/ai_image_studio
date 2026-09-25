@@ -11,6 +11,7 @@ import {
   BASE_OVERHEAD_GB,
   OUTPUT_BUFFER_PERCENT,
 } from '../config/constants.js';
+import { pricingService } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
 class RecommendationService {
@@ -79,12 +80,14 @@ class RecommendationService {
     const totalWithBufferGB =
       Math.round((totalModelSizeGB + BASE_OVERHEAD_GB + bufferGB) * 100) / 100;
 
-    // 6. Find optimal storage plan
-    const recommendedStorage =
+    // 6. Find optimal storage plan and enrich with server-calculated credits
+    const recommendedStorageRaw =
       STORAGE_PLANS.find((plan) => plan.sizeGB >= totalWithBufferGB) ||
       STORAGE_PLANS[STORAGE_PLANS.length - 1];
+    const recommendedStorage = pricingService.formatStoragePricing(recommendedStorageRaw);
+    const allPlans = STORAGE_PLANS.map((plan) => pricingService.formatStoragePricing(plan));
 
-    // 7. Compatible GPUs filtered by maxVramGB requirement
+    // 7. Compatible GPUs filtered by maxVramGB requirement and formatted with server credits
     const compatibleGPUs = GPU_TIERS.filter((gpu) => gpu.vramGB >= maxVramGB)
       .map((gpu) => {
         const headroom = gpu.vramGB - maxVramGB;
@@ -99,15 +102,17 @@ class RecommendationService {
           reason = `Balanced fit with ${headroom}GB VRAM headroom. Ideal for standard single-inference runs.`;
         }
 
+        const tierWithCredits = pricingService.formatTierPricing(gpu);
+
         return {
-          ...gpu,
+          ...tierWithCredits,
           canRun: true,
           headroomVramGB: headroom,
           fit,
           reason,
         };
       })
-      .sort((a, b) => a.pricePerHour - b.pricePerHour);
+      .sort((a, b) => a.creditsPerHour - b.creditsPerHour);
 
     // 8. Generate intelligent warnings
     const warnings = [];
@@ -158,7 +163,7 @@ class RecommendationService {
       },
       compatibleGPUs,
       warnings,
-      allPlans: STORAGE_PLANS,
+      allPlans,
     };
   }
 
@@ -181,7 +186,7 @@ class RecommendationService {
     }));
 
     return {
-      gpuTiers: GPU_TIERS,
+      gpuTiers: GPU_TIERS.map((gpu) => pricingService.formatTierPricing(gpu)),
       models: mappedModels,
     };
   }

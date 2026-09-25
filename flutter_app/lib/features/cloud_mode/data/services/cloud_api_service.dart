@@ -23,6 +23,23 @@ class CloudApiService {
     }
   }
 
+  /// Fetch dynamic server pricing and token conversion policy
+  Future<PricingPolicyConfig?> fetchPricingConfig() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$baseUrl/pricing/config'))
+          .timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>;
+        return PricingPolicyConfig.fromJson(data);
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchPricingConfig error: $e');
+    }
+    return null;
+  }
+
   /// Retrieve catalog models with optional filtering by mode or query
   Future<List<CloudModel>> fetchModels({String? mode, String? search}) async {
     try {
@@ -168,29 +185,31 @@ class CloudApiService {
         id: totalWithBuffer <= 30 ? '30gb' : totalWithBuffer <= 50 ? '50gb' : '100gb',
         name: totalWithBuffer <= 30 ? 'Starter 30GB' : totalWithBuffer <= 50 ? 'Creator 50GB' : 'Studio 100GB',
         sizeGB: totalWithBuffer <= 30 ? 30 : totalWithBuffer <= 50 ? 50 : 100,
-        pricePerMonth: totalWithBuffer <= 30 ? 3 : totalWithBuffer <= 50 ? 5 : 9,
+        pricePerMonth: totalWithBuffer <= 30 ? 3.75 : totalWithBuffer <= 50 ? 6.25 : 11.25,
         freeAfterGB: (totalWithBuffer <= 30 ? 30 : 100) - totalWithBuffer,
         fits: true,
+        customCreditsPerMonth: totalWithBuffer <= 30 ? 188 : totalWithBuffer <= 50 ? 312 : 562,
+        customCreditsPerHour: totalWithBuffer <= 30 ? 0.26 : totalWithBuffer <= 50 ? 0.43 : 0.78,
       ),
       compatibleGPUs: [
         if (maxVram <= 12)
-          const GpuTier(id: 'rtx-3060-12gb', name: 'RTX 3060', vramGB: 12, ramGB: 32, pricePerHour: 0.22, tier: 'budget', tags: ['budget', 'sdxl'], fit: 'minimum'),
+          const GpuTier(id: 'rtx-3060-12gb', name: 'RTX 3060', vramGB: 12, ramGB: 32, pricePerHour: 0.275, tier: 'budget', tags: ['budget', 'sdxl'], fit: 'minimum', customCreditsPerHour: 13.8),
         if (maxVram <= 24)
-          const GpuTier(id: 'rtx-3090-24gb', name: 'RTX 3090', vramGB: 24, ramGB: 64, pricePerHour: 0.44, tier: 'balanced', tags: ['popular', 'flux'], fit: 'optimal'),
+          const GpuTier(id: 'rtx-3090-24gb', name: 'RTX 3090', vramGB: 24, ramGB: 64, pricePerHour: 0.55, tier: 'balanced', tags: ['popular', 'flux'], fit: 'optimal', customCreditsPerHour: 27.5),
         if (maxVram <= 24)
-          const GpuTier(id: 'rtx-4090-24gb', name: 'RTX 4090', vramGB: 24, ramGB: 64, pricePerHour: 0.62, tier: 'performance', tags: ['fast', 'wan'], fit: 'optimal'),
-        const GpuTier(id: 'a100-40gb', name: 'A100 40GB', vramGB: 40, ramGB: 128, pricePerHour: 1.15, tier: 'pro', tags: ['wan-14b'], fit: 'optimal'),
-        const GpuTier(id: 'a100-80gb', name: 'A100 80GB', vramGB: 80, ramGB: 256, pricePerHour: 1.85, tier: 'enterprise', tags: ['all'], fit: 'optimal'),
+          const GpuTier(id: 'rtx-4090-24gb', name: 'RTX 4090', vramGB: 24, ramGB: 64, pricePerHour: 0.775, tier: 'performance', tags: ['fast', 'wan'], fit: 'optimal', customCreditsPerHour: 38.8),
+        const GpuTier(id: 'a100-40gb', name: 'A100 40GB', vramGB: 40, ramGB: 128, pricePerHour: 1.4375, tier: 'pro', tags: ['wan-14b'], fit: 'optimal', customCreditsPerHour: 71.9),
+        const GpuTier(id: 'a100-80gb', name: 'A100 80GB', vramGB: 80, ramGB: 256, pricePerHour: 2.3125, tier: 'enterprise', tags: ['all'], fit: 'optimal', customCreditsPerHour: 115.6),
       ],
       warnings: [
         if (totalWithBuffer > 30) 'Starter 30GB storage is insufficient. Upgrade recommended.',
       ],
       allPlans: const [
-        StoragePlan(id: '30gb', name: 'Starter 30GB', sizeGB: 30, pricePerMonth: 3),
-        StoragePlan(id: '50gb', name: 'Creator 50GB', sizeGB: 50, pricePerMonth: 5),
-        StoragePlan(id: '100gb', name: 'Studio 100GB', sizeGB: 100, pricePerMonth: 9),
-        StoragePlan(id: '200gb', name: 'Pro 200GB', sizeGB: 200, pricePerMonth: 16),
-        StoragePlan(id: '500gb', name: 'Enterprise 500GB', sizeGB: 500, pricePerMonth: 35),
+        StoragePlan(id: '30gb', name: 'Starter 30GB', sizeGB: 30, pricePerMonth: 3.75, customCreditsPerMonth: 188, customCreditsPerHour: 0.26),
+        StoragePlan(id: '50gb', name: 'Creator 50GB', sizeGB: 50, pricePerMonth: 6.25, customCreditsPerMonth: 312, customCreditsPerHour: 0.43),
+        StoragePlan(id: '100gb', name: 'Studio 100GB', sizeGB: 100, pricePerMonth: 11.25, customCreditsPerMonth: 562, customCreditsPerHour: 0.78),
+        StoragePlan(id: '200gb', name: 'Pro 200GB', sizeGB: 200, pricePerMonth: 20.0, customCreditsPerMonth: 1000, customCreditsPerHour: 1.39),
+        StoragePlan(id: '500gb', name: 'Enterprise 500GB', sizeGB: 500, pricePerMonth: 43.75, customCreditsPerMonth: 2188, customCreditsPerHour: 3.04),
       ],
     );
   }
