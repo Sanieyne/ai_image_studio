@@ -70,8 +70,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     final maxVram = widget.result?.requirements.maxVramGB ?? 12.0;
 
     final displayName = activeOffer?.gpuName ?? primaryFallbackGpu?.name ?? 'RTX 3090';
-    final price = activeOffer?.pricePerHour ?? primaryFallbackGpu?.pricePerHour ?? 0.44;
-    final totalHourly = activeOffer?.totalHourlyCost ?? price;
+    final creditsPerHour = activeOffer?.creditsPerHour ?? ((primaryFallbackGpu?.pricePerHour ?? 0.44) * kVastPriceMarkup * kCreditsPerUsd);
+    final totalCreditsPerHour = activeOffer?.totalCreditsPerHour ?? creditsPerHour;
     final vramTotal = activeOffer?.vramGB ?? primaryFallbackGpu?.vramGB ?? 24.0;
     final headroom = activeOffer?.headroomVramGB ?? primaryFallbackGpu?.headroomVramGB ?? 0.0;
     final fit = activeOffer?.fit ?? primaryFallbackGpu?.fit ?? 'optimal';
@@ -212,15 +212,15 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    '\$${price.toStringAsFixed(2)} / hr',
+                                    '${creditsPerHour.toStringAsFixed(1)} credits/hr',
                                     style: const TextStyle(
-                                      fontSize: 16,
+                                      fontSize: 15,
                                       fontWeight: FontWeight.bold,
                                       color: LuminaColors.amber,
                                     ),
                                   ),
                                   Text(
-                                    '(\$${totalHourly.toStringAsFixed(3)} w/ storage)',
+                                    '(${totalCreditsPerHour.toStringAsFixed(1)} cr/hr w/ storage)',
                                     style: TextStyle(fontSize: 10.5, color: muted),
                                   ),
                                 ],
@@ -287,7 +287,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         child: _buildTelemetryBadge(
                                           icon: Icons.data_usage_rounded,
                                           label: 'Bandwidth',
-                                          value: '\$${activeOffer.bandwidthCostPerGB.toStringAsFixed(2)}/GB',
+                                          value: '${activeOffer.bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB',
                                           color: LuminaColors.infoBlue,
                                         ),
                                       ),
@@ -461,7 +461,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                       ],
                                       const Spacer(),
                                       Text(
-                                        '\$${offer.pricePerHour.toStringAsFixed(2)}/hr',
+                                        '${offer.creditsPerHour.toStringAsFixed(1)} cr/hr',
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LuminaColors.amber),
                                       ),
                                     ],
@@ -472,7 +472,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                     runSpacing: 4,
                                     children: [
                                       _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
-                                      _buildMiniTag('\$${offer.bandwidthCostPerGB.toStringAsFixed(2)}/GB egress', Colors.cyanAccent.shade700),
+                                      _buildMiniTag('${offer.bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB egress', Colors.cyanAccent.shade700),
                                       _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
                                       _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
                                       _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
@@ -504,7 +504,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                               children: [
                                 Text(gpu.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
                                 const Spacer(),
-                                Text('\$${gpu.pricePerHour.toStringAsFixed(2)}/hr',
+                                Text('${gpu.creditsPerHour.toStringAsFixed(1)} cr/hr',
                                     style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                               ],
                             ),
@@ -526,7 +526,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
               onPressed: () => widget.onLaunchInstance(activeOffer),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: Text(
-                'Rent & Launch $displayName (~${(totalHourly * 200).toInt()} credits/hr)',
+                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)',
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(

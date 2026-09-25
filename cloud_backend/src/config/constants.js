@@ -51,18 +51,22 @@ export const STORAGE_STATUS = Object.freeze({
   DELETED: 'deleted',
 });
 
+// Pricing & Credits Policy: 50 credits per 1 USD, 25% markup on raw Vast.ai pricing (1.25x)
+export const CREDITS_PER_USD = 50;
+export const VASTAI_PRICE_MARKUP = 1.25;
+
 // System overheads
 export const BASE_OVERHEAD_GB = 7; // OS + Python virtualenv + Diffusers libraries
 export const OUTPUT_BUFFER_PERCENT = 0.3; // 30% storage headroom for generated high-res media
 
-// GPU Hardware Tiers for Cloud Provisioning
+// GPU Hardware Tiers for Cloud Provisioning (Prices include 25% markup)
 export const GPU_TIERS = Object.freeze([
   {
     id: 'rtx-3060-12gb',
     name: 'RTX 3060',
     vramGB: 12,
     ramGB: 32,
-    pricePerHour: 0.22,
+    pricePerHour: 0.275, // 0.22 * 1.25 (13.75 credits/hr)
     tier: 'budget',
     tags: ['budget', 'sdxl', 'z-image', 'vton'],
   },
@@ -71,7 +75,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'RTX 3090',
     vramGB: 24,
     ramGB: 64,
-    pricePerHour: 0.44,
+    pricePerHour: 0.55, // 0.44 * 1.25 (27.5 credits/hr)
     tier: 'balanced',
     tags: ['popular', 'flux', 'qwen', 'wan-1.3b'],
   },
@@ -80,7 +84,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'RTX 4090',
     vramGB: 24,
     ramGB: 64,
-    pricePerHour: 0.62,
+    pricePerHour: 0.775, // 0.62 * 1.25 (38.75 credits/hr)
     tier: 'performance',
     tags: ['fast', 'flux', 'wan'],
   },
@@ -89,7 +93,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'A100 40GB',
     vramGB: 40,
     ramGB: 128,
-    pricePerHour: 1.15,
+    pricePerHour: 1.4375, // 1.15 * 1.25 (71.88 credits/hr)
     tier: 'pro',
     tags: ['wan-14b', 'minimax'],
   },
@@ -98,7 +102,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'A100 80GB',
     vramGB: 80,
     ramGB: 256,
-    pricePerHour: 1.85,
+    pricePerHour: 2.3125, // 1.85 * 1.25 (115.63 credits/hr)
     tier: 'enterprise',
     tags: ['all', 'minimax-h3'],
   },
@@ -114,7 +118,7 @@ export const STORAGE_PLANS = Object.freeze([
 ]);
 
 // Vast.ai Marketplace & Provisioning Constants
-export const BANDWIDTH_COST_PER_GB = 0.02; // $0.02 per GB network egress/ingress fallback
+export const BANDWIDTH_COST_PER_GB = 0.025; // $0.02 * 1.25 markup = $0.025 per GB (1.25 credits/GB)
 export const VASTAI_OFFERS_CACHE_TTL_MS = 30000; // 30s cache TTL to avoid rate limiting
 
 export const VASTAI_GPU_NAME_MAP = Object.freeze({

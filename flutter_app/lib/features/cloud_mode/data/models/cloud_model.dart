@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+/// Pricing Policy: 50 credits per 1 USD, 25% markup (1.25x) on raw Vast.ai prices
+const double kCreditsPerUsd = 50.0;
+const double kVastPriceMarkup = 1.25;
+
 /// App execution mode: running on local hardware or remote cloud GPU
 enum StudioExecutionMode {
   local,
@@ -91,6 +95,9 @@ class GpuTier {
       reason: json['reason'] as String?,
     );
   }
+
+  /// Hourly compute cost in credits (1 USD = 50 credits, with 25% markup on raw Vast.ai)
+  double get creditsPerHour => (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
 }
 
 /// Storage volume sizing plan
@@ -121,6 +128,9 @@ class StoragePlan {
       fits: json['fits'] as bool? ?? true,
     );
   }
+
+  /// Monthly storage plan price in credits (1 USD = 50 credits, with 25% markup)
+  double get creditsPerMonth => (pricePerMonth * kVastPriceMarkup * kCreditsPerUsd);
 }
 
 /// Sizing requirements calculations
@@ -242,6 +252,26 @@ class MarketplaceOffer {
   final String fit; // 'optimal' | 'tight' | 'minimum'
   final String fitReason;
   final double estimatedDownloadTimeMinutes;
+  final double? customCreditsPerHour;
+  final double? customTotalCreditsPerHour;
+  final double? customStorageCreditsPerHour;
+  final double? customBandwidthCreditsPerGB;
+
+  /// Hourly compute cost in credits (1 USD = 50 credits, 25% markup on raw Vast.ai)
+  double get creditsPerHour =>
+      customCreditsPerHour ?? (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
+
+  /// Total hourly cost in credits (compute + storage)
+  double get totalCreditsPerHour =>
+      customTotalCreditsPerHour ?? (totalHourlyCost * kVastPriceMarkup * kCreditsPerUsd);
+
+  /// Storage cost in credits per hour
+  double get storageCreditsPerHour =>
+      customStorageCreditsPerHour ?? (storageCostPerHour * kVastPriceMarkup * kCreditsPerUsd);
+
+  /// Bandwidth egress cost in credits per GB
+  double get bandwidthCreditsPerGB =>
+      customBandwidthCreditsPerGB ?? (bandwidthCostPerGB * kVastPriceMarkup * kCreditsPerUsd);
 
   const MarketplaceOffer({
     required this.id,
@@ -272,6 +302,10 @@ class MarketplaceOffer {
     required this.fit,
     required this.fitReason,
     required this.estimatedDownloadTimeMinutes,
+    this.customCreditsPerHour,
+    this.customTotalCreditsPerHour,
+    this.customStorageCreditsPerHour,
+    this.customBandwidthCreditsPerGB,
   });
 
   factory MarketplaceOffer.fromJson(Map<String, dynamic> json) {
@@ -304,6 +338,10 @@ class MarketplaceOffer {
       fit: json['fit']?.toString() ?? 'optimal',
       fitReason: json['fitReason']?.toString() ?? '',
       estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble() ?? 2.5,
+      customCreditsPerHour: (json['creditsPerHour'] as num?)?.toDouble(),
+      customTotalCreditsPerHour: (json['totalCreditsPerHour'] as num?)?.toDouble(),
+      customStorageCreditsPerHour: (json['storageCreditsPerHour'] as num?)?.toDouble(),
+      customBandwidthCreditsPerGB: (json['bandwidthCreditsPerGB'] as num?)?.toDouble(),
     );
   }
 }

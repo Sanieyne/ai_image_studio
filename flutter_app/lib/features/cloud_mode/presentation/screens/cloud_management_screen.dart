@@ -98,7 +98,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   void _handleLaunchInstance([MarketplaceOffer? offer]) {
     final primaryGpu = _recommendation?.compatibleGPUs.firstOrNull;
     final gpuName = offer?.gpuName ?? primaryGpu?.name ?? 'Cloud GPU';
-    final price = offer?.totalHourlyCost ?? primaryGpu?.pricePerHour ?? 0.44;
+    final creditsPerHour = offer?.totalCreditsPerHour ?? primaryGpu?.creditsPerHour ?? (0.44 * kVastPriceMarkup * kCreditsPerUsd);
 
     showDialog(
       context: context,
@@ -132,7 +132,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
               }).toList(),
             ),
             const SizedBox(height: 14),
-            Text('Hourly Rate: \$${price.toStringAsFixed(2)} / hr (~${(price * 200).toInt()} credits/hr)'),
+            Text('Hourly Rate: ${creditsPerHour.toStringAsFixed(1)} credits / hr'),
             const SizedBox(height: 4),
             Text('Recommended Volume: ${_recommendation?.recommendedStorage.name ?? 'Starter 30GB'}'),
             const SizedBox(height: 14),

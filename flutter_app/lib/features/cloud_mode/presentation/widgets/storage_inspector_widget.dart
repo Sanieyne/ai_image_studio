@@ -46,6 +46,10 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
     final fit = offer?.fit ?? primaryFallbackGpu?.fit ?? 'optimal';
     final price = offer?.pricePerHour ?? primaryFallbackGpu?.pricePerHour ?? 0.58;
     final totalHourly = offer?.totalHourlyCost ?? price;
+    final creditsPerHour = offer?.creditsPerHour ?? primaryFallbackGpu?.creditsPerHour ?? (price * kVastPriceMarkup * kCreditsPerUsd);
+    final totalCreditsPerHour = offer?.totalCreditsPerHour ?? (totalHourly * kVastPriceMarkup * kCreditsPerUsd);
+    final storageCreditsPerHour = offer?.storageCreditsPerHour ?? ((offer?.storageCostPerHour ?? 0.004) * kVastPriceMarkup * kCreditsPerUsd);
+    final bandwidthCreditsPerGB = offer?.bandwidthCreditsPerGB ?? ((offer?.bandwidthCostPerGB ?? 0.02) * kVastPriceMarkup * kCreditsPerUsd);
     final maxVram = req?.maxVramGB ?? 12.0;
     final totalVram = offer?.vramGB ?? primaryFallbackGpu?.vramGB ?? 24.0;
     final headroom = offer?.headroomVramGB ?? primaryFallbackGpu?.headroomVramGB ?? 12.0;
@@ -150,7 +154,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '\$${price.toStringAsFixed(2)}/hr',
+                                  '${creditsPerHour.toStringAsFixed(1)} cr/hr',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
@@ -272,7 +276,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                 child: _buildInfoTile(
                                   icon: Icons.data_usage_rounded,
                                   title: 'Bandwidth Egress',
-                                  value: '\$${(offer?.bandwidthCostPerGB ?? 0.02).toStringAsFixed(2)}/GB',
+                                  value: '${bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB',
                                   color: LuminaColors.infoBlue,
                                 ),
                               ),
@@ -449,7 +453,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text('GPU Hourly Compute:', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('\$${price.toStringAsFixed(2)} / hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text('${creditsPerHour.toStringAsFixed(1)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                             ],
                           ),
                           const SizedBox(height: 4),
@@ -457,7 +461,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text('Storage Volume Lease:', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('+\$${(offer?.storageCostPerHour ?? 0.004).toStringAsFixed(3)} / hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text('+${storageCreditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                             ],
                           ),
                           const Divider(height: 14),
@@ -467,7 +471,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                               const Text('Total Hourly Cost:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                               Flexible(
                                 child: Text(
-                                  '\$${totalHourly.toStringAsFixed(3)} / hr',
+                                  '${totalCreditsPerHour.toStringAsFixed(1)} credits/hr',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
@@ -493,7 +497,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
               onPressed: () => widget.onLaunchInstance?.call(offer),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: Text(
-                'Rent & Launch $displayName',
+                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)',
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(

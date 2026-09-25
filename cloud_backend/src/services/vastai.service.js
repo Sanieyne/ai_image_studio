@@ -5,7 +5,12 @@
 
 import axios from 'axios';
 import { env } from '../config/env.js';
-import { BANDWIDTH_COST_PER_GB, VASTAI_OFFERS_CACHE_TTL_MS } from '../config/constants.js';
+import {
+  BANDWIDTH_COST_PER_GB,
+  VASTAI_OFFERS_CACHE_TTL_MS,
+  VASTAI_PRICE_MARKUP,
+  CREDITS_PER_USD,
+} from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
 
 class VastaiService {
@@ -50,10 +55,24 @@ class VastaiService {
     const vramGB = Math.round(((raw.gpu_ram || 24000) / 1000) * 10) / 10;
     const ramGB = Math.round(((raw.cpu_ram || 32000) / 1000) * 10) / 10;
     const diskGB = Math.round(raw.disk_space || 100);
-    const dphTotal = Math.round((raw.dph_total || 0.44) * 1000) / 1000;
-    const dphBase = Math.round((raw.dph_base || dphTotal) * 1000) / 1000;
-    const storageCostPerHour = Math.max(0, Math.round((dphTotal - dphBase) * 1000) / 1000);
+    const rawDphTotal = raw.dph_total || 0.44;
+    const rawDphBase = raw.dph_base || rawDphTotal;
+    const rawStorage = Math.max(0, rawDphTotal - rawDphBase);
+    const rawBandwidth = raw.inet_down_cost || BANDWIDTH_COST_PER_GB || 0.025;
+
+    // Apply 25% markup on raw Vast.ai rates (1.25x)
+    const dphTotal = Math.round(rawDphTotal * VASTAI_PRICE_MARKUP * 1000) / 1000;
+    const dphBase = Math.round(rawDphBase * VASTAI_PRICE_MARKUP * 1000) / 1000;
+    const storageCostPerHour = Math.round(rawStorage * VASTAI_PRICE_MARKUP * 1000) / 1000;
+    const bandwidthCostPerGB = Math.round(rawBandwidth * VASTAI_PRICE_MARKUP * 1000) / 1000;
     const totalHourlyCost = dphTotal;
+
+    // Credit policy: 50 credits per 1 USD
+    const creditsPerHour = Math.round(dphTotal * CREDITS_PER_USD * 10) / 10;
+    const totalCreditsPerHour = Math.round(totalHourlyCost * CREDITS_PER_USD * 10) / 10;
+    const storageCreditsPerHour = Math.round(storageCostPerHour * CREDITS_PER_USD * 100) / 100;
+    const bandwidthCreditsPerGB = Math.round(bandwidthCostPerGB * CREDITS_PER_USD * 100) / 100;
+
     const inetDown = Math.round(raw.inet_down || 250);
     const inetUp = Math.round(raw.inet_up || 100);
 
@@ -72,8 +91,12 @@ class VastaiService {
       pricePerHour: dphTotal,
       dphBase,
       storageCostPerHour,
-      bandwidthCostPerGB: BANDWIDTH_COST_PER_GB,
+      bandwidthCostPerGB,
       totalHourlyCost,
+      creditsPerHour,
+      totalCreditsPerHour,
+      storageCreditsPerHour,
+      bandwidthCreditsPerGB,
       inetUp,
       inetDown,
       reliability: Math.round((raw.reliability2 != null ? raw.reliability2 : (raw.reliability || 0.98)) * 100) / 100,
