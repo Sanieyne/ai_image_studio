@@ -103,6 +103,41 @@ class DatabaseService {
     return _db!;
   }
 
+  // --- App Settings (Key-Value Cache) ---
+
+  Future<void> setSetting(String key, String value) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    await db.insert(
+      'app_settings',
+      {'key': key, 'value': value},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> getSetting(String key) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+    final rows = await db.query(
+      'app_settings',
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      return rows.first['value'] as String?;
+    }
+    return null;
+  }
+
   // --- Projects ---
 
   Future<List<ProjectItem>> getAllProjects() async {

@@ -223,15 +223,98 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
 
                 if (activeOffer != null) ...[
                   const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('📍 ${activeOffer.geolocation}', style: TextStyle(fontSize: 11, color: muted)),
-                      Text('⏱ Model Download: ~${activeOffer.estimatedDownloadTimeMinutes}m',
-                          style: TextStyle(fontSize: 11, color: muted)),
-                      Text('🛡 ${(activeOffer.reliability * 100).toStringAsFixed(1)}% Uptime',
-                          style: TextStyle(fontSize: 11, color: muted)),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: border.withValues(alpha: 0.5)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.speed_rounded,
+                                label: 'Network',
+                                value: '↓ ${activeOffer.inetDown}M / ↑ ${activeOffer.inetUp}M',
+                                color: Colors.greenAccent.shade700,
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.data_usage_rounded,
+                                label: 'Bandwidth',
+                                value: '\$${activeOffer.bandwidthCostPerGB.toStringAsFixed(2)}/GB',
+                                color: LuminaColors.infoBlue,
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.timer_outlined,
+                                label: 'Download',
+                                value: '~${activeOffer.estimatedDownloadTimeMinutes}m',
+                                color: Colors.orangeAccent,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.location_on_outlined,
+                                label: 'Location',
+                                value: activeOffer.geolocation.isNotEmpty ? activeOffer.geolocation : 'Global',
+                                color: Colors.purpleAccent.shade100,
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.verified_user_outlined,
+                                label: 'Uptime',
+                                value: '${(activeOffer.reliability * 100).toStringAsFixed(1)}%',
+                                color: Colors.tealAccent.shade400,
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildTelemetryBadge(
+                                icon: Icons.bolt_rounded,
+                                label: 'AI Compute',
+                                value: '${activeOffer.dlperf.toStringAsFixed(1)} dlperf',
+                                color: LuminaColors.amber,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: _buildTelemetryBadge(
+                                icon: Icons.memory_rounded,
+                                label: 'System',
+                                value: '${activeOffer.cpuCores} vCPU · ${activeOffer.ramGB.toInt()}GB RAM · ${activeOffer.diskGB}GB Disk',
+                                color: muted,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 2,
+                              child: _buildTelemetryBadge(
+                                icon: Icons.developer_board_rounded,
+                                label: 'NVIDIA',
+                                value: 'CUDA ${activeOffer.cudaVersion} (v${activeOffer.driverVersion})',
+                                color: muted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -266,7 +349,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           Expanded(
             child: ListView.separated(
               itemCount: mr?.allOffers.length ?? widget.result?.compatibleGPUs.length ?? 0,
-              separatorBuilder: (_, __) => const SizedBox(height: 6),
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
               itemBuilder: (context, idx) {
                 if (mr != null && mr.allOffers.isNotEmpty) {
                   final offer = mr.allOffers[idx];
@@ -280,7 +363,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
@@ -291,46 +374,64 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                         ),
                         color: isSelected
                             ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.15 : 0.08)
-                            : Colors.transparent,
+                            : (widget.isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                            size: 16,
-                            color: isSelected ? LuminaColors.infoBlue : muted,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            offer.gpuName,
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: border.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              '${offer.vramGB.toInt()}GB',
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          if (offer.geolocation.isNotEmpty) ...[
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                offer.geolocation,
-                                style: TextStyle(fontSize: 10.5, color: muted),
-                                overflow: TextOverflow.ellipsis,
+                          Row(
+                            children: [
+                              Icon(
+                                isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                                size: 16,
+                                color: isSelected ? LuminaColors.infoBlue : muted,
                               ),
-                            ),
-                          ],
-                          const Spacer(),
-                          Text(
-                            '\$${offer.pricePerHour.toStringAsFixed(2)}/hr',
-                            style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+                              const SizedBox(width: 8),
+                              Text(
+                                offer.gpuName,
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: LuminaColors.infoBlue.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  '${offer.vramGB.toInt()}GB VRAM',
+                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: LuminaColors.infoBlue),
+                                ),
+                              ),
+                              if (offer.geolocation.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    '📍 ${offer.geolocation}',
+                                    style: TextStyle(fontSize: 11, color: muted),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                              const Spacer(),
+                              Text(
+                                '\$${offer.pricePerHour.toStringAsFixed(2)}/hr',
+                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
+                              _buildMiniTag('\$${offer.bandwidthCostPerGB.toStringAsFixed(2)}/GB egress', Colors.cyanAccent.shade700),
+                              _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
+                              _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
+                              _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
+                              _buildMiniTag('⏱ ~${offer.estimatedDownloadTimeMinutes}m dl', Colors.orangeAccent),
+                            ],
                           ),
                         ],
                       ),
@@ -420,6 +521,55 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTelemetryBadge({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 4),
+        Text(
+          '$label: ',
+          style: TextStyle(
+            fontSize: 10.5,
+            fontWeight: FontWeight.w500,
+            color: widget.isDark ? Colors.white60 : Colors.black54,
+          ),
+        ),
+        Flexible(
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMiniTag(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.3), width: 0.8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: color),
       ),
     );
   }

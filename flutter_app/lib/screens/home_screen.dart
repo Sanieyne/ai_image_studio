@@ -140,8 +140,25 @@ class _HomeScreenState extends State<HomeScreen> {
     return text[0].toUpperCase() + text.substring(1);
   }
 
+  Future<void> _setExecutionMode(StudioExecutionMode mode) async {
+    if (_executionMode == mode) return;
+    setState(() => _executionMode = mode);
+    try {
+      await _db.setSetting('studio_execution_mode', mode.name);
+    } catch (_) {}
+  }
+
   // ── projects ──────────────────────────────────────────────
   Future<void> _loadInitialData() async {
+    try {
+      final savedMode = await _db.getSetting('studio_execution_mode');
+      if (savedMode == StudioExecutionMode.cloud.name) {
+        if (mounted) setState(() => _executionMode = StudioExecutionMode.cloud);
+      } else if (savedMode == StudioExecutionMode.local.name) {
+        if (mounted) setState(() => _executionMode = StudioExecutionMode.local);
+      }
+    } catch (_) {}
+
     var projects = await _db.getAllProjects();
     if (projects.isEmpty) {
       final seed = ProjectItem(
@@ -810,7 +827,7 @@ class _HomeScreenState extends State<HomeScreen> {
         engineOnline: _engineOnline,
         cloudOnline: _cloudOnline,
         executionMode: _executionMode,
-        onExecutionModeChanged: (mode) => setState(() => _executionMode = mode),
+        onExecutionModeChanged: _setExecutionMode,
         deviceName: _api.activeDeviceName,
         isDark: widget.isDark,
         workspaceLabel: _activeProject?.title ?? 'Creative Studio',
@@ -835,7 +852,12 @@ class _HomeScreenState extends State<HomeScreen> {
             projects: _projects,
             activeProjectId: _activeProject?.id,
             activeTab: _currentSidebarTab,
+            onOpenCloudMode: () => _setExecutionMode(StudioExecutionMode.cloud),
             onTabChanged: (tab) {
+              if (tab == SidebarTab.cloud) {
+                _setExecutionMode(StudioExecutionMode.cloud);
+                return;
+              }
               setState(() {
                 _currentSidebarTab = tab;
                 _dismissedTemplateGallery = false;

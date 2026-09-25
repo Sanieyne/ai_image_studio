@@ -19,6 +19,7 @@ enum SidebarTab {
   video,
   image,
   enhancer,
+  cloud,
 }
 
 /// Voice preset with preview metadata
@@ -70,6 +71,7 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<ImageTemplate>? onSelectImageTemplate;
   final ValueChanged<String>? onSelectImageModel;
   final ValueChanged<String>? onSelectEnhancerModel;
+  final VoidCallback? onOpenCloudMode;
   final SidebarTab? activeTab;
 
   const AppSidebar({
@@ -96,6 +98,7 @@ class AppSidebar extends StatefulWidget {
     this.onSelectImageTemplate,
     this.onSelectImageModel,
     this.onSelectEnhancerModel,
+    this.onOpenCloudMode,
     this.activeTab,
   });
 
@@ -563,6 +566,13 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             tooltip: 'AI Enhancer (Real-ESRGAN)',
             dark: dark,
           ),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.cloud,
+            icon: Icons.cloud_outlined,
+            tooltip: 'Cloud GPU Mode (Vast.ai)',
+            dark: dark,
+          ),
 
           const SizedBox(height: 14),
           Divider(color: dark ? Colors.white12 : Colors.black12, height: 1),
@@ -633,7 +643,11 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           onTap: () {
             setState(() => _currentTab = tab);
             widget.onTabChanged?.call(tab);
-            widget.onExpand?.call();
+            if (tab == SidebarTab.cloud) {
+              widget.onOpenCloudMode?.call();
+            } else {
+              widget.onExpand?.call();
+            }
           },
           child: Container(
             width: 40,
@@ -729,6 +743,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             icon: Icons.auto_fix_high_rounded,
             dark: dark,
           ),
+          _buildTabButton(
+            tab: SidebarTab.cloud,
+            label: 'Cloud',
+            icon: Icons.cloud_outlined,
+            dark: dark,
+          ),
         ],
       ),
     );
@@ -746,6 +766,9 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
         onTap: () {
           setState(() => _currentTab = tab);
           widget.onTabChanged?.call(tab);
+          if (tab == SidebarTab.cloud) {
+            widget.onOpenCloudMode?.call();
+          }
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
@@ -788,7 +811,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                     fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                     color: isSelected
                         ? (dark ? Colors.white : const Color(0xFF14181F))
-                        : (dark ? Colors.white60 : Colors.black54),
+                        : (dark ? Colors.white70 : Colors.black87),
                   ),
                 ),
               ),
@@ -810,6 +833,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
         return _buildImageModePanel(dark, border, muted);
       case SidebarTab.enhancer:
         return _buildEnhancerModePanel(dark, border, muted);
+      case SidebarTab.cloud:
       case SidebarTab.history:
         return _buildHistoryPanel(dark, border, muted, card);
     }
