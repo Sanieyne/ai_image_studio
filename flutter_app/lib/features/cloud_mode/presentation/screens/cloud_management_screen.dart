@@ -24,6 +24,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   Set<String> _selectedModelIds = {'sdxl-base-1.0'};
   RecommendationResult? _recommendation;
   MarketplaceRecommendedResult? _marketplaceResult;
+  MarketplaceOffer? _selectedOffer;
 
   @override
   void initState() {
@@ -53,7 +54,10 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         _backendOnline = online;
         if (models.isNotEmpty) _models = models;
         if (rec != null) _recommendation = rec;
-        if (market != null) _marketplaceResult = market;
+        if (market != null) {
+          _marketplaceResult = market;
+          _selectedOffer ??= market.balancedOffer ?? market.allOffers.firstOrNull;
+        }
         _syncing = false;
       });
     } catch (_) {
@@ -80,7 +84,10 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
 
       setState(() {
         if (rec != null) _recommendation = rec;
-        if (market != null) _marketplaceResult = market;
+        if (market != null) {
+          _marketplaceResult = market;
+          _selectedOffer = market.balancedOffer ?? market.allOffers.firstOrNull;
+        }
         _syncing = false;
       });
     } catch (_) {
@@ -169,7 +176,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final isWide = constraints.maxWidth >= 1050;
+        final isWide = constraints.maxWidth >= 850;
 
         return Padding(
           padding: const EdgeInsets.all(16),
@@ -267,47 +274,9 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                     ? Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Column 1: Model Selector (Flex 4)
-                          Expanded(
-                            flex: 4,
-                            child: ModelSelectorWidget(
-                              models: _models,
-                              selectedModelIds: _selectedModelIds,
-                              onSelectionChanged: _onSelectionChanged,
-                              isDark: widget.isDark,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          // Column 2: GPU Recommendation (Flex 4)
-                          Expanded(
-                            flex: 4,
-                            child: GpuRecommendationCard(
-                              result: _recommendation,
-                              marketplaceResult: _marketplaceResult,
-                              isDark: widget.isDark,
-                              onLaunchInstance: _handleLaunchInstance,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          // Column 3: Storage Volume Inspector (Flex 3)
+                          // Column 1: Model Selector (Flex 3)
                           Expanded(
                             flex: 3,
-                            child: StorageInspectorWidget(
-                              result: _recommendation,
-                              isDark: widget.isDark,
-                              onEvictModel: (modelId) {
-                                final next = Set<String>.from(_selectedModelIds)..remove(modelId);
-                                _onSelectionChanged(next);
-                              },
-                            ),
-                          ),
-                        ],
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            flex: 1,
                             child: ModelSelectorWidget(
                               models: _models,
                               selectedModelIds: _selectedModelIds,
@@ -316,16 +285,91 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                             ),
                           ),
                           const SizedBox(width: 12),
+                          // Column 2: GPU Recommendation (Flex 4)
                           Expanded(
-                            flex: 1,
+                            flex: 4,
                             child: GpuRecommendationCard(
                               result: _recommendation,
                               marketplaceResult: _marketplaceResult,
+                              selectedOffer: _selectedOffer,
+                              onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
                             ),
                           ),
+                          const SizedBox(width: 12),
+                          // Column 3: Storage & Telemetry Inspector (Flex 4)
+                          Expanded(
+                            flex: 4,
+                            child: StorageInspectorWidget(
+                              result: _recommendation,
+                              selectedOffer: _selectedOffer,
+                              isDark: widget.isDark,
+                              onEvictModel: (modelId) {
+                                final next = Set<String>.from(_selectedModelIds)..remove(modelId);
+                                _onSelectionChanged(next);
+                              },
+                              onLaunchInstance: _handleLaunchInstance,
+                            ),
+                          ),
                         ],
+                      )
+                    : DefaultTabController(
+                        length: 3,
+                        child: Column(
+                          children: [
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: (widget.isDark ? LuminaColors.darkSurface : Colors.white)
+                                    .withValues(alpha: widget.isDark ? 0.72 : 0.85),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: border),
+                              ),
+                              child: TabBar(
+                                labelColor: LuminaColors.primaryEnd,
+                                unselectedLabelColor: muted,
+                                indicatorColor: LuminaColors.primaryEnd,
+                                indicatorSize: TabBarIndicatorSize.tab,
+                                tabs: const [
+                                  Tab(icon: Icon(Icons.layers_rounded, size: 18), text: 'AI Models'),
+                                  Tab(icon: Icon(Icons.memory_rounded, size: 18), text: 'GPU Marketplace'),
+                                  Tab(icon: Icon(Icons.analytics_rounded, size: 18), text: 'Specs & Telemetry'),
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: TabBarView(
+                                children: [
+                                  ModelSelectorWidget(
+                                    models: _models,
+                                    selectedModelIds: _selectedModelIds,
+                                    onSelectionChanged: _onSelectionChanged,
+                                    isDark: widget.isDark,
+                                  ),
+                                  GpuRecommendationCard(
+                                    result: _recommendation,
+                                    marketplaceResult: _marketplaceResult,
+                                    selectedOffer: _selectedOffer,
+                                    onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
+                                    isDark: widget.isDark,
+                                    onLaunchInstance: _handleLaunchInstance,
+                                  ),
+                                  StorageInspectorWidget(
+                                    result: _recommendation,
+                                    selectedOffer: _selectedOffer,
+                                    isDark: widget.isDark,
+                                    onEvictModel: (modelId) {
+                                      final next = Set<String>.from(_selectedModelIds)..remove(modelId);
+                                      _onSelectionChanged(next);
+                                    },
+                                    onLaunchInstance: _handleLaunchInstance,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
               ),
             ],

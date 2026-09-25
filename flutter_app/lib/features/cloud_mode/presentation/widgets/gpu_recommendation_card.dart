@@ -5,6 +5,8 @@ import '../../data/models/cloud_model.dart';
 class GpuRecommendationCard extends StatefulWidget {
   final RecommendationResult? result;
   final MarketplaceRecommendedResult? marketplaceResult;
+  final MarketplaceOffer? selectedOffer;
+  final ValueChanged<MarketplaceOffer?>? onSelectOffer;
   final bool isDark;
   final Function(MarketplaceOffer? offer) onLaunchInstance;
 
@@ -12,6 +14,8 @@ class GpuRecommendationCard extends StatefulWidget {
     super.key,
     required this.result,
     this.marketplaceResult,
+    this.selectedOffer,
+    this.onSelectOffer,
     required this.isDark,
     required this.onLaunchInstance,
   });
@@ -42,6 +46,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
 
     if (_selectedOfferOverride != null) {
       activeOffer = _selectedOfferOverride;
+    } else if (widget.selectedOffer != null) {
+      activeOffer = widget.selectedOffer;
     } else if (mr != null) {
       switch (_selectedRankMode) {
         case 'cheapest':
@@ -351,7 +357,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                         const Spacer(),
                         if (_selectedOfferOverride != null)
                           InkWell(
-                            onTap: () => setState(() => _selectedOfferOverride = null),
+                            onTap: () {
+                              setState(() => _selectedOfferOverride = null);
+                              final rec = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
+                              widget.onSelectOffer?.call(rec);
+                            },
                             child: const Text(
                               'Reset to Recommended',
                               style: TextStyle(
@@ -381,6 +391,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                               setState(() {
                                 _selectedOfferOverride = offer;
                               });
+                              widget.onSelectOffer?.call(offer);
                             },
                             borderRadius: BorderRadius.circular(10),
                             child: Container(
@@ -524,10 +535,30 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     return Expanded(
       child: InkWell(
         onTap: enabled
-            ? () => setState(() {
+            ? () {
+                final mr = widget.marketplaceResult;
+                MarketplaceOffer? target;
+                switch (modeKey) {
+                  case 'cheapest':
+                    target = mr?.cheapestOffer ?? mr?.allOffers.firstOrNull;
+                    break;
+                  case 'fastest':
+                    target = mr?.fastestOffer ?? mr?.allOffers.firstOrNull;
+                    break;
+                  case 'reliable':
+                    target = mr?.mostReliableOffer ?? mr?.allOffers.firstOrNull;
+                    break;
+                  case 'balanced':
+                  default:
+                    target = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
+                    break;
+                }
+                setState(() {
                   _selectedRankMode = modeKey;
                   _selectedOfferOverride = null;
-                })
+                });
+                widget.onSelectOffer?.call(target);
+              }
             : null,
         borderRadius: BorderRadius.circular(8),
         child: Container(
