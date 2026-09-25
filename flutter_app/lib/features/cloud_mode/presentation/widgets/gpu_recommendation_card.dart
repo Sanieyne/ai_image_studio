@@ -117,16 +117,19 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
 
           // Marketplace ranking selection pills
           if (mr != null && mr.allOffers.isNotEmpty) ...[
-            Row(
-              children: [
-                _buildRankTab('balanced', '⚖ Balanced', mr.balancedOffer != null),
-                const SizedBox(width: 6),
-                _buildRankTab('cheapest', '💰 Lowest Cost', mr.cheapestOffer != null),
-                const SizedBox(width: 6),
-                _buildRankTab('fastest', '⚡ Fastest', mr.fastestOffer != null),
-                const SizedBox(width: 6),
-                _buildRankTab('reliable', '🛡 99%+ Uptime', mr.mostReliableOffer != null),
-              ],
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildRankTab('balanced', '⚖ Balanced', mr.balancedOffer != null),
+                  const SizedBox(width: 6),
+                  _buildRankTab('cheapest', '💰 Lowest Cost', mr.cheapestOffer != null),
+                  const SizedBox(width: 6),
+                  _buildRankTab('fastest', '⚡ Fastest', mr.fastestOffer != null),
+                  const SizedBox(width: 6),
+                  _buildRankTab('reliable', '🛡 99%+ Uptime', mr.mostReliableOffer != null),
+                ],
+              ),
             ),
             const SizedBox(height: 12),
           ],
@@ -168,36 +171,43 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    displayName,
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.2,
-                                    ),
-                                  ),
-                                  if (activeOffer != null) ...[
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Flexible(
                                       child: Text(
-                                        '${activeOffer.inetDown} Mbps ↓',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.greenAccent.shade700,
+                                        displayName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.2,
                                         ),
                                       ),
                                     ),
+                                    if (activeOffer != null) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          '${activeOffer.inetDown} Mbps ↓',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.greenAccent.shade700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
@@ -230,9 +240,13 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                             children: [
                               Text('VRAM Required: ${maxVram.toStringAsFixed(0)} GB',
                                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                              Text(
-                                '${vramTotal.toStringAsFixed(0)} GB Total (+${headroom.toStringAsFixed(0)} GB Headroom)',
-                                style: const TextStyle(fontSize: 12, color: LuminaColors.infoBlue, fontWeight: FontWeight.w600),
+                              Flexible(
+                                child: Text(
+                                  '${vramTotal.toStringAsFixed(0)} GB (+${headroom.toStringAsFixed(0)} GB)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 12, color: LuminaColors.infoBlue, fontWeight: FontWeight.w600),
+                                ),
                               ),
                             ],
                           ),
@@ -532,54 +546,52 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     final active = _selectedRankMode == modeKey && _selectedOfferOverride == null;
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
-    return Expanded(
-      child: InkWell(
-        onTap: enabled
-            ? () {
-                final mr = widget.marketplaceResult;
-                MarketplaceOffer? target;
-                switch (modeKey) {
-                  case 'cheapest':
-                    target = mr?.cheapestOffer ?? mr?.allOffers.firstOrNull;
-                    break;
-                  case 'fastest':
-                    target = mr?.fastestOffer ?? mr?.allOffers.firstOrNull;
-                    break;
-                  case 'reliable':
-                    target = mr?.mostReliableOffer ?? mr?.allOffers.firstOrNull;
-                    break;
-                  case 'balanced':
-                  default:
-                    target = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
-                    break;
-                }
-                setState(() {
-                  _selectedRankMode = modeKey;
-                  _selectedOfferOverride = null;
-                });
-                widget.onSelectOffer?.call(target);
+    return InkWell(
+      onTap: enabled
+          ? () {
+              final mr = widget.marketplaceResult;
+              MarketplaceOffer? target;
+              switch (modeKey) {
+                case 'cheapest':
+                  target = mr?.cheapestOffer ?? mr?.allOffers.firstOrNull;
+                  break;
+                case 'fastest':
+                  target = mr?.fastestOffer ?? mr?.allOffers.firstOrNull;
+                  break;
+                case 'reliable':
+                  target = mr?.mostReliableOffer ?? mr?.allOffers.firstOrNull;
+                  break;
+                case 'balanced':
+                default:
+                  target = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
+                  break;
               }
-            : null,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            color: active
-                ? LuminaColors.infoBlue.withValues(alpha: 0.2)
-                : (widget.isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03)),
-            border: Border.all(
-              color: active ? LuminaColors.infoBlue : Colors.transparent,
-            ),
+              setState(() {
+                _selectedRankMode = modeKey;
+                _selectedOfferOverride = null;
+              });
+              widget.onSelectOffer?.call(target);
+            }
+          : null,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          color: active
+              ? LuminaColors.infoBlue.withValues(alpha: 0.2)
+              : (widget.isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.03)),
+          border: Border.all(
+            color: active ? LuminaColors.infoBlue : Colors.transparent,
           ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 10.5,
-                fontWeight: active ? FontWeight.bold : FontWeight.w500,
-                color: active ? LuminaColors.infoBlue : (enabled ? muted : Colors.grey.withValues(alpha: 0.4)),
-              ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: active ? FontWeight.bold : FontWeight.w500,
+              color: active ? LuminaColors.infoBlue : (enabled ? muted : Colors.grey.withValues(alpha: 0.4)),
             ),
           ),
         ),
@@ -598,23 +610,16 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
       children: [
         Icon(icon, size: 12, color: color),
         const SizedBox(width: 4),
-        Text(
-          '$label: ',
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w500,
-            color: widget.isDark ? Colors.white60 : Colors.black54,
-          ),
-        ),
         Flexible(
           child: Text(
-            value,
+            '$label: $value',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.bold,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
               color: color,
             ),
-            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],

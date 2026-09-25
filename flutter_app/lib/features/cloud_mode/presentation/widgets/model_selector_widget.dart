@@ -71,11 +71,15 @@ class _ModelSelectorWidgetState extends State<ModelSelectorWidget> {
                   children: [
                     const Icon(Icons.hub_rounded, size: 20, color: LuminaColors.infoBlue),
                     const SizedBox(width: 8),
-                    const Text(
-                      'AI Model Catalog',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    const Flexible(
+                      child: Text(
+                        'AI Model Catalog',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
@@ -226,20 +230,26 @@ class _ModelSelectorWidgetState extends State<ModelSelectorWidget> {
                                   children: [
                                     Row(
                                       children: [
-                                        Text(
-                                          model.displayName,
-                                          style: const TextStyle(
-                                            fontSize: 13.5,
-                                            fontWeight: FontWeight.bold,
+                                        Flexible(
+                                          child: Text(
+                                            model.displayName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 13.5,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
+                                        const SizedBox(width: 6),
                                         _buildModeBadge(model.mode),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       model.hfRepoId,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: TextStyle(fontSize: 11, color: muted),
                                     ),
                                   ],

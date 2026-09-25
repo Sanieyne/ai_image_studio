@@ -116,26 +116,33 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    displayName,
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w800,
-                                      letterSpacing: -0.2,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      displayName,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.2,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    offer != null
-                                        ? '${offer.provider.toUpperCase()} Host · ID #${offer.id}'
-                                        : 'Vast.ai Verified Compute Node',
-                                    style: TextStyle(fontSize: 11, color: muted),
-                                  ),
-                                ],
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      offer != null
+                                          ? '${offer.provider.toUpperCase()} Host · #${offer.id}'
+                                          : 'Vast.ai Verified Node',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 11, color: muted),
+                                    ),
+                                  ],
+                                ),
                               ),
+                              const SizedBox(width: 8),
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
@@ -163,9 +170,13 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                 'VRAM: ${maxVram.toStringAsFixed(0)}GB Req.',
                                 style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
                               ),
-                              Text(
-                                '${totalVram.toStringAsFixed(0)}GB Total (+${headroom.toStringAsFixed(0)}GB Headroom)',
-                                style: const TextStyle(fontSize: 11.5, color: LuminaColors.infoBlue, fontWeight: FontWeight.bold),
+                              Flexible(
+                                child: Text(
+                                  '${totalVram.toStringAsFixed(0)}GB (+${headroom.toStringAsFixed(0)}GB)',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11.5, color: LuminaColors.infoBlue, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ],
                           ),
@@ -339,12 +350,16 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text(
-                                '${totalGB.toStringAsFixed(1)} GB Projected Footprint',
-                                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                '${totalGB.toStringAsFixed(1)} GB Footprint',
+                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
                               ),
-                              Text(
-                                '${planGB.toInt()} GB Volume Plan (${plan?.name ?? 'Starter 30GB'})',
-                                style: const TextStyle(fontSize: 11.5, color: LuminaColors.purple, fontWeight: FontWeight.bold),
+                              Flexible(
+                                child: Text(
+                                  '${planGB.toInt()} GB Plan (${plan?.name ?? 'Starter'})',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11.5, color: LuminaColors.purple, fontWeight: FontWeight.bold),
+                                ),
                               ),
                             ],
                           ),
@@ -449,10 +464,14 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('Total Hourly Cost:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                              Text(
-                                '\$${totalHourly.toStringAsFixed(3)} / hr (~${(totalHourly * 200).toInt()} credits/hr)',
-                                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                              const Text('Total Hourly Cost:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                              Flexible(
+                                child: Text(
+                                  '\$${totalHourly.toStringAsFixed(3)} / hr',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                                ),
                               ),
                             ],
                           ),
@@ -555,7 +574,12 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(fontSize: 10, color: widget.isDark ? Colors.white54 : Colors.black54)),
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 10, color: widget.isDark ? Colors.white54 : Colors.black54),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
                 const SizedBox(height: 1),
                 Text(
                   value,
