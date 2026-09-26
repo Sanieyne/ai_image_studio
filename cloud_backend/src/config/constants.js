@@ -59,14 +59,14 @@ export const VASTAI_PRICE_MARKUP = 1.25;
 export const BASE_OVERHEAD_GB = 7; // OS + Python virtualenv + Diffusers libraries
 export const OUTPUT_BUFFER_PERCENT = 0.3; // 30% storage headroom for generated high-res media
 
-// GPU Hardware Tiers for Cloud Provisioning (Prices include 25% markup)
+// GPU Hardware Tiers for Cloud Provisioning (Raw provider baseline costs)
 export const GPU_TIERS = Object.freeze([
   {
     id: 'rtx-3060-12gb',
     name: 'RTX 3060',
     vramGB: 12,
     ramGB: 32,
-    pricePerHour: 0.275, // 0.22 * 1.25 (13.75 credits/hr)
+    pricePerHour: 0.22,
     tier: 'budget',
     tags: ['budget', 'sdxl', 'z-image', 'vton'],
   },
@@ -75,7 +75,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'RTX 3090',
     vramGB: 24,
     ramGB: 64,
-    pricePerHour: 0.55, // 0.44 * 1.25 (27.5 credits/hr)
+    pricePerHour: 0.44,
     tier: 'balanced',
     tags: ['popular', 'flux', 'qwen', 'wan-1.3b'],
   },
@@ -84,7 +84,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'RTX 4090',
     vramGB: 24,
     ramGB: 64,
-    pricePerHour: 0.775, // 0.62 * 1.25 (38.75 credits/hr)
+    pricePerHour: 0.62,
     tier: 'performance',
     tags: ['fast', 'flux', 'wan'],
   },
@@ -93,7 +93,7 @@ export const GPU_TIERS = Object.freeze([
     name: 'A100 40GB',
     vramGB: 40,
     ramGB: 128,
-    pricePerHour: 1.4375, // 1.15 * 1.25 (71.88 credits/hr)
+    pricePerHour: 1.15,
     tier: 'pro',
     tags: ['wan-14b', 'minimax'],
   },
@@ -102,13 +102,13 @@ export const GPU_TIERS = Object.freeze([
     name: 'A100 80GB',
     vramGB: 80,
     ramGB: 256,
-    pricePerHour: 2.3125, // 1.85 * 1.25 (115.63 credits/hr)
+    pricePerHour: 1.85,
     tier: 'enterprise',
     tags: ['all', 'minimax-h3'],
   },
 ]);
 
-// Cloud Storage Volume Pricing Plans
+// Cloud Storage Volume Pricing Plans (Raw provider baseline monthly costs)
 export const STORAGE_PLANS = Object.freeze([
   { id: '30gb', sizeGB: 30, pricePerMonth: 3, name: 'Starter 30GB' },
   { id: '50gb', sizeGB: 50, pricePerMonth: 5, name: 'Creator 50GB' },
@@ -117,8 +117,8 @@ export const STORAGE_PLANS = Object.freeze([
   { id: '500gb', sizeGB: 500, pricePerMonth: 35, name: 'Enterprise 500GB' },
 ]);
 
-// Vast.ai Marketplace & Provisioning Constants
-export const BANDWIDTH_COST_PER_GB = 0.025; // $0.02 * 1.25 markup = $0.025 per GB (1.25 credits/GB)
+// Vast.ai Marketplace & Provisioning Constants (Raw baseline cost)
+export const BANDWIDTH_COST_PER_GB = 0.02; // $0.02 per GB raw egress/ingress baseline
 export const VASTAI_OFFERS_CACHE_TTL_MS = 30000; // 30s cache TTL to avoid rate limiting
 
 export const VASTAI_GPU_NAME_MAP = Object.freeze({
