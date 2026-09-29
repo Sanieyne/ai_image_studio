@@ -9,6 +9,9 @@ import userRoutes from './user.routes.js';
 import modelRoutes from './model.routes.js';
 import gpuRoutes from './gpu.routes.js';
 import pricingRoutes from './pricing.routes.js';
+import generationRoutes from './generation.routes.js';
+import galleryRoutes from './gallery.routes.js';
+import adminRoutes from './admin.routes.js';
 
 const router = Router();
 
@@ -27,5 +30,9 @@ router.use('/users', userRoutes);
 router.use('/models', modelRoutes);
 router.use('/gpu', gpuRoutes);
 router.use('/pricing', pricingRoutes);
+router.use('/generations', generationRoutes);
+router.use('/gallery', galleryRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;
+

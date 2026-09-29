@@ -34,6 +34,11 @@ class GenerationItem {
   String? referenceAudioName;
   int? sampleRate;
   String? language;
+  bool isCloud;
+  bool isSaved;
+  String? cloudGenerationId;
+  bool isPublic;
+  String? moderationStatus;
 
   GenerationItem({
     required this.id,
@@ -64,5 +69,10 @@ class GenerationItem {
     this.referenceAudioName,
     this.sampleRate,
     this.language,
+    this.isCloud = false,
+    this.isSaved = false,
+    this.cloudGenerationId,
+    this.isPublic = false,
+    this.moderationStatus,
   });
 }

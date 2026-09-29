@@ -55,3 +55,33 @@ export const authorize = (...roles) => {
     next();
   };
 };
+
+/**
+ * Optional Authentication Middleware
+ * If a valid JWT Bearer token is provided, attaches req.user without rejecting anonymous requests.
+ */
+export const optionalProtect = asyncHandler(async (req, res, next) => {
+  let token;
+  const authHeader = req.headers.authorization;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  }
+
+  if (!token) {
+    return next();
+  }
+
+  try {
+    const decoded = verifyAccessToken(token);
+    const user = await User.findById(decoded.id);
+    if (user && user.isActive) {
+      req.user = user;
+    }
+  } catch (error) {
+    // Silently continue for optional auth without throwing
+  }
+
+  next();
+});
+

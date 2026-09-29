@@ -46,4 +46,9 @@ export const env = Object.freeze({
 
   VASTAI_API_KEY: process.env.VASTAI_API_KEY || '',
   VASTAI_API_BASE: process.env.VASTAI_API_BASE || 'https://console.vast.ai/api/v0',
+
+  MEDIA_STORAGE_PATH: process.env.MEDIA_STORAGE_PATH || '/var/www/media',
+  MEDIA_PUBLIC_URL: (process.env.MEDIA_PUBLIC_URL || 'https://cosmic-gen.com/media').replace(/\/+$/, ''),
+  GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
 });
+

@@ -8,6 +8,13 @@ export const ROLES = Object.freeze({
   ADMIN: 'admin',
 });
 
+export const MODERATION_STATUS = Object.freeze({
+  NOT_SUBMITTED: 'not_submitted',
+  PENDING_REVIEW: 'pending_review',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+});
+
 export const TRANSACTION_TYPES = Object.freeze({
   BONUS: 'bonus',
   PURCHASE: 'purchase',

@@ -22,6 +22,7 @@ import '../widgets/image_template_gallery.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../features/cloud_mode/presentation/screens/cloud_management_screen.dart';
+import 'my_library_screen.dart';
 
 /// Lumina studio: DB-backed projects + generation feed.
 class HomeScreen extends StatefulWidget {
@@ -612,6 +613,7 @@ class _HomeScreenState extends State<HomeScreen> {
       isVideo: isWanModel || isMiniMaxModel,
       isAudio: isVoiceModel,
       language: language,
+      isCloud: _executionMode == StudioExecutionMode.cloud,
     );
     setState(() {
       _messages.add(item);
@@ -1031,6 +1033,13 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 if (_loading)
                   const Center(child: CircularProgressIndicator())
+                else if (_currentSidebarTab == SidebarTab.library)
+                  Positioned.fill(
+                    child: MyLibraryScreen(
+                      isDark: widget.isDark,
+                      onClose: () => setState(() => _currentSidebarTab = SidebarTab.history),
+                    ),
+                  )
                 else if (_shouldShowVideoTemplates)
                   Positioned.fill(
                     child: VideoTemplateGallery(
@@ -1249,8 +1258,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
-                Align(
-                  alignment: Alignment.bottomCenter,
+                if (_currentSidebarTab != SidebarTab.library)
+                  Align(
+                    alignment: Alignment.bottomCenter,
                   child: Padding(
                     padding: const EdgeInsets.all(20),
                     child: ConstrainedBox(

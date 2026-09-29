@@ -1,10 +1,14 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../features/cloud_mode/data/models/saved_generation.dart';
+import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../models/generation_item.dart';
 import '../theme/app_theme.dart';
+import 'moderation_outcome_dialog.dart';
 
 /// One feed turn (Part 5/5): right-aligned user prompt bubble on top,
 /// centered AI output card below with hover action bar, metadata
@@ -22,6 +26,7 @@ class GenerationBubble extends StatefulWidget {
 class _GenerationBubbleState extends State<GenerationBubble> {
   bool _isCardHovered = false;
   bool _isPlayingAudio = false;
+  bool _isSaving = false;
   Process? _activeAudioProcess;
 
   @override
@@ -30,6 +35,269 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       _activeAudioProcess?.kill();
     } catch (_) {}
     super.dispose();
+  }
+
+  Future<bool> _handleSaveToCloud(BuildContext context) async {
+    if (!widget.item.isCloud) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Save is only available for Cloud Mode generations. Switch to Cloud Mode to save and share.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return false;
+    }
+
+    if (widget.item.isSaved) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This creation is already saved in your library ✓'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return true;
+    }
+
+    if (_isSaving) return false;
+    setState(() => _isSaving = true);
+
+    try {
+      final cloudApi = CloudApiService.instance;
+      await cloudApi.initAuth();
+      if (!cloudApi.isAuthenticated) {
+        if (!context.mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please sign in to Cloud Mode to save generations.'),
+            backgroundColor: Colors.amber,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return false;
+      }
+
+      String? mediaBase64 = widget.item.rawBase64;
+      String extension = 'png';
+      String mediaType = 'image';
+
+      if (widget.item.isVideo) {
+        mediaType = 'video';
+        extension = 'mp4';
+        final path = widget.item.videoPath ?? widget.item.imagePath;
+        if (path != null) {
+          final f = File(path);
+          if (await f.exists()) {
+            final bytes = await f.readAsBytes();
+            mediaBase64 = base64Encode(bytes);
+          }
+        }
+      } else if (widget.item.isAudio) {
+        mediaType = 'audio';
+        extension = 'wav';
+        final path = widget.item.audioPath ?? widget.item.imagePath;
+        if (path != null) {
+          final f = File(path);
+          if (await f.exists()) {
+            final bytes = await f.readAsBytes();
+            mediaBase64 = base64Encode(bytes);
+          }
+        }
+      } else {
+        mediaType = 'image';
+        extension = 'png';
+        if (mediaBase64 == null || mediaBase64.isEmpty) {
+          if (widget.item.imageBytes != null) {
+            mediaBase64 = base64Encode(widget.item.imageBytes!);
+          } else if (widget.item.imagePath != null) {
+            final f = File(widget.item.imagePath!);
+            if (await f.exists()) {
+              final bytes = await f.readAsBytes();
+              mediaBase64 = base64Encode(bytes);
+            }
+          }
+        }
+      }
+
+      if (mediaBase64 == null || mediaBase64.isEmpty) {
+        if (!context.mounted) return false;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot save: Media file data not found on disk.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return false;
+      }
+
+      final res = await cloudApi.saveGeneration(
+        mediaBase64: mediaBase64,
+        mediaType: mediaType,
+        extension: extension,
+        prompt: widget.item.prompt,
+        negativePrompt: widget.item.negativePrompt,
+        modelId: widget.item.modelName,
+        settings: {
+          'aspectRatio': widget.item.aspectRatio,
+          'seed': widget.item.seed,
+          'inferenceTimeMs': widget.item.inferenceTimeMs,
+          'sampleRate': widget.item.sampleRate,
+          'language': widget.item.language,
+        },
+      );
+
+      if (!context.mounted) return false;
+
+      if (res.isQuotaExceeded) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: isDark ? LuminaColors.darkCard : Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.disc_full_rounded, color: Colors.orangeAccent),
+                SizedBox(width: 8),
+                Text('Storage Full', style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: Text(
+              res.quotaMessage ?? 'Storage full — free up space or delete old saves',
+              style: const TextStyle(fontSize: 13),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Dismiss'),
+              ),
+            ],
+          ),
+        );
+        return false;
+      }
+
+      if (res.success && res.generation != null) {
+        setState(() {
+          widget.item.isSaved = true;
+          widget.item.cloudGenerationId = res.generation!.id;
+          if (res.generation!.url.isNotEmpty) {
+            widget.item.outputImageUrl = res.generation!.url;
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+                SizedBox(width: 8),
+                Text('Saved to your library'),
+              ],
+            ),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Color(0xFF1E293B),
+          ),
+        );
+        return true;
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res.message.isNotEmpty ? res.message : 'Failed to save generation.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return false;
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Future<void> _handlePublishToGallery(BuildContext context) async {
+    if (!widget.item.isCloud) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Publishing to Community Gallery is only available for Cloud Mode generations.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    // If already published, open the public URL in browser
+    if (widget.item.isPublic && widget.item.cloudGenerationId != null) {
+      _openGalleryPostUrl(widget.item.cloudGenerationId!);
+      return;
+    }
+
+    // Auto-save first if not saved yet
+    if (!widget.item.isSaved || widget.item.cloudGenerationId == null) {
+      final saved = await _handleSaveToCloud(context);
+      if (!saved || widget.item.cloudGenerationId == null) {
+        return;
+      }
+    }
+
+    if (!context.mounted) return;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final savedGen = SavedGeneration(
+      id: widget.item.cloudGenerationId!,
+      userId: '',
+      prompt: widget.item.prompt,
+      negativePrompt: widget.item.negativePrompt,
+      modelId: widget.item.modelName,
+      mediaType: widget.item.isVideo ? 'video' : widget.item.isAudio ? 'audio' : 'image',
+      mediaUrl: widget.item.outputImageUrl ?? '',
+      storageKey: '',
+      settings: {
+        'aspectRatio': widget.item.aspectRatio,
+        'seed': widget.item.seed,
+      },
+      isPublic: widget.item.isPublic,
+      moderationStatus: widget.item.moderationStatus ?? 'none',
+      createdAt: widget.item.timestamp,
+    );
+
+    final updated = await ModerationOutcomeDialog.showPublishFlow(
+      context,
+      generation: savedGen,
+      isDark: isDark,
+    );
+
+    if (updated != null && mounted) {
+      setState(() {
+        widget.item.isPublic = updated.isPublic;
+        widget.item.moderationStatus = updated.moderationStatus;
+      });
+    }
+  }
+
+  void _openGalleryPostUrl(String generationId) {
+    final url = 'https://cosmic-gen.com/gallery/$generationId';
+    try {
+      if (Platform.isLinux) {
+        Process.start('xdg-open', [url]);
+      } else if (Platform.isMacOS) {
+        Process.start('open', [url]);
+      } else if (Platform.isWindows) {
+        Process.start('explorer', [url]);
+      }
+    } catch (_) {}
   }
 
   String _time(DateTime t) =>
@@ -887,6 +1155,38 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                                     _downloadImage(context),
                               ),
                             ],
+                            const SizedBox(width: 6),
+                            // Save to Cloud Library
+                            _actionButton(
+                              icon: !item.isCloud
+                                  ? Icons.cloud_off_rounded
+                                  : item.isSaved
+                                      ? Icons.check_circle_rounded
+                                      : Icons.bookmark_add_rounded,
+                              tooltip: !item.isCloud
+                                  ? 'Save & Publish (Cloud Only)'
+                                  : item.isSaved
+                                      ? 'Saved to Cloud Library ✓'
+                                      : 'Save to Cloud Library',
+                              onTap: () => _handleSaveToCloud(context),
+                            ),
+                            const SizedBox(width: 6),
+                            // Publish to Gallery
+                            _actionButton(
+                              icon: !item.isCloud
+                                  ? Icons.public_off_rounded
+                                  : item.isPublic
+                                      ? Icons.open_in_new_rounded
+                                      : Icons.public_rounded,
+                              tooltip: !item.isCloud
+                                  ? 'Publish to Gallery (Cloud Only)'
+                                  : item.isPublic
+                                      ? 'View in Community Gallery'
+                                      : item.moderationStatus == 'pending_review'
+                                          ? 'Under Review ⏳'
+                                          : 'Publish to Community Gallery',
+                              onTap: () => _handlePublishToGallery(context),
+                            ),
                           ],
                         ),
                       ),
@@ -896,7 +1196,8 @@ class _GenerationBubbleState extends State<GenerationBubble> {
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        _buildActionRow(context, isDark),
+        const SizedBox(height: 6),
         // Metadata footer.
         Wrap(
           alignment: WrapAlignment.center,
@@ -1158,12 +1459,41 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                       }
                     },
                   ),
+                  const SizedBox(width: 6),
+                  _actionButton(
+                    icon: !item.isCloud
+                        ? Icons.cloud_off_rounded
+                        : item.isSaved
+                            ? Icons.check_circle_rounded
+                            : Icons.bookmark_add_rounded,
+                    tooltip: !item.isCloud
+                        ? 'Save & Publish (Cloud Only)'
+                        : item.isSaved
+                            ? 'Saved to Cloud Library ✓'
+                            : 'Save Voice to Library',
+                    onTap: () => _handleSaveToCloud(context),
+                  ),
+                  const SizedBox(width: 6),
+                  _actionButton(
+                    icon: !item.isCloud
+                        ? Icons.public_off_rounded
+                        : item.isPublic
+                            ? Icons.open_in_new_rounded
+                            : Icons.public_rounded,
+                    tooltip: !item.isCloud
+                        ? 'Publish to Gallery (Cloud Only)'
+                        : item.isPublic
+                            ? 'View in Community Gallery'
+                            : 'Publish to Community Gallery',
+                    onTap: () => _handlePublishToGallery(context),
+                  ),
                 ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        _buildActionRow(context, isDark),
+        const SizedBox(height: 6),
         Wrap(
           alignment: WrapAlignment.center,
           spacing: 8,
@@ -1216,6 +1546,309 @@ class _GenerationBubbleState extends State<GenerationBubble> {
           Icon(icon, size: 12, color: muted),
           const SizedBox(width: 4),
           Text(text, style: TextStyle(fontSize: 11, color: muted)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionRow(BuildContext context, bool isDark) {
+    final item = widget.item;
+    final isCloud = item.isCloud;
+    final isSaved = item.isSaved;
+    final isPublic = item.isPublic;
+    final modStatus = item.moderationStatus;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          // 1. SAVE BUTTON
+          if (!isCloud)
+            Tooltip(
+              message: 'Save & Publish is only available for Cloud Mode generations.\nSwitch to Cloud Mode to save creations.',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? Colors.white10 : Colors.black12,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Save (Cloud Only)',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (isSaved)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.green.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: Colors.green.withValues(alpha: 0.35),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.check_circle_rounded, size: 14, color: Colors.greenAccent),
+                  SizedBox(width: 5),
+                  Text(
+                    'Saved ✓',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.greenAccent,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _isSaving ? null : () => _handleSaveToCloud(context),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isDark ? LuminaColors.darkCard : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: LuminaColors.primaryEnd.withValues(alpha: 0.5),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: LuminaColors.primaryGlow.withValues(alpha: 0.15),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_isSaving)
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: LuminaColors.primaryEnd,
+                          ),
+                        )
+                      else
+                        const Icon(
+                          Icons.bookmark_add_rounded,
+                          size: 14,
+                          color: LuminaColors.primaryEnd,
+                        ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _isSaving ? 'Saving...' : 'Save to Library',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: LuminaColors.primaryEnd,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          // 2. PUBLISH BUTTON
+          if (!isCloud)
+            Tooltip(
+              message: 'Community Gallery publishing is only available for Cloud Mode generations.',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? Colors.white10 : Colors.black12,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.public_off_rounded,
+                      size: 14,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Publish (Cloud Only)',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (isPublic)
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  if (item.cloudGenerationId != null) {
+                    _openGalleryPostUrl(item.cloudGenerationId!);
+                  }
+                },
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    gradient: LuminaColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.open_in_new_rounded, size: 13, color: Colors.white),
+                      SizedBox(width: 5),
+                      Text(
+                        'Published 🎉 View on Web',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          else if (modStatus == 'pending_review')
+            Tooltip(
+              message: 'Your post is under review by moderation and will appear in the gallery once approved.',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.amber.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.hourglass_top_rounded, size: 14, color: Colors.amber),
+                    SizedBox(width: 5),
+                    Text(
+                      'Under Review ⏳',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.amber,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else if (modStatus == 'rejected')
+            Tooltip(
+              message: 'This generation could not be published due to community guidelines.',
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Colors.redAccent.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.block_rounded, size: 14, color: Colors.redAccent),
+                    SizedBox(width: 5),
+                    Text(
+                      'Rejected ❌',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.redAccent,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _handlePublishToGallery(context),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    gradient: LuminaColors.primaryGradient,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: LuminaColors.primaryGlow.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.public_rounded, size: 14, color: Colors.white),
+                      SizedBox(width: 5),
+                      Text(
+                        'Publish to Gallery',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

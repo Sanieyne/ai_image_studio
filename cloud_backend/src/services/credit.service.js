@@ -8,6 +8,7 @@ import { User } from '../models/User.js';
 import { Transaction } from '../models/Transaction.js';
 import { ApiError } from '../utils/ApiError.js';
 import { TRANSACTION_TYPES } from '../config/constants.js';
+import { canUseTransactions } from '../config/database.js';
 
 class CreditService {
   /**
@@ -71,7 +72,7 @@ class CreditService {
       const updatedUser = await User.findByIdAndUpdate(
         userId,
         { $inc: incFields },
-        { new: true, session, runValidators: true }
+        { new: true, ...(session ? { session } : {}), runValidators: true }
       );
 
       if (!updatedUser) {
@@ -89,7 +90,7 @@ class CreditService {
             metadata,
           },
         ],
-        { session }
+        session ? { session } : {}
       );
 
       return { user: updatedUser, transaction };
@@ -99,17 +100,33 @@ class CreditService {
       return executeOperation(externalSession);
     }
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    if (!canUseTransactions()) {
+      return executeOperation(null);
+    }
+
+    let session = null;
     try {
+      session = await mongoose.startSession();
+      session.startTransaction();
       const result = await executeOperation(session);
       await session.commitTransaction();
       return result;
     } catch (error) {
-      await session.abortTransaction();
+      if (session) {
+        try { await session.abortTransaction(); } catch {}
+      }
+      if (
+        error.message?.includes('replica set') ||
+        error.message?.includes('retryable writes') ||
+        error.message?.includes('Transaction numbers')
+      ) {
+        return executeOperation(null);
+      }
       throw error;
     } finally {
-      session.endSession();
+      if (session) {
+        try { session.endSession(); } catch {}
+      }
     }
   }
 
@@ -149,7 +166,11 @@ class CreditService {
 
       user.credits = Math.round((user.credits - amount) * 1000) / 1000;
       user.totalCreditsUsed = Math.round((user.totalCreditsUsed + amount) * 1000) / 1000;
-      await user.save({ session });
+      if (session) {
+        await user.save({ session });
+      } else {
+        await user.save();
+      }
 
       const [transaction] = await Transaction.create(
         [
@@ -162,7 +183,7 @@ class CreditService {
             metadata,
           },
         ],
-        { session }
+        session ? { session } : {}
       );
 
       return { user, transaction };
@@ -172,17 +193,33 @@ class CreditService {
       return executeOperation(externalSession);
     }
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    if (!canUseTransactions()) {
+      return executeOperation(null);
+    }
+
+    let session = null;
     try {
+      session = await mongoose.startSession();
+      session.startTransaction();
       const result = await executeOperation(session);
       await session.commitTransaction();
       return result;
     } catch (error) {
-      await session.abortTransaction();
+      if (session) {
+        try { await session.abortTransaction(); } catch {}
+      }
+      if (
+        error.message?.includes('replica set') ||
+        error.message?.includes('retryable writes') ||
+        error.message?.includes('Transaction numbers')
+      ) {
+        return executeOperation(null);
+      }
       throw error;
     } finally {
-      session.endSession();
+      if (session) {
+        try { session.endSession(); } catch {}
+      }
     }
   }
 }

@@ -6,12 +6,13 @@
 import { Router } from 'express';
 import { getPricingConfig, updatePricingConfig } from '../controllers/pricing.controller.js';
 import { protect, authorize } from '../middleware/auth.middleware.js';
+import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
 import { ROLES } from '../config/constants.js';
 
 const router = Router();
 
-// Public / client route to fetch current server credit conversion rates
-router.get('/config', getPricingConfig);
+// Public / client route to fetch current server credit conversion rates (permissive browsing limiter)
+router.get('/config', publicReadLimiter, getPricingConfig);
 
 // Admin-managed route to update token value and markup percentage
 router.put('/config', protect, authorize(ROLES.ADMIN), updatePricingConfig);

@@ -15,14 +15,15 @@ import {
   estimatePricing,
 } from '../controllers/gpu.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
+import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const router = Router();
 
-// Public marketplace browsing and pricing discovery
-router.get('/offers', getOffers);
-router.get('/recommended', getRecommended);
-router.get('/pricing/estimate', estimatePricing);
-router.get('/offers/:offerId', getOfferById);
+// Public marketplace browsing and pricing discovery (permissive browsing limiter)
+router.get('/offers', publicReadLimiter, getOffers);
+router.get('/recommended', publicReadLimiter, getRecommended);
+router.get('/pricing/estimate', publicReadLimiter, estimatePricing);
+router.get('/offers/:offerId', publicReadLimiter, getOfferById);
 
 // Authenticated instance provisioning and lifecycle management
 router.post('/rent', protect, rent);

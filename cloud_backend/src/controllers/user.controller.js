@@ -69,3 +69,63 @@ export const getTransactions = asyncHandler(async (req, res) => {
     },
   });
 });
+
+/**
+ * Public User Profile Controller
+ * Returns strictly safe, allowlisted public profile metadata for a username.
+ * If user does not exist or has isPublicProfile set to false, returns 404.
+ * GET /api/v1/users/:username/public
+ */
+export const getPublicProfile = asyncHandler(async (req, res) => {
+  const { username } = req.params;
+
+  const user = await User.findOne({
+    username: { $regex: new RegExp(`^${username}$`, 'i') },
+    isActive: true,
+  });
+
+  if (!user || !user.isPublicProfile) {
+    throw ApiError.notFound('User not found');
+  }
+
+  res.status(200).json({
+    success: true,
+    data: user.toPublicJSON(),
+  });
+});
+
+/**
+ * Update Profile Controller
+ * Lets authenticated user update their displayName, avatarUrl, bio, and isPublicProfile.
+ * PATCH /api/v1/users/me/profile
+ */
+export const updateProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    throw ApiError.notFound('User not found');
+  }
+
+  const { displayName, avatarUrl, bio, isPublicProfile } = req.body;
+
+  if (displayName !== undefined) {
+    user.displayName = displayName;
+  }
+  if (avatarUrl !== undefined) {
+    user.avatarUrl = avatarUrl || null;
+  }
+  if (bio !== undefined) {
+    user.bio = bio;
+  }
+  if (isPublicProfile !== undefined) {
+    user.isPublicProfile = Boolean(isPublicProfile);
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Profile updated successfully',
+    data: user,
+  });
+});
+

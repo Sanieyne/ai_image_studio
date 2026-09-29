@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/cloud_model.dart';
+import '../models/saved_generation.dart';
+import '../../../../services/database_service.dart';
 
 /// Service interfacing with the AI Image Studio Cloud Backend (Contabo VPS & Vast.ai Provisioner)
 class CloudApiService {
@@ -9,7 +11,7 @@ class CloudApiService {
   CloudApiService._();
   factory CloudApiService() => instance;
 
-  String baseUrl = 'https://nass-works.com/ai-api/api/v1';
+  String baseUrl = 'https://cosmic-gen.com/ai-api/api/v1';
 
   /// Check connectivity to remote Cloud Orchestrator backend
   Future<bool> checkHealth() async {
@@ -304,4 +306,367 @@ class CloudApiService {
       requiredVramGB: 4,
     ),
   ];
+
+  // =========================================================================
+  // Cloud Auth & Session Management
+  // =========================================================================
+
+  String? _authToken;
+  String? get authToken => _authToken;
+  bool get isAuthenticated => _authToken != null && _authToken!.isNotEmpty;
+
+  /// Initialize token from local SQLite settings if present
+  Future<void> initAuth() async {
+    if (_authToken != null && _authToken!.isNotEmpty) return;
+    try {
+      final token = await DatabaseService.instance.getSetting('cloud_auth_token');
+      if (token != null && token.isNotEmpty) {
+        _authToken = token;
+      }
+    } catch (_) {}
+  }
+
+  /// Store active JWT access token
+  Future<void> setAuthToken(String? token) async {
+    _authToken = token;
+    try {
+      await DatabaseService.instance.setSetting('cloud_auth_token', token ?? '');
+    } catch (_) {}
+  }
+
+  Map<String, String> get authHeaders => {
+    'Content-Type': 'application/json',
+    if (_authToken != null && _authToken!.isNotEmpty)
+      'Authorization': 'Bearer $_authToken',
+  };
+
+  /// Log in with email and password
+  Future<bool> login(String email, String password) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>?;
+        final token = data?['accessToken'] as String?;
+        if (token != null) {
+          await setAuthToken(token);
+          return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] login error: $e');
+    }
+    return false;
+  }
+
+  /// Register new user account
+  Future<bool> register(String username, String email, String password) async {
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'email': email, 'password': password}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 201) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>?;
+        final token = data?['accessToken'] as String?;
+        if (token != null) {
+          await setAuthToken(token);
+          return true;
+        }
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] register error: $e');
+    }
+    return false;
+  }
+
+  /// Retrieve current authenticated user profile
+  Future<CloudUserProfile?> fetchCurrentUser() async {
+    await initAuth();
+    if (!isAuthenticated) return null;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/users/me'),
+        headers: authHeaders,
+      ).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          return CloudUserProfile.fromJson(data);
+        }
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchCurrentUser error: $e');
+    }
+    return null;
+  }
+
+  /// Update creator public profile
+  Future<bool> updateProfile({
+    String? displayName,
+    String? avatarUrl,
+    String? bio,
+    bool? isPublicProfile,
+  }) async {
+    await initAuth();
+    if (!isAuthenticated) return false;
+
+    try {
+      final payload = <String, dynamic>{};
+      if (displayName != null) payload['displayName'] = displayName;
+      if (avatarUrl != null) payload['avatarUrl'] = avatarUrl;
+      if (bio != null) payload['bio'] = bio;
+      if (isPublicProfile != null) payload['isPublicProfile'] = isPublicProfile;
+
+      final res = await http.patch(
+        Uri.parse('$baseUrl/users/me/profile'),
+        headers: authHeaders,
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 8));
+
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('[CloudApiService] updateProfile error: $e');
+      return false;
+    }
+  }
+
+  // =========================================================================
+  // Cloud Generation & Library Management
+  // =========================================================================
+
+  /// Persist a completed cloud generation to user's remote library
+  Future<SaveGenerationResponse> saveGeneration({
+    required String mediaBase64,
+    required String mediaType,
+    String extension = 'png',
+    required String prompt,
+    String negativePrompt = '',
+    required String modelId,
+    Map<String, dynamic> settings = const {},
+  }) async {
+    await initAuth();
+    if (!isAuthenticated) {
+      return const SaveGenerationResponse(
+        success: false,
+        message: 'Please sign in or configure your cloud account to save generations.',
+      );
+    }
+
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/generations'),
+        headers: authHeaders,
+        body: jsonEncode({
+          'mediaBase64': mediaBase64,
+          'mediaType': mediaType,
+          'extension': extension,
+          'prompt': prompt,
+          'negativePrompt': negativePrompt,
+          'modelId': modelId,
+          'settings': settings,
+        }),
+      ).timeout(const Duration(seconds: 25));
+
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+
+      if (res.statusCode == 201 && body['data'] != null) {
+        final gen = SavedGeneration.fromJson(body['data'] as Map<String, dynamic>);
+        return SaveGenerationResponse(
+          success: true,
+          generation: gen,
+          message: 'Saved to your library',
+        );
+      }
+
+      if (res.statusCode == 403) {
+        final serverMsg = body['message'] as String? ?? '';
+        return SaveGenerationResponse(
+          success: false,
+          isQuotaExceeded: true,
+          quotaMessage: serverMsg.isNotEmpty
+              ? serverMsg
+              : 'Storage full — free up space or delete old saves',
+          message: 'Storage full — free up space or delete old saves',
+        );
+      }
+
+      return SaveGenerationResponse(
+        success: false,
+        message: body['message'] as String? ?? 'Failed to save generation to cloud',
+      );
+    } catch (e) {
+      debugPrint('[CloudApiService] saveGeneration error: $e');
+      return SaveGenerationResponse(
+        success: false,
+        message: 'Network error while saving generation: $e',
+      );
+    }
+  }
+
+  /// Retrieve paginated list of user's saved generations from library
+  Future<MyGenerationsResponse> fetchMyGenerations({
+    int page = 1,
+    int limit = 24,
+    String? mediaType,
+  }) async {
+    await initAuth();
+    if (!isAuthenticated) {
+      return const MyGenerationsResponse(success: false, items: []);
+    }
+
+    try {
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+      if (mediaType != null && mediaType.isNotEmpty && mediaType.toLowerCase() != 'all') {
+        queryParams['mediaType'] = mediaType.toLowerCase();
+      }
+
+      final uri = Uri.parse('$baseUrl/generations/me').replace(queryParameters: queryParams);
+      final res = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as List<dynamic>? ?? [];
+        final pagination = body['pagination'] as Map<String, dynamic>? ?? {};
+
+        final items = data
+            .map((item) => SavedGeneration.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList();
+
+        return MyGenerationsResponse(
+          success: true,
+          items: items,
+          page: (pagination['page'] as num?)?.toInt() ?? page,
+          limit: (pagination['limit'] as num?)?.toInt() ?? limit,
+          total: (pagination['total'] as num?)?.toInt() ?? items.length,
+          totalPages: (pagination['totalPages'] as num?)?.toInt() ?? 1,
+          hasMore: pagination['hasMore'] as bool? ?? false,
+        );
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchMyGenerations error: $e');
+    }
+    return const MyGenerationsResponse(success: false, items: []);
+  }
+
+  /// Delete a saved generation from cloud library
+  Future<bool> deleteGeneration(String generationId) async {
+    await initAuth();
+    if (!isAuthenticated) return false;
+
+    try {
+      final res = await http.delete(
+        Uri.parse('$baseUrl/generations/$generationId'),
+        headers: authHeaders,
+      ).timeout(const Duration(seconds: 8));
+
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('[CloudApiService] deleteGeneration error: $e');
+      return false;
+    }
+  }
+
+  /// Publish a saved generation to the public Community Gallery
+  Future<PublishResult> publishGeneration(
+    String generationId, {
+    String? testModerationVerdict,
+  }) async {
+    await initAuth();
+    if (!isAuthenticated) {
+      return const PublishResult(
+        verdict: PublishVerdict.error,
+        message: 'Authentication required to publish creations.',
+      );
+    }
+
+    try {
+      final headers = Map<String, String>.from(authHeaders);
+      if (testModerationVerdict != null && testModerationVerdict.isNotEmpty) {
+        headers['x-test-moderation-verdict'] = testModerationVerdict;
+      }
+
+      final res = await http.post(
+        Uri.parse('$baseUrl/generations/$generationId/publish'),
+        headers: headers,
+      ).timeout(const Duration(seconds: 20));
+
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+
+      if (res.statusCode == 200) {
+        final gen = body['data'] != null
+            ? SavedGeneration.fromJson(body['data'] as Map<String, dynamic>)
+            : null;
+        return PublishResult(
+          verdict: PublishVerdict.approved,
+          message: 'Published to Community Gallery 🎉',
+          generation: gen,
+        );
+      }
+
+      if (res.statusCode == 202) {
+        final gen = body['data'] != null
+            ? SavedGeneration.fromJson(body['data'] as Map<String, dynamic>)
+            : null;
+        return PublishResult(
+          verdict: PublishVerdict.pendingReview,
+          message:
+              "Your post is under review and will appear in the gallery once approved. This usually takes a few minutes — we'll notify you.",
+          generation: gen,
+        );
+      }
+
+      if (res.statusCode == 400) {
+        final serverMsg = body['message'] as String?;
+        return PublishResult(
+          verdict: PublishVerdict.rejected,
+          message: serverMsg ??
+              'This generation cannot be published as it does not meet our community safety standards.',
+        );
+      }
+
+      return PublishResult(
+        verdict: PublishVerdict.error,
+        message: body['message'] as String? ?? 'Failed to publish generation (${res.statusCode})',
+      );
+    } catch (e) {
+      debugPrint('[CloudApiService] publishGeneration error: $e');
+      return PublishResult(
+        verdict: PublishVerdict.error,
+        message: 'Connection error during publication check: $e',
+      );
+    }
+  }
+
+  /// Unpublish a generation from Community Gallery
+  Future<bool> unpublishGeneration(String generationId) async {
+    await initAuth();
+    if (!isAuthenticated) return false;
+
+    try {
+      final res = await http.post(
+        Uri.parse('$baseUrl/generations/$generationId/unpublish'),
+        headers: authHeaders,
+      ).timeout(const Duration(seconds: 8));
+
+      return res.statusCode == 200;
+    } catch (e) {
+      debugPrint('[CloudApiService] unpublishGeneration error: $e');
+      return false;
+    }
+  }
 }

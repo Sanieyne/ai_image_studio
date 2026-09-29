@@ -20,6 +20,7 @@ enum SidebarTab {
   image,
   enhancer,
   cloud,
+  library,
 }
 
 /// Voice preset with preview metadata
@@ -573,6 +574,13 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             tooltip: 'Cloud GPU Mode (Vast.ai)',
             dark: dark,
           ),
+          const SizedBox(height: 8),
+          _buildRailTabIcon(
+            tab: SidebarTab.library,
+            icon: Icons.collections_bookmark_rounded,
+            tooltip: 'My Library (Cloud Saves & Posts)',
+            dark: dark,
+          ),
 
           const SizedBox(height: 14),
           Divider(color: dark ? Colors.white12 : Colors.black12, height: 1),
@@ -749,6 +757,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             icon: Icons.cloud_outlined,
             dark: dark,
           ),
+          _buildTabButton(
+            tab: SidebarTab.library,
+            label: 'Library',
+            icon: Icons.collections_bookmark_rounded,
+            dark: dark,
+          ),
         ],
       ),
     );
@@ -834,6 +848,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
       case SidebarTab.enhancer:
         return _buildEnhancerModePanel(dark, border, muted);
       case SidebarTab.cloud:
+      case SidebarTab.library:
       case SidebarTab.history:
         return _buildHistoryPanel(dark, border, muted, card);
     }

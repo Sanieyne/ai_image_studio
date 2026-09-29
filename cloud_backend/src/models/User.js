@@ -82,24 +82,46 @@ const userSchema = new mongoose.Schema(
       type: [String],
       default: ['sdxl-base-1.0'],
     },
+    displayName: {
+      type: String,
+      trim: true,
+      maxlength: [50, 'Display name cannot exceed 50 characters'],
+      default: function () {
+        return this.username;
+      },
+    },
+    avatarUrl: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+    bio: {
+      type: String,
+      maxlength: [160, 'Bio cannot exceed 160 characters'],
+      default: '',
+      trim: true,
+    },
+    isPublicProfile: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Hash password before saving
-userSchema.pre('save', async function (next) {
+// Hash password before saving and ensure displayName defaults to username
+userSchema.pre('save', async function () {
+  if (!this.displayName) {
+    this.displayName = this.username;
+  }
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
-  try {
-    const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
+  const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
+  this.password = await bcrypt.hash(this.password, salt);
 });
 
 // Compare password instance method
@@ -114,6 +136,17 @@ userSchema.methods.toJSON = function () {
   delete obj.refreshTokenHash;
   delete obj.__v;
   return obj;
+};
+
+// Public safe JSON serialization (strictly allowlisted fields)
+userSchema.methods.toPublicJSON = function () {
+  return {
+    username: this.username,
+    displayName: this.displayName || this.username,
+    avatarUrl: this.avatarUrl || null,
+    bio: this.bio || '',
+    createdAt: this.createdAt,
+  };
 };
 
 export const User = mongoose.model('User', userSchema);

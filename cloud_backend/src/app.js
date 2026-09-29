@@ -26,10 +26,19 @@ export function createApp() {
   // CORS configuration
   app.use(
     cors({
-      origin: env.isProduction ? false : '*',
+      origin: env.isProduction
+        ? [
+            'https://cosmic-gen.com',
+            'https://www.cosmic-gen.com',
+            // TODO: Remove nass-works.com after transition period (~2 weeks)
+            'https://nass-works.com',
+            'https://www.nass-works.com',
+            'http://localhost:3000',
+          ]
+        : '*',
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-test-moderation-verdict'],
     })
   );
 
@@ -41,9 +50,9 @@ export function createApp() {
   // Rate Limiting on API routes
   app.use('/api', apiLimiter);
 
-  // Body parsers
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  // Body parsers (allow up to 50mb for media base64 uploads)
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Root redirect/health
   app.get('/', (req, res) => {

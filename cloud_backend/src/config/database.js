@@ -22,12 +22,19 @@ export async function connectDB(retries = MAX_RETRIES, delay = INITIAL_RETRY_INT
     console.warn('[Database] MongoDB connection disconnected.');
   });
 
+  let uri = env.MONGODB_URI;
+  if (!uri.includes('retryWrites=')) {
+    uri += (uri.includes('?') ? '&' : '?') + 'retryWrites=false';
+  }
+  console.info(`[Database] Connecting with URI: ${uri}`);
+
   while (retries > 0) {
     try {
-      await mongoose.connect(env.MONGODB_URI, {
+      await mongoose.connect(uri, {
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
         autoIndex: env.isDevelopment,
+        retryWrites: false,
       });
       return;
     } catch (error) {
@@ -54,3 +61,13 @@ export async function disconnectDB() {
     console.error(`[Database] Error during MongoDB disconnect: ${error.message}`);
   }
 }
+
+/**
+ * Checks if the underlying MongoDB deployment supports multi-document transactions.
+ * Transactions are only supported on replica sets or sharded clusters, not standalone nodes.
+ */
+export function canUseTransactions() {
+  const type = mongoose.connection.client?.topology?.description?.type;
+  return type === 'ReplicaSetWithPrimary' || type === 'Sharded';
+}
+

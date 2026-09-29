@@ -11,6 +11,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt.js';
 import { TRANSACTION_TYPES } from '../config/constants.js';
 import { env } from '../config/env.js';
+import { canUseTransactions } from '../config/database.js';
 
 class AuthService {
   /**
@@ -30,8 +31,21 @@ class AuthService {
       throw ApiError.conflict('Username is already taken. Please choose another.');
     }
 
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    let session = null;
+    let useTransaction = false;
+    if (canUseTransactions()) {
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        useTransaction = true;
+      } catch {
+        if (session) {
+          try { session.endSession(); } catch {}
+          session = null;
+        }
+        useTransaction = false;
+      }
+    }
 
     try {
       // 1. Create user with 0 starting credits initially (to be credited atomically)
@@ -41,7 +55,11 @@ class AuthService {
         password,
         credits: 0,
       });
-      await user.save({ session });
+      if (useTransaction) {
+        await user.save({ session });
+      } else {
+        await user.save();
+      }
 
       // 2. Grant initial bonus credits via CreditService within the same transaction
       if (env.FREE_CREDITS > 0) {
@@ -51,7 +69,7 @@ class AuthService {
           TRANSACTION_TYPES.BONUS,
           'Welcome bonus credits for new account',
           { signupBonus: true },
-          session
+          useTransaction ? session : null
         );
       }
 
@@ -63,9 +81,12 @@ class AuthService {
       const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
       user.refreshTokenHash = await bcrypt.hash(refreshToken, salt);
       user.lastLoginAt = new Date();
-      await user.save({ session });
-
-      await session.commitTransaction();
+      if (useTransaction) {
+        await user.save({ session });
+        await session.commitTransaction();
+      } else {
+        await user.save();
+      }
 
       // Refetch user to get clean JSON with populated credits
       const savedUser = await User.findById(user._id);
@@ -76,10 +97,14 @@ class AuthService {
         refreshToken,
       };
     } catch (error) {
-      await session.abortTransaction();
+      if (useTransaction && session) {
+        try { await session.abortTransaction(); } catch {}
+      }
       throw error;
     } finally {
-      session.endSession();
+      if (useTransaction && session) {
+        try { session.endSession(); } catch {}
+      }
     }
   }
 
