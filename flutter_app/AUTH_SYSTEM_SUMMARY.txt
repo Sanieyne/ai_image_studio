@@ -1,0 +1,216 @@
+LUMINA AI DESKTOP APP — AUTH SYSTEM IMPLEMENTATION SUMMARY
+=========================================================
+Date: 2026-09-29
+Scope: Flutter-side only. Backend (cloud_backend) NOT modified (verified: 0 changes).
+
+1. STEP 0 — STALE DOMAIN CHECK
+------------------------------
+Result: NO CHANGE NEEDED.
+- cloud_api_service.dart baseUrl was already https://cosmic-gen.com/ai-api/api/v1
+- Repo-wide grep found zero "nass-works" references.
+- Improvement made anyway: centralized the URL as kCloudApiBaseUrl in
+  lib/services/api_client.dart, shared by ApiClient, CloudApiService and
+  AuthService so it cannot drift again.
+
+2. SECURE TOKEN STORAGE (pubspec.yaml)
+--------------------------------------
+- Added flutter_secure_storage ^11.2.0 (NOT v9: v9 requires win32 ^5 which
+  conflicts with file_picker ^12's win32 ^6 — pub refused to resolve).
+  Uses Keychain (macOS), Credential Manager (Windows), libsecret (Linux).
+- JWTs never touch plain SQLite. The legacy plain-SQLite "cloud_auth_token"
+  is migrated into secure storage on first launch, then the SQLite copy wiped.
+
+3. AuthService (NEW: lib/services/auth_service.dart)
+----------------------------------------------------
+Methods: register(username, email, password), login(email, password),
+logout(), refreshTokens(), getCurrentUser(), isLoggedIn(), plus
+restoreSession() (launch validation) and adoptLegacyAccessToken() (migration).
+- Calls POST $baseUrl/auth/register | /auth/login | /auth/refresh with the
+  exact bodies the backend expects; parses {success, message, data}.
+- IMPORTANT contract detail handled: refresh returns {accessToken,
+  refreshToken} with NO user object, so the in-memory profile is preserved
+  across rotation.
+- On login/register: tokens -> secure storage, user object -> in-memory state.
+- logout(): clears secure storage + in-memory user, notifies listeners.
+- refreshTokens(): concurrent callers share one in-flight request. 401/403
+  from refresh -> session destroyed (logout). Network failure -> session kept
+  (offline-tolerant).
+- Failures throw AuthException with the human-readable server message
+  (including joined validation errors[]) for inline display.
+
+4. STATE MANAGEMENT PATTERN (chosen + why)
+------------------------------------------
+Singleton ChangeNotifier + AnimatedBuilder/setState.
+Why: HomeScreen uses plain StatefulWidget + setState, and every existing
+service (CloudApiService, DatabaseService, EngineProcessManager) is a
+"static final X instance" singleton. No Provider/Riverpod/Bloc exists in the
+codebase. Introducing one just for auth would add a foreign paradigm, so
+AuthService follows the established convention (ChangeNotifier is in
+flutter/foundation — zero new dependencies). The login gate and sidebar
+observe it via AnimatedBuilder; no Navigator plumbing needed.
+
+5. ApiClient (NEW: lib/services/api_client.dart)
+------------------------------------------------
+Authenticated HTTP wrapper (get/post/patch/delete, per-request timeout).
+- Attaches Authorization: Bearer <accessToken> automatically.
+- On 401: exactly ONE silent refreshTokens() + ONE retry of the original
+  request. If refresh fails, AuthService has already logged out, which flips
+  AuthStatus -> unauthenticated and the UI gate redirects to login.
+- All protected CloudApiService calls (fetchCurrentUser, updateProfile,
+  saveGeneration, fetchMyGenerations, deleteGeneration, publish/unpublish)
+  now route through ApiClient. Public calls (health, models, pricing, GPU)
+  still use raw http. All existing public method signatures preserved.
+
+6. LOGIN / REGISTER SCREENS
+---------------------------
+- NEW: lib/screens/login_screen.dart (email + password, inline errors,
+  link to Register).
+- NEW: lib/screens/register_screen.dart (username + email + password,
+  link to Login).
+- NEW: lib/widgets/auth_form_widgets.dart — shared Lumina-styled fields,
+  red-gradient primary button, error banner, scaffold, and AuthValidators.
+- Styling reuses LuminaColors only (darkBg, darkSurface, darkCard,
+  darkBorder, darkText, darkMuted, primaryGradient/Start/End). No new colors.
+- Client validation mirrors backend registerSchema exactly (username alphanum
+  3-30; email format; password 8+ with upper+lower+digit); messages verified
+  to byte-match the server's live 400 responses. Server errors still
+  surfaced inline via the error banner.
+- Bug caught by tests during development: the mode-switch Row overflowed on
+  narrow widths — replaced with Wrap in both screens.
+
+7. APP ENTRY FLOW (main.dart + sidebar)
+--------------------------------------
+- main.dart: new AuthGate widget. Splash -> restoreSession() (silent refresh
+  + profile load) -> HomeScreen on success, Login/Register on failure.
+  HomeScreen is NEVER built before the check resolves (no flash).
+- Offline at launch with stored tokens: enters optimistically so local
+  generation stays usable; API calls refresh when back online.
+- Logout: wired the previously-dead "Sign Out" item in the sidebar profile
+  popup to AuthService.logout(); the gate auto-redirects to Login.
+- Sidebar profile card shows the real signed-in user (name/email/initials),
+  falling back to the old placeholder when logged out (keeps old tests green).
+
+8. NON-GOALS (honored)
+----------------------
+- No subscription/payment/billing checks. Login != active subscription.
+  Generation is never blocked on subscription status.
+- Backend untouched.
+
+9. TEST REPORT
+-------------
+New suite: test/auth_test.dart — 17 tests, ALL PASS.
+Full repo suite: 30/30 PASS (17 new + 13 pre-existing).
+flutter analyze: 8 issues before AND after — byte-identical, all pre-existing
+in files not touched (generation_bubble, my_library_screen, etc.). Zero new.
+Live backend probes via curl (no side effects, no users created):
+  - login bad creds      -> 401 {"success":false,"message":"Invalid email or password."}
+  - register bad body    -> 400 {"success":false,"message":"Validation Error","errors":[...]}
+  - refresh garbage      -> 401 {"success":false,"message":"Invalid or expired refresh token..."}
+  - users/me bad token   -> 401
+  All shapes match what the client parses.
+
+(a) Lifecycle test (register -> login -> restart -> persists -> logout):
+    register on "first launch" -> brand-new service instance on the same
+    token store (simulated restart, status unknown) -> restoreSession()
+    returns true, silently refreshes (tokens rotate access-1/access-2),
+    reloads profile -> logout() wipes store + memory, status flips to
+    unauthenticated (gate redirects to login).
+
+(b) 401-refresh-retry path (NOT happy-path-only):
+    - Expired access token -> 401 -> one refresh -> retry succeeds with the
+      rotated token (Bearer headers asserted on both attempts).
+    - Malformed/garbage refresh token -> exactly one refresh attempt ->
+      session destroyed (store cleared, unauthenticated).
+    - Concurrent 401s share a single refresh call (asserted: 1 refresh).
+    - Widget tests: empty submit blocked with inline errors; malformed
+      email rejected; weak password and bad username rejected offline.
+
+10. FILES CHANGED / ADDED
+-------------------------
+Modified:
+  flutter_app/pubspec.yaml
+  flutter_app/pubspec.lock
+  flutter_app/lib/main.dart
+  flutter_app/lib/widgets/app_sidebar.dart
+  flutter_app/lib/features/cloud_mode/data/services/cloud_api_service.dart
+  flutter_app/linux/flutter/generated_plugin_registrant.cc  (auto, plugin reg)
+  flutter_app/linux/flutter/generated_plugins.cmake         (auto, plugin reg)
+Added:
+  flutter_app/lib/services/auth_service.dart
+  flutter_app/lib/services/api_client.dart
+  flutter_app/lib/screens/login_screen.dart
+  flutter_app/lib/screens/register_screen.dart
+  flutter_app/lib/widgets/auth_form_widgets.dart
+  flutter_app/test/auth_test.dart
+
+11. ENVIRONMENT SET UP (for testing)
+------------------------------------
+- Flutter SDK 3.47.5 installed at /opt/flutter.
+- Linux build deps installed: cmake, ninja, libgtk-3-dev, libsecret-1-dev,
+  build-essential, clang.
+
+12. FINDINGS (not fixed — out of scope)
+---------------------------------------
+(a) PRE-EXISTING BUILD BREAK: "flutter build linux" fails in
+    lib/widgets/generation_bubble.dart (null-safety errors + a "mediaUrl"
+    named-parameter mismatch with SavedGeneration). Proven pre-existing via
+    identical analyzer output on the untouched tree. It blocks a live
+    end-to-end app launch; needs a separate fix.
+(b) LINUX RUNTIME NOTE: secure storage needs a running secret service
+    (e.g. gnome-keyring) or session save fails with a clear message.
+
+13. FOLLOW-UP (2026-09-30): generation_bubble BUILD FIX + LIVE E2E
+------------------------------------------------------------------
+(a) Diagnosis (exact analyzer errors before the fix):
+    - lib/widgets/generation_bubble.dart:184:35 unchecked_use_of_nullable_value
+      (res.generation!.url.isNotEmpty on String?)
+    - lib/widgets/generation_bubble.dart:207:27 argument_type_not_assignable
+      (String? res.message passed to Text(String))
+    - lib/widgets/generation_bubble.dart:207:39 unchecked_use_of_nullable_value
+    - lib/widgets/generation_bubble.dart:265:7 undefined_named_parameter
+      ("mediaUrl" not defined on SavedGeneration)
+    mediaUrl verdict: GENUINE NAMING MISMATCH, not a missing field. The model
+    defines `url` (String?, from backend JSON key "url"); "mediaUrl" appeared
+    exactly once in all of lib/ (the bad call site). No model change needed.
+
+(b) Minimal fix (generation_bubble.dart only, 3 spots):
+    - :184 local `generationUrl` + null/empty check before assigning
+      widget.item.outputImageUrl.
+    - :207 local `failureMessage` + null/empty check with fallback text.
+    - :265 `mediaUrl:` -> `url:`.
+    No other code touched.
+    Regression test added: test/saved_generation_test.dart (3 tests:
+    publish-flow constructor args incl. `url`, fromJson url parsing,
+    publicUrl storageKey fallback). File analyzes clean.
+
+(c) Build: `flutter build linux` -> "Built build/linux/x64/release/bundle/
+    ai_image_studio" (exit 0). Previously failed on the above 4 errors.
+
+(d) LIVE end-to-end walkthrough (built binary under Xvfb + gnome-keyring,
+    driven with xdotool, screenshots in /tmp/shot_*.png):
+    1. Fresh launch -> Login screen renders ("Welcome back", Lumina AI
+       branding, red Sign In).                      [shot_02_login_sw.png]
+    2. Click "Create one" -> Register screen renders (username/email/
+       password + Create Account).                  [shot_06_register.png]
+    3. Fill e2e093001 / e2e093001@test.local / Testpass123, submit ->
+       registered on the LIVE backend, redirected to Home; sidebar
+       profile shows the real user + E2 avatar.      [shot_08_home.png]
+       Tokens verified present in OS keyring (Login collection item
+       "com.example.ai_image_studio/FlutterSecureStorage" — v11 stores
+       all keys as one encrypted blob, not per-key items).
+    4. Kill + relaunch -> straight to Home, no login prompt, user
+       intact (silent refresh worked).              [shot_09_relaunch.png]
+    5. Profile popup -> Sign Out -> back to Login.  [shot_12_logged_out.png]
+       Keyring blob wiped to 2 bytes ("{}"), no JWT remnants.
+    6. Relaunch after logout -> Login screen (session truly destroyed).
+                                                    [shot_13_postlogout_relaunch.png]
+    NOTE: one real test account (e2e093001) was created in the production
+    backend as required by this walkthrough; no delete endpoint exists.
+
+(e) Regression after fix:
+    - flutter analyze: 8 issues -> 4 issues (the 4 generation_bubble ERRORS
+      resolved; remaining 4 are pre-existing infos in untouched files;
+      ZERO errors).
+    - flutter test: 33/33 pass (17 auth + 13 pre-existing + 3 new
+      saved_generation tests).
+    - Headless scaffolding (Xvfb, bus, keyring, app) shut down after the run.

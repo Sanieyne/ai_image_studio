@@ -50,5 +50,13 @@ export const env = Object.freeze({
   MEDIA_STORAGE_PATH: process.env.MEDIA_STORAGE_PATH || '/var/www/media',
   MEDIA_PUBLIC_URL: (process.env.MEDIA_PUBLIC_URL || 'https://cosmic-gen.com/media').replace(/\/+$/, ''),
   GOOGLE_APPLICATION_CREDENTIALS: process.env.GOOGLE_APPLICATION_CREDENTIALS || '',
+
+  // Cloudflare R2 model weights storage (S3-compatible). Optional at boot —
+  // modelStorage.service.js throws a clear error if used unconfigured.
+  R2_ACCOUNT_ID: process.env.R2_ACCOUNT_ID || '',
+  R2_ENDPOINT: (process.env.R2_ENDPOINT || '').replace(/\/+$/, ''),
+  R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID || '',
+  R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY || '',
+  R2_BUCKET_NAME: process.env.R2_BUCKET_NAME || '',
 });
 

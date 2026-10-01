@@ -181,8 +181,9 @@ class _GenerationBubbleState extends State<GenerationBubble> {
         setState(() {
           widget.item.isSaved = true;
           widget.item.cloudGenerationId = res.generation!.id;
-          if (res.generation!.url.isNotEmpty) {
-            widget.item.outputImageUrl = res.generation!.url;
+          final generationUrl = res.generation!.url;
+          if (generationUrl != null && generationUrl.isNotEmpty) {
+            widget.item.outputImageUrl = generationUrl;
           }
         });
 
@@ -202,9 +203,12 @@ class _GenerationBubbleState extends State<GenerationBubble> {
         );
         return true;
       } else {
+        final failureMessage = res.message;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(res.message.isNotEmpty ? res.message : 'Failed to save generation.'),
+            content: Text(failureMessage != null && failureMessage.isNotEmpty
+                ? failureMessage
+                : 'Failed to save generation.'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -262,7 +266,7 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       negativePrompt: widget.item.negativePrompt,
       modelId: widget.item.modelName,
       mediaType: widget.item.isVideo ? 'video' : widget.item.isAudio ? 'audio' : 'image',
-      mediaUrl: widget.item.outputImageUrl ?? '',
+      url: widget.item.outputImageUrl ?? '',
       storageKey: '',
       settings: {
         'aspectRatio': widget.item.aspectRatio,

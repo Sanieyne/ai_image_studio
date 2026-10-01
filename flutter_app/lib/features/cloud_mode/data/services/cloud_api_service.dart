@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/cloud_model.dart';
 import '../models/saved_generation.dart';
+import '../../../../services/api_client.dart';
+import '../../../../services/auth_service.dart';
 import '../../../../services/database_service.dart';
 
 /// Service interfacing with the AI Image Studio Cloud Backend (Contabo VPS & Vast.ai Provisioner)
@@ -11,7 +13,20 @@ class CloudApiService {
   CloudApiService._();
   factory CloudApiService() => instance;
 
-  String baseUrl = 'https://cosmic-gen.com/ai-api/api/v1';
+  String baseUrl = kCloudApiBaseUrl;
+
+  ApiClient? _client;
+  @visibleForTesting
+  ApiClient? testApiClient;
+
+  /// Authenticated HTTP client, rebuilt if [baseUrl] is reassigned.
+  ApiClient get _api {
+    final testClient = testApiClient;
+    if (testClient != null) return testClient;
+    final current = _client;
+    if (current != null && current.baseUrl == baseUrl) return current;
+    return _client = ApiClient(baseUrl: baseUrl);
+  }
 
   /// Check connectivity to remote Cloud Orchestrator backend
   Future<bool> checkHealth() async {
@@ -311,99 +326,82 @@ class CloudApiService {
   // Cloud Auth & Session Management
   // =========================================================================
 
-  String? _authToken;
-  String? get authToken => _authToken;
-  bool get isAuthenticated => _authToken != null && _authToken!.isNotEmpty;
+  String? get authToken => AuthService.instance.accessToken;
+  bool get isAuthenticated => AuthService.instance.isAuthenticated;
 
-  /// Initialize token from local SQLite settings if present
+  /// Initialize auth state from secure storage.
+  ///
+  /// Also performs a one-time migration of tokens saved by older app
+  /// versions in plain SQLite (`cloud_auth_token`) into secure storage,
+  /// then wipes the SQLite copy. JWTs must never live in plain SQLite.
   Future<void> initAuth() async {
-    if (_authToken != null && _authToken!.isNotEmpty) return;
+    await AuthService.instance.init();
     try {
-      final token = await DatabaseService.instance.getSetting('cloud_auth_token');
-      if (token != null && token.isNotEmpty) {
-        _authToken = token;
+      final legacy =
+          await DatabaseService.instance.getSetting('cloud_auth_token');
+      if (legacy != null && legacy.isNotEmpty) {
+        await AuthService.instance.adoptLegacyAccessToken(legacy);
+        await DatabaseService.instance.setSetting('cloud_auth_token', '');
       }
     } catch (_) {}
   }
 
-  /// Store active JWT access token
+  /// Legacy token setter, kept for API compatibility.
+  ///
+  /// Prefer [AuthService.login]/[AuthService.register]; passing null logs out.
   Future<void> setAuthToken(String? token) async {
-    _authToken = token;
-    try {
-      await DatabaseService.instance.setSetting('cloud_auth_token', token ?? '');
-    } catch (_) {}
+    if (token == null || token.isEmpty) {
+      await AuthService.instance.logout();
+    } else {
+      await AuthService.instance.adoptLegacyAccessToken(token);
+    }
   }
 
   Map<String, String> get authHeaders => {
     'Content-Type': 'application/json',
-    if (_authToken != null && _authToken!.isNotEmpty)
-      'Authorization': 'Bearer $_authToken',
+    if (authToken != null && authToken!.isNotEmpty)
+      'Authorization': 'Bearer $authToken',
   };
 
-  /// Log in with email and password
+  /// Log in with email and password (delegates to [AuthService]).
   Future<bool> login(String email, String password) async {
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/auth/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 10));
-
-      if (res.statusCode == 200) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final data = body['data'] as Map<String, dynamic>?;
-        final token = data?['accessToken'] as String?;
-        if (token != null) {
-          await setAuthToken(token);
-          return true;
-        }
-      }
+      await AuthService.instance.login(email, password);
+      return true;
     } catch (e) {
       debugPrint('[CloudApiService] login error: $e');
+      return false;
     }
-    return false;
   }
 
-  /// Register new user account
+  /// Register new user account (delegates to [AuthService]).
   Future<bool> register(String username, String email, String password) async {
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/auth/register'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'username': username, 'email': email, 'password': password}),
-      ).timeout(const Duration(seconds: 10));
-
-      if (res.statusCode == 201) {
-        final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final data = body['data'] as Map<String, dynamic>?;
-        final token = data?['accessToken'] as String?;
-        if (token != null) {
-          await setAuthToken(token);
-          return true;
-        }
-      }
+      await AuthService.instance.register(username, email, password);
+      return true;
     } catch (e) {
       debugPrint('[CloudApiService] register error: $e');
+      return false;
     }
-    return false;
   }
 
-  /// Retrieve current authenticated user profile
+  /// Retrieve current authenticated user profile.
+  ///
+  /// Goes through [ApiClient], so an expired access token is silently
+  /// refreshed and retried once before giving up.
   Future<CloudUserProfile?> fetchCurrentUser() async {
     await initAuth();
     if (!isAuthenticated) return null;
 
     try {
-      final res = await http.get(
-        Uri.parse('$baseUrl/users/me'),
-        headers: authHeaders,
-      ).timeout(const Duration(seconds: 8));
-
+      final res = await _api.get('/users/me');
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         final data = body['data'] as Map<String, dynamic>?;
         if (data != null) {
-          return CloudUserProfile.fromJson(data);
+          final profile = CloudUserProfile.fromJson(data);
+          AuthService.instance.updateCachedUser(profile);
+          return profile;
         }
       }
     } catch (e) {
@@ -429,12 +427,7 @@ class CloudApiService {
       if (bio != null) payload['bio'] = bio;
       if (isPublicProfile != null) payload['isPublicProfile'] = isPublicProfile;
 
-      final res = await http.patch(
-        Uri.parse('$baseUrl/users/me/profile'),
-        headers: authHeaders,
-        body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 8));
-
+      final res = await _api.patch('/users/me/profile', jsonBody: payload);
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[CloudApiService] updateProfile error: $e');
@@ -465,10 +458,9 @@ class CloudApiService {
     }
 
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/generations'),
-        headers: authHeaders,
-        body: jsonEncode({
+      final res = await _api.post(
+        '/generations',
+        jsonBody: {
           'mediaBase64': mediaBase64,
           'mediaType': mediaType,
           'extension': extension,
@@ -476,8 +468,9 @@ class CloudApiService {
           'negativePrompt': negativePrompt,
           'modelId': modelId,
           'settings': settings,
-        }),
-      ).timeout(const Duration(seconds: 25));
+        },
+        timeout: const Duration(seconds: 25),
+      );
 
       final body = jsonDecode(res.body) as Map<String, dynamic>;
 
@@ -535,8 +528,7 @@ class CloudApiService {
         queryParams['mediaType'] = mediaType.toLowerCase();
       }
 
-      final uri = Uri.parse('$baseUrl/generations/me').replace(queryParameters: queryParams);
-      final res = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+      final res = await _api.get('/generations/me', queryParameters: queryParams);
 
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
@@ -569,11 +561,7 @@ class CloudApiService {
     if (!isAuthenticated) return false;
 
     try {
-      final res = await http.delete(
-        Uri.parse('$baseUrl/generations/$generationId'),
-        headers: authHeaders,
-      ).timeout(const Duration(seconds: 8));
-
+      final res = await _api.delete('/generations/$generationId');
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[CloudApiService] deleteGeneration error: $e');
@@ -595,15 +583,16 @@ class CloudApiService {
     }
 
     try {
-      final headers = Map<String, String>.from(authHeaders);
+      final headers = <String, String>{};
       if (testModerationVerdict != null && testModerationVerdict.isNotEmpty) {
         headers['x-test-moderation-verdict'] = testModerationVerdict;
       }
 
-      final res = await http.post(
-        Uri.parse('$baseUrl/generations/$generationId/publish'),
+      final res = await _api.post(
+        '/generations/$generationId/publish',
         headers: headers,
-      ).timeout(const Duration(seconds: 20));
+        timeout: const Duration(seconds: 20),
+      );
 
       final body = jsonDecode(res.body) as Map<String, dynamic>;
 
@@ -658,11 +647,7 @@ class CloudApiService {
     if (!isAuthenticated) return false;
 
     try {
-      final res = await http.post(
-        Uri.parse('$baseUrl/generations/$generationId/unpublish'),
-        headers: authHeaders,
-      ).timeout(const Duration(seconds: 8));
-
+      final res = await _api.post('/generations/$generationId/unpublish');
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[CloudApiService] unpublishGeneration error: $e');

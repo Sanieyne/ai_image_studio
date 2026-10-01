@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.1
+  flutter_secure_storage: ^11.2.0
   cupertino_icons: ^1.0.8
   sqflite_common_ffi: ^2.3.3
   path_provider: ^2.1.2

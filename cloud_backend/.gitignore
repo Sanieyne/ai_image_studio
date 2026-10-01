@@ -6,3 +6,4 @@ secrets/
 *credentials*.json
 *.pem
 
+.venv/

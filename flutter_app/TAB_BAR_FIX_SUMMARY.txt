@@ -1,0 +1,80 @@
+SIDEBAR TAB BAR TRUNCATION FIX — SUMMARY
+==========================================
+Date: 2026-09-30
+Scope: Flutter-side only. Backend (cloud_backend) NOT modified.
+
+1. BUG
+-----
+  - _buildTopTabsBar rendered all tabs in a plain Row, each wrapped in
+    Expanded inside _buildTabButton — forcing equal-width slices regardless
+    of available space, so labels hit TextOverflow.ellipsis in the narrow
+    (318px) sidebar.
+  - NOTE: the report said 6 tabs, but the code actually renders 7
+    (History, Voice, Video, Image, Enhance, Cloud, Library). The fix
+    covers all 7.
+
+2. FIX (lib/widgets/app_sidebar.dart only)
+------------------------------------------
+  - Wrapped the tab Row in SingleChildScrollView(scrollDirection:
+    Axis.horizontal) — buttons size to natural content width; the row
+    scrolls if tabs don't fit.
+  - Removed the Expanded wrapper in _buildTabButton; replaced with
+    Padding(horizontal: 2) so buttons keep spacing without flex-stretch.
+  - Left Flexible + TextOverflow.ellipsis on the label as a safety net
+    for extreme cases (very long labels / large font scaling).
+  - Untouched: selected-tab highlight (AnimatedContainer/shadow/colors),
+    icons, tap handling incl. the Cloud-only onOpenCloudMode callback,
+    and the outer container border/background/padding.
+  - Skipped the optional scroll-into-view: a tapped tab is by definition
+    visible, and no keyboard/programmatic tab nav exists to benefit.
+  - Diff kept minimal (53+/46-): one `dart format` attempt was reverted
+    because the file isn't format-clean repo-wide (it rewrote 600+ lines);
+    the fix was re-applied by hand with correct nesting.
+
+3. TESTS ADDED (test/tab_bar_test.dart — 4 tests, ALL PASS)
+------------------------------------------------------------
+  1. All 7 labels render fully: each label Text's actual width is
+     asserted >= its intrinsic full-text width (truncation impossible).
+  2. Tab row is a horizontal SingleChildScrollView with NO Expanded
+     between labels and scroller (structural, no flex-stretch).
+  3. Tapping each of the 7 tabs reports the correct SidebarTab via
+     onTabChanged (uses ensureVisible for off-screen tabs).
+  4. Cloud tab fires onOpenCloudMode exactly once; History/Voice do not.
+
+4. PRE-EXISTING BREAKAGE FOUND (NOT fixed — unrelated code)
+------------------------------------------------------------
+  - Tapping Voice/Video/Image/Enhance tabs switches to mode panels whose
+    detail rows overflow (e.g. voice preset rows ~app_sidebar.dart:1361,
+    :1424) — proven present on UNMODIFIED code via stash + probe test.
+  - At least one mode panel also runs a never-ending animation
+    (pumpAndSettle times out).
+  - Handling in tests: the two tap tests settle with bounded pumps and
+    ignore ONLY "overflowed by" RenderFlex errors (anything else still
+    fails); the two layout tests run with NO guard so any tab-bar
+    regression would fail loudly. All documented in-test.
+  - These panel overflows/panels are candidates for a separate fix task.
+
+5. REGRESSION CHECK
+-------------------
+  - flutter analyze: 4 issues before AND after (all pre-existing infos in
+    untouched files; zero errors). One self-introduced info (redundant
+    import in the new test) was found and removed during the work.
+  - flutter test: 37/37 PASS (17 auth + 13 pre-existing + 3
+    saved_generation + 4 new tab-bar tests).
+  - flutter build linux: "Built build/linux/x64/release/bundle/
+    ai_image_studio" (exit 0).
+
+6. LIVE SCREENSHOT (PENDING)
+-----------------------------
+  - Planned: launch the rebuilt binary under Xvfb at 318px sidebar width,
+    screenshot the tab bar showing full un-truncated labels + scroll to
+    the overflowed tabs to prove reachability.
+  - Status: NOT YET DONE — parked when the R2 storage task arrived.
+    Build is ready; resume any time.
+
+7. FILES CHANGED / ADDED
+------------------------
+  Modified:
+    flutter_app/lib/widgets/app_sidebar.dart
+  Added:
+    flutter_app/test/tab_bar_test.dart

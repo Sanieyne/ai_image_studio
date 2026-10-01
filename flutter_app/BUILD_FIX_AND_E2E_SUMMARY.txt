@@ -1,0 +1,107 @@
+GENERATION_BUBBLE BUILD FIX + LIVE E2E TEST — SUMMARY
+======================================================
+Date: 2026-09-30
+Scope: Flutter-side only. Backend (cloud_backend) NOT modified.
+
+1. DIAGNOSIS (exact errors before the fix)
+------------------------------------------
+`flutter analyze` on the file reported 4 errors + 1 pre-existing info:
+  - lib/widgets/generation_bubble.dart:184:35 unchecked_use_of_nullable_value
+    (`res.generation!.url.isNotEmpty` — url is String?)
+  - lib/widgets/generation_bubble.dart:207:27 argument_type_not_assignable
+    (String? res.message passed to Text(String))
+  - lib/widgets/generation_bubble.dart:207:39 unchecked_use_of_nullable_value
+  - lib/widgets/generation_bubble.dart:265:7 undefined_named_parameter
+    ("mediaUrl" is not defined on SavedGeneration)
+  - saved_generation.dart:1:1 dangling_library_doc_comments (info, untouched)
+
+mediaUrl verdict: GENUINE NAMING MISMATCH, not a missing field.
+  - SavedGeneration defines `url` (String?, parsed from backend JSON "url").
+  - "mediaUrl" appeared exactly once in all of lib/ (the bad call site).
+  - No model change needed.
+
+2. FIX (generation_bubble.dart only — 3 spots, nothing else touched)
+---------------------------------------------------------------------
+  - Line 184: local `generationUrl` + null/empty check before assigning
+    widget.item.outputImageUrl.
+  - Line 207: local `failureMessage` + null/empty check with fallback text.
+  - Line 265: `mediaUrl:` renamed to `url:`.
+  - File analyzes clean after the fix ("No issues found!").
+
+3. REGRESSION TEST ADDED
+------------------------
+  - NEW: test/saved_generation_test.dart (3 tests):
+    1. SavedGeneration constructor accepts the publish-flow named args
+       (incl. `url` — a rename on either side breaks test compilation).
+    2. fromJson reads the backend "url" field.
+    3. publicUrl falls back to storageKey URL when url is null.
+
+4. BUILD
+--------
+  - `flutter build linux` -> "Built build/linux/x64/release/bundle/
+    ai_image_studio" (exit 0). Previously failed on the 4 errors above.
+
+5. LIVE END-TO-END WALKTHROUGH (real built binary, not tests)
+--------------------------------------------------------------
+  Setup: Xvfb (:99, 1600x900) + D-Bus session bus + gnome-keyring-daemon
+  with unlocked login collection + app driven via xdotool + screenshots
+  via scrot. (Rendering needed --enable-software-rendering + Mesa
+  llvmpipe under Xvfb — headless-environment quirk, not an app issue.)
+
+  Steps performed, all against the LIVE backend (cosmic-gen.com):
+  1. Fresh launch -> Login screen renders ("Welcome back", Lumina AI
+     branding, red Sign In button).
+  2. Clicked "Create one" -> Register screen renders (username / email /
+     password + Create Account button).
+  3. Filled username `e2e093001`, email `e2e093001@test.local`, password
+     `Testpass123`, submitted -> account created on live backend ->
+     redirected to Home; sidebar profile shows the real user with E2
+     avatar initials.
+     Tokens verified present in the OS keyring (Login collection item
+     "com.example.ai_image_studio/FlutterSecureStorage" — note v11 of the
+     plugin stores all keys as ONE encrypted blob, not per-key items).
+  4. Killed + relaunched the app -> straight to Home, no login prompt,
+     user intact (silent token refresh on launch worked).
+  5. Profile popup -> Sign Out -> back to Login screen. Keyring blob
+     wiped to 2 bytes ("{}"), no JWT remnants.
+  6. Relaunched after logout -> Login screen (session truly destroyed).
+
+  NOTE: one real test account (e2e093001) now exists in the production
+  backend as required by this walkthrough; no delete endpoint exists.
+
+6. SCREENSHOTS
+--------------
+  Served for download at http://45.140.185.248/e2e-shots/ :
+    01-fresh-login.png                  (fresh launch -> Login)
+    02-register-screen.png              (Register screen)
+    03-form-filled.png                  (filled registration form)
+    04-home-after-register.png          (Home after register, real user)
+    05-relaunch-straight-to-home.png    (session persists)
+    06-profile-popup.png                (profile popup menu)
+    07-back-to-login-after-logout.png   (after Sign Out)
+    08-relaunch-after-logout-login.png  (post-logout relaunch -> Login)
+    ALL-screenshots.tar.gz              (whole set, one file)
+  Originals also kept at /tmp/shot_*.png on the server.
+  To serve them, one static-file location (/e2e-shots/) was added to the
+  nginx `default` site; backup at /root/nginx-backups/default.before-
+  e2e-shots. (Direct port 8901 was blocked by UFW, which allows only
+  22/80/443/3010.)
+
+7. REGRESSION CHECK
+-------------------
+  - flutter analyze (full repo): 8 issues -> 4 issues. The 4 fixed were
+    the generation_bubble ERRORS; remaining 4 are pre-existing infos in
+    untouched files (my_library_screen x2, public_profile_setup_dialog
+    x1, saved_generation dangling-doc x1). ZERO errors repo-wide.
+  - flutter test (full suite): 33/33 PASS (17 auth + 13 pre-existing +
+    3 new saved_generation tests).
+  - Headless scaffolding (Xvfb, bus, keyring daemon, app) shut down
+    after the run.
+
+8. FILES CHANGED / ADDED (this round)
+-------------------------------------
+  Modified:
+    flutter_app/lib/widgets/generation_bubble.dart
+  Added:
+    flutter_app/test/saved_generation_test.dart
+  (Build outputs under flutter_app/build/ are generated, not source.)

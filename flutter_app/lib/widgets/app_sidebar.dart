@@ -719,51 +719,54 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: border),
       ),
-      child: Row(
-        children: [
-          _buildTabButton(
-            tab: SidebarTab.history,
-            label: 'History',
-            icon: Icons.forum_rounded,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.voice,
-            label: 'Voice',
-            icon: Icons.mic_rounded,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.video,
-            label: 'Video',
-            icon: Icons.videocam_rounded,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.image,
-            label: 'Image',
-            icon: Icons.photo_rounded,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.enhancer,
-            label: 'Enhance',
-            icon: Icons.auto_fix_high_rounded,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.cloud,
-            label: 'Cloud',
-            icon: Icons.cloud_outlined,
-            dark: dark,
-          ),
-          _buildTabButton(
-            tab: SidebarTab.library,
-            label: 'Library',
-            icon: Icons.collections_bookmark_rounded,
-            dark: dark,
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildTabButton(
+              tab: SidebarTab.history,
+              label: 'History',
+              icon: Icons.forum_rounded,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.voice,
+              label: 'Voice',
+              icon: Icons.mic_rounded,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.video,
+              label: 'Video',
+              icon: Icons.videocam_rounded,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.image,
+              label: 'Image',
+              icon: Icons.photo_rounded,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.enhancer,
+              label: 'Enhance',
+              icon: Icons.auto_fix_high_rounded,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.cloud,
+              label: 'Cloud',
+              icon: Icons.cloud_outlined,
+              dark: dark,
+            ),
+            _buildTabButton(
+              tab: SidebarTab.library,
+              label: 'Library',
+              icon: Icons.collections_bookmark_rounded,
+              dark: dark,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -775,7 +778,11 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     required bool dark,
   }) {
     final isSelected = _currentTab == tab;
-    return Expanded(
+    // No Expanded: inside the horizontally-scrolling tab row, buttons size
+    // to their natural content width so labels never truncate. The Padding
+    // replaces the inter-button spacing flex layout used to provide.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: GestureDetector(
         onTap: () {
           setState(() => _currentTab = tab);
