@@ -114,6 +114,78 @@ class ModelStorageService {
   }
 
   /**
+   * Streams a file from a readable stream directly into R2 multipart upload.
+   * Does NOT write to local disk.
+   * @param {import('stream').Readable} stream - Node.js readable stream
+   * @param {string} modelId - Catalog model id
+   * @param {string} filename - Repo-relative destination path
+   * @param {Object} [options]
+   * @param {number} [options.contentLength]
+   * @param {string} [options.contentType]
+   * @param {number} [options.partSize] - Part size in bytes (default 50MB)
+   * @param {number} [options.queueSize] - Concurrent parts (default 4)
+   * @param {Function} [options.onProgress] - Progress callback
+   * @returns {Promise<{ key: string, size: number, etag: string }>}
+   */
+  async uploadStream(stream, modelId, filename, options = {}) {
+    this._assertConfigured();
+    const key = this.keyFor(modelId, filename);
+    const partSize = options.partSize || 50 * 1024 * 1024;
+    const queueSize = options.queueSize || MULTIPART_QUEUE_SIZE;
+
+    const upload = new Upload({
+      client: this._clientInstance(),
+      params: {
+        Bucket: this.bucket,
+        Key: key,
+        Body: stream,
+        ...(options.contentLength ? { ContentLength: options.contentLength } : {}),
+        ...(options.contentType ? { ContentType: options.contentType } : {}),
+      },
+      partSize,
+      queueSize,
+      leavePartsOnError: false,
+    });
+
+    if (options.onProgress) {
+      upload.on('httpUploadProgress', options.onProgress);
+    }
+
+    const result = await upload.done();
+    return {
+      key,
+      size: options.contentLength,
+      etag: (result.ETag || '').replace(/"/g, ''),
+    };
+  }
+
+  /**
+   * Checks metadata for an existing file in R2.
+   * @param {string} modelId
+   * @param {string} filename
+   * @returns {Promise<{ exists: boolean, size: number, etag: string }>}
+   */
+  async getModelFileInfo(modelId, filename) {
+    this._assertConfigured();
+    const key = this.keyFor(modelId, filename);
+    try {
+      const res = await this._clientInstance().send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: key })
+      );
+      return {
+        exists: true,
+        size: res.ContentLength || 0,
+        etag: (res.ETag || '').replace(/"/g, ''),
+      };
+    } catch (err) {
+      if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+        return { exists: false, size: 0, etag: '' };
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Mints a signed HTTPS download URL for a stored weight file.
    * The bucket stays private; Vast.ai instances pull via these URLs.
    * (S3 pre-signed expiry is enforced when the download STARTS, so even
