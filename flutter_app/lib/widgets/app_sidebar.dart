@@ -9,6 +9,7 @@ import '../models/video_template.dart';
 import '../models/image_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'model_download_button.dart';
 import 'settings_dialog.dart';
 import 'silent_video_preview_player.dart';
 
@@ -1725,6 +1726,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  ModelDownloadButton(
+                    modelId: model['id']!,
+                    displayName: model['name']!,
+                    isSelected: isSelected,
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -2096,6 +2103,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                         color: isSelected ? LuminaColors.primaryEnd : muted,
                       ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  ModelDownloadButton(
+                    modelId: model['id']!,
+                    displayName: model['name']!,
+                    isSelected: isSelected,
                   ),
                 ],
               ),

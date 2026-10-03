@@ -51,4 +51,8 @@ export class ApiError extends Error {
   static internal(message = 'Internal server error') {
     return new ApiError(500, message);
   }
+
+  static badGateway(message = 'Bad Gateway') {
+    return new ApiError(502, message);
+  }
 }

@@ -166,6 +166,34 @@ class CloudApiService {
     return null;
   }
 
+  /// Provision and rent a dedicated GPU instance with selected models
+  Future<Map<String, dynamic>?> rentGpuInstance({
+    required String offerId,
+    required List<String> selectedModelIds,
+    int storageGB = 50,
+  }) async {
+    await initAuth();
+    if (!isAuthenticated) return null;
+    try {
+      final res = await _api.post(
+        '/gpu/rent',
+        jsonBody: {
+          'offerId': offerId,
+          'storageGB': storageGB,
+          'selectedModelIds': selectedModelIds,
+        },
+        timeout: const Duration(seconds: 45),
+      );
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return body['data'] as Map<String, dynamic>?;
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] rentGpuInstance error: $e');
+    }
+    return null;
+  }
+
   /// Expose fallback models for instant zero-latency UI initialization
   List<CloudModel> get fallbackModels => _fallbackModels;
 

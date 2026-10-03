@@ -11,6 +11,7 @@ import { pricingService } from './pricing.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { GPU_STATUS, GPU_PROVIDERS, BANDWIDTH_COST_PER_GB } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
+import { env } from '../config/env.js';
 
 class GpuProviderService {
   /**
@@ -221,6 +222,114 @@ class GpuProviderService {
   }
 
   /**
+   * Generates dynamic onstart shell script for Vast.ai GPU instance.
+   * - Configures workspace and logs
+   * - Sets up python dependencies (boto3, requirements.txt)
+   * - Pulls selected models from R2 via download_model.py
+   * - Starts Python inference engine on port 8000
+   */
+  _generateOnstartScript({ selectedModelIds = [] } = {}) {
+    return [
+      '#!/bin/bash',
+      'set -e',
+      'LOG_FILE="/var/log/ai_studio_onstart.log"',
+      'mkdir -p /var/log',
+      'exec > >(tee -a "$LOG_FILE") 2>&1',
+      '',
+      'echo "=========================================================="',
+      'echo "[$(date -u +\'%Y-%m-%d %H:%M:%S UTC\')] AI Studio GPU Instance OnStart Initializing"',
+      'echo "=========================================================="',
+      '',
+      '# 1. Persist container environment variables for SSH and non-interactive subshells',
+      'env | grep -E \'^(AI_STUDIO|R2_|PATH|CUDA|DEBIAN)\' >> /etc/environment 2>/dev/null || true',
+      '',
+      'echo "[STAGE 1/4] Preparing workspace and engine source..."',
+      'mkdir -p /workspace',
+      'cd /workspace',
+      '',
+      '# Bootstrap python dependencies for R2 transport',
+      'export PIP_BREAK_SYSTEM_PACKAGES=1',
+      'python3 -m pip install --no-cache-dir --break-system-packages boto3 botocore || true',
+      '',
+      '# Fetch python_engine package from R2 if not already present',
+      'if [ ! -d "/workspace/python_engine" ] && [ ! -d "/root/projects/ai_image_studio/python_engine" ]; then',
+      '  echo "Fetching python_engine package from Cloudflare R2..."',
+      '  python3 -c "',
+      'import os, boto3',
+      's3 = boto3.client(\'s3\', endpoint_url=os.environ.get(\'R2_ENDPOINT\'),',
+      '                  aws_access_key_id=os.environ.get(\'R2_ACCESS_KEY_ID\'),',
+      '                  aws_secret_access_key=os.environ.get(\'R2_SECRET_ACCESS_KEY\'))',
+      's3.download_file(os.environ.get(\'R2_BUCKET_NAME\', \'cosmic-gen\'), \'models/engine/python_engine.tar.gz\', \'/workspace/python_engine.tar.gz\')',
+      '" 2>/dev/null || true',
+      '  if [ -f "/workspace/python_engine.tar.gz" ]; then',
+      '    tar -xzf /workspace/python_engine.tar.gz -C /workspace/',
+      '    rm -f /workspace/python_engine.tar.gz',
+      '    echo "[OK] python_engine extracted into /workspace/python_engine"',
+      '  fi',
+      'fi',
+      '',
+      '# Locate and enter engine directory',
+      'if [ -d "/workspace/python_engine" ]; then',
+      '  cd /workspace/python_engine',
+      'elif [ -d "/root/projects/ai_image_studio/python_engine" ]; then',
+      '  cd /root/projects/ai_image_studio/python_engine',
+      'fi',
+      'echo "Current working directory: $(pwd)"',
+      '',
+      'echo "[STAGE 2/4] Installing Python engine dependencies..."',
+      'if [ -z "$AI_STUDIO_SKIP_PIP" ] && [ -f "requirements.txt" ]; then',
+      '  echo "Installing requirements from $(pwd)/requirements.txt..."',
+      '  python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt || true',
+      'else',
+      '  echo "Skipping full pip install (AI_STUDIO_SKIP_PIP set or requirements.txt missing)."',
+      'fi',
+      '',
+      'echo "[STAGE 3/4] Downloading selected model weights from Cloudflare R2..."',
+      'echo "Active AI_STUDIO_SELECTED_MODELS: ${AI_STUDIO_SELECTED_MODELS}"',
+      'if [ -f "download_model.py" ]; then',
+      '  python3 download_model.py',
+      'elif [ -f "/root/projects/ai_image_studio/python_engine/download_model.py" ]; then',
+      '  python3 /root/projects/ai_image_studio/python_engine/download_model.py',
+      'else',
+      '  echo "[!] Warning: download_model.py script not found. Skipping pre-download."',
+      'fi',
+      '',
+      'echo "[STAGE 4/4] Starting AI Studio Python Engine on port 8000..."',
+      'export PORT=8000',
+      'export HOST=0.0.0.0',
+      'export AI_STUDIO_HOST="0.0.0.0"',
+      'export AI_STUDIO_PORT="8000"',
+      'if [ -f "app.py" ]; then',
+      '  nohup python3 app.py > /var/log/ai_engine.log 2>&1 &',
+      '  ENGINE_PID=$!',
+      '  echo "[OK] Engine started with PID $ENGINE_PID (logging to /var/log/ai_engine.log)"',
+      'elif [ -f "launcher.py" ]; then',
+      '  nohup python3 launcher.py > /var/log/ai_engine.log 2>&1 &',
+      '  ENGINE_PID=$!',
+      '  echo "[OK] Launcher started with PID $ENGINE_PID"',
+      'else',
+      '  nohup python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000 > /var/log/ai_engine.log 2>&1 &',
+      '  ENGINE_PID=$!',
+      '  echo "[OK] Engine spawned via uvicorn with PID $ENGINE_PID"',
+      'fi',
+      '',
+      '# Health check verification',
+      'echo "Verifying engine startup on http://127.0.0.1:8000/health..."',
+      'for i in $(seq 1 30); do',
+      '  if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then',
+      '    echo "[OK] Engine is healthy and responding on port 8000!"',
+      '    break',
+      '  fi',
+      '  sleep 2',
+      'done',
+      '',
+      'echo "=========================================================="',
+      'echo "[$(date -u +\'%Y-%m-%d %H:%M:%S UTC\')] Onstart Script Completed Successfully"',
+      'echo "=========================================================="',
+    ].join('\n');
+  }
+
+  /**
    * Rent a GPU instance via Vast.ai and initialize internal tracking
    * @param {Object} params - { userId, offerId, storageGB, selectedModelIds }
    * @returns {Promise<Object>}
@@ -292,12 +401,19 @@ class GpuProviderService {
 
     // 4. Trigger Vast.ai instance creation
     try {
+      const onstartScript = this._generateOnstartScript({ selectedModelIds });
       const vastResult = await vastaiService.createInstance(offerId, {
         disk: storageGB,
+        onstart: onstartScript,
         env: {
           AI_STUDIO_USER_ID: String(userId),
           AI_STUDIO_INSTANCE_ID: String(instance._id),
           AI_STUDIO_SELECTED_MODELS: selectedModelIds.join(','),
+          R2_ENDPOINT: env.R2_ENDPOINT,
+          R2_BUCKET_NAME: env.R2_BUCKET_NAME,
+          R2_ACCESS_KEY_ID: env.R2_READONLY_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
+          R2_SECRET_ACCESS_KEY: env.R2_READONLY_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
+          '-p 8000:8000': '1',
         },
       });
 

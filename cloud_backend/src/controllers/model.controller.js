@@ -5,6 +5,7 @@
 
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { modelService } from '../services/model.service.js';
+import { modelStorageService } from '../services/modelStorage.service.js';
 import { recommendationService } from '../services/recommendation.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
@@ -134,5 +135,18 @@ export const getModelById = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: model,
+  });
+});
+
+/**
+ * GET /api/v1/models/:modelId/download-urls
+ * Returns signed R2 download URLs for all files in the model.
+ */
+export const getModelDownloadUrls = asyncHandler(async (req, res) => {
+  const { modelId } = req.params;
+  const result = await modelStorageService.getModelDownloadUrls(modelId);
+  res.status(200).json({
+    success: true,
+    data: result,
   });
 });

@@ -36,17 +36,17 @@ from huggingface_hub.utils import GatedRepoError, RepositoryNotFoundError
 # before the multi-hour 28-33GB transfers.
 MODELS = [
     {"id": "realesrgan-x4plus", "repo": "amd/realesrgan-x4plus", "gb": 0.15},
-    {"id": "chatterbox-tts", "repo": "ResembleAI/chatterbox", "gb": 1.2},
-    {"id": "fashn-vton-1.5", "repo": "fashn-ai/fashn-vton-1.5", "gb": 2.1},
-    {"id": "wan-2.1-t2v-1.3b", "repo": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers", "gb": 3.5},
-    {"id": "z-image-turbo", "repo": "Tongyi-MAI/Z-Image-Turbo", "gb": 6.2},
-    {"id": "breeze-tts-2", "repo": "BreezeBlue/Breeze-TTS-2", "gb": 6.8},
+    {"id": "fashn-vton-1.5", "repo": "fashn-ai/fashn-vton-1.5", "gb": 1.9},
+    {"id": "breeze-tts-2", "repo": "BreezeBlue/Breeze-TTS-2", "gb": 7.7},
     {"id": "sdxl-base-1.0", "repo": "stabilityai/stable-diffusion-xl-base-1.0", "gb": 6.9},
-    {"id": "qwen-image-2.1", "repo": "Qwen/Qwen-Image-2.1", "gb": 15.0},
-    {"id": "flux-kontext-dev", "repo": "black-forest-labs/FLUX.1-Kontext-dev", "gb": 24.0},
-    {"id": "wan-2.1-i2v-14b", "repo": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers", "gb": 28.0},
-    {"id": "wan-2.2-animate-14b", "repo": "Wan-AI/Wan2.2-Animate-14B", "gb": 28.0},
-    {"id": "minimax-h3", "repo": "MiniMaxAI/MiniMax-H3", "gb": 33.0},
+    {"id": "chatterbox-tts", "repo": "ResembleAI/chatterbox", "gb": 13.9},
+    {"id": "wan-2.1-t2v-1.3b", "repo": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers", "gb": 28.9},
+    {"id": "z-image-turbo", "repo": "Tongyi-MAI/Z-Image-Turbo", "gb": 32.9},
+    {"id": "qwen-image-2.1", "repo": "Qwen/Qwen-Image-2.1", "gb": 33.1},
+    {"id": "flux-kontext-dev", "repo": "black-forest-labs/FLUX.1-Kontext-dev", "gb": 33.8},
+    {"id": "wan-2.2-animate-14b", "repo": "Wan-AI/Wan2.2-Animate-14B", "gb": 60.5},
+    {"id": "wan-2.1-i2v-14b", "repo": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers", "gb": 90.1},
+    {"id": "minimax-h3", "repo": "MiniMaxAI/MiniMax-H3", "gb": 498.0},
 ]
 
 PART_SIZE = 100 * 1024 * 1024  # 100MB multipart chunks for multi-GB shards
@@ -202,7 +202,7 @@ def migrate_model(s3, bucket, model, tmp_root, hf_token, idx, total):
     log(f"Repo has {len(repo_files)} files; mirroring {len(kept)} production files "
         f"({len(repo_files) - len(kept)} pruned: other-runtimes/fp32-dupes/single-file-dupes)")
 
-    need_gb = max(10.0, doc_gb * 1.5)
+    need_gb = max(5.0, doc_gb * 1.1 + 1.0)
     have_gb = free_gb(tmp_root)
     if have_gb < need_gb:
         log(f"DISK GUARD: {have_gb:.1f}GB free, need ~{need_gb:.0f}GB for {model_id}. "
@@ -217,24 +217,26 @@ def migrate_model(s3, bucket, model, tmp_root, hf_token, idx, total):
         shutil.rmtree(target, ignore_errors=True)
         raise
 
-    files = local_files(target)
-    total_bytes = sum(s for _, _, s in files)
-    log(f"Snapshot complete: {len(files)} files, {total_bytes / 1e9:.2f}GB")
+    try:
+        files = local_files(target)
+        total_bytes = sum(s for _, _, s in files)
+        log(f"Snapshot complete: {len(files)} files, {total_bytes / 1e9:.2f}GB")
 
-    existing = r2_existing(s3, bucket, model_id)
-    log(f"Already in R2: {len([f for f in files if existing.get(f[0]) == f[2]])}/{len(files)} "
-        f"(skip-on-size-match)")
-    uploaded, skipped = 0, 0
-    for rel, abs_path, size in files:
-        key = f"models/{model_id}/{rel}"
-        if existing.get(rel) == size:
-            skipped += 1
-            continue
-        log(f"  up {rel} ({size / 1e6:.1f}MB)")
-        upload_verified(s3, bucket, key, abs_path, size)
-        uploaded += 1
+        existing = r2_existing(s3, bucket, model_id)
+        log(f"Already in R2: {len([f for f in files if existing.get(f[0]) == f[2]])}/{len(files)} "
+            f"(skip-on-size-match)")
+        uploaded, skipped = 0, 0
+        for rel, abs_path, size in files:
+            key = f"models/{model_id}/{rel}"
+            if existing.get(rel) == size:
+                skipped += 1
+                continue
+            log(f"  up {rel} ({size / 1e6:.1f}MB)")
+            upload_verified(s3, bucket, key, abs_path, size)
+            uploaded += 1
+    finally:
+        shutil.rmtree(target, ignore_errors=True)
 
-    shutil.rmtree(target, ignore_errors=True)
     dt = time.time() - t0
     log(f"DONE [{idx}/{total}] {model_id}: {uploaded} uploaded, {skipped} skipped, "
         f"{total_bytes / 1e9:.2f}GB in {dt / 60:.1f}min. Temp deleted.")
@@ -282,6 +284,8 @@ def main():
         log(f"===== SUMMARY ({dt / 60:.1f}min total) =====")
         for m in wanted:
             log(f"  {m['id']}: {results.get(m['id'], 'not-run')}")
+        if not args.tmp_root and os.path.exists(tmp_root):
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
     bad = {k: v for k, v in results.items() if v != "ok"}
     if bad:

@@ -154,14 +154,48 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
             ),
             icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
             label: const Text('Confirm & Launch'),
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(ctx).pop();
+              final targetOfferId = offer?.id.toString() ?? _selectedOffer?.id.toString();
+              if (targetOfferId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please select a GPU offer first.')),
+                );
+                return;
+              }
+
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  backgroundColor: LuminaColors.primaryEnd,
-                  content: Text('⚡ Instance provision request sent for $gpuName with ${_selectedModelIds.length} models!'),
+                  backgroundColor: LuminaColors.infoBlue,
+                  content: Text('⚡ Requesting GPU instance ($gpuName)...'),
+                  duration: const Duration(seconds: 4),
                 ),
               );
+
+              final storageGB = _recommendation?.recommendedStorage.sizeGB.toInt() ?? 50;
+              final result = await _cloudApi.rentGpuInstance(
+                offerId: targetOfferId,
+                selectedModelIds: _selectedModelIds.toList(),
+                storageGB: storageGB,
+              );
+
+              if (!mounted) return;
+              if (result != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: LuminaColors.primaryEnd,
+                    content: Text('🚀 Instance provisioned successfully! Bootstrapping engine with ${_selectedModelIds.length} models...'),
+                    duration: const Duration(seconds: 6),
+                  ),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    backgroundColor: Colors.redAccent,
+                    content: Text('Failed to rent instance. Check your balance or authentication.'),
+                  ),
+                );
+              }
             },
           ),
         ],

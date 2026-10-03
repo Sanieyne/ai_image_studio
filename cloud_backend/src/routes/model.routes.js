@@ -13,6 +13,7 @@ import {
   estimateStorage,
   removeFromSelection,
   getModelById,
+  getModelDownloadUrls,
 } from '../controllers/model.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -31,6 +32,9 @@ router.delete('/cache/:modelId', protect, removeFromSelection);
 // Recommendations and storage calculations (publicly accessible for UI interactive previews)
 router.post('/recommend', publicReadLimiter, recommend);
 router.post('/storage/estimate', publicReadLimiter, estimateStorage);
+
+// Model download URLs for Flutter client & local engines
+router.get('/:modelId/download-urls', protect, getModelDownloadUrls);
 
 // Specific model details (must be after explicit sub-paths)
 router.get('/:modelId', publicReadLimiter, getModelById);

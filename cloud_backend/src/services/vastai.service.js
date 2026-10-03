@@ -148,7 +148,10 @@ class VastaiService {
       limit: Math.max(limit, 30),
     };
 
-    if (rentableOnly) body.rented = { eq: false };
+    if (rentableOnly) {
+      body.rentable = { eq: true };
+      body.rented = { eq: false };
+    }
     if (verifiedOnly) body.verified = { eq: true };
     if (minVramGB && minVramGB > 0) body.gpu_ram = { gte: minVramGB * 1000 };
     if (minRamGB && minRamGB > 0) body.cpu_ram = { gte: minRamGB * 1000 };
@@ -200,20 +203,36 @@ class VastaiService {
    * @returns {Promise<Object>}
    */
   async getOffer(offerId) {
-    const all = await this.searchOffers({ limit: 100 });
-    const found = all.find((o) => String(o.id) === String(offerId));
-    if (found) return found;
+    // 1. Check all active cache entries first
+    for (const cached of this._cache.values()) {
+      if (Array.isArray(cached.data)) {
+        const found = cached.data.find((o) => String(o.id) === String(offerId));
+        if (found) return found;
+      }
+    }
 
+    // 2. Query Vast.ai bundles specifically by offer id
     try {
+      const numericId = Number(offerId);
+      const queryBody = !isNaN(numericId)
+        ? { id: { eq: numericId } }
+        : { ask_contract_id: { eq: offerId } };
+
       const response = await this._requestWithRetry(() =>
-        this.client.get(`/bundles/${offerId}/`)
+        this.client.post('/bundles/', queryBody)
       );
-      if (response.data) {
-        return this.normalizeOffer(response.data);
+      const raw = response.data?.offers?.[0];
+      if (raw) {
+        return this.normalizeOffer(raw);
       }
     } catch (e) {
       // Fallback
     }
+
+    // 3. Fallback search with wide filters
+    const all = await this.searchOffers({ limit: 100, minReliability: 0, verifiedOnly: false });
+    const found = all.find((o) => String(o.id) === String(offerId));
+    if (found) return found;
 
     throw ApiError.notFound(`Vast.ai offer not found with ID: ${offerId}`);
   }
@@ -226,7 +245,8 @@ class VastaiService {
    */
   async createInstance(offerId, config = {}) {
     const payload = {
-      image: config.image || 'sanieyne/ai-image-studio:python-engine',
+      client_id: 'me',
+      image: config.image || 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime',
       disk: config.disk || 100,
       env: config.env || { AI_STUDIO_MODE: 'cloud' },
       onstart: config.onstart || '',
@@ -258,6 +278,7 @@ class VastaiService {
         raw: response.data,
       };
     } catch (error) {
+      console.error('[Vast.ai createInstance error details]:', error.response?.status, error.response?.data || error.message);
       throw ApiError.badGateway(`Failed to launch Vast.ai instance: ${error.response?.data?.msg || error.message}`);
     }
   }
@@ -298,13 +319,38 @@ class VastaiService {
       }
 
       const response = await this._requestWithRetry(() =>
-        this.client.get('/instances/')
+        this.client.get('https://console.vast.ai/api/v1/instances/')
       );
 
       return response.data?.instances || [];
     } catch (error) {
       console.warn(`[Vast.ai] getInstances error: ${error.message}`);
       return [];
+    }
+  }
+
+  /**
+   * Retrieve details for a single instance
+   * @param {string|number} instanceId
+   * @returns {Promise<Object>}
+   */
+  async getInstance(instanceId) {
+    try {
+      if (!env.VASTAI_API_KEY) {
+        return null;
+      }
+
+      const all = await this.getInstances();
+      const found = all.find((inst) => String(inst.id) === String(instanceId));
+      if (found) return found;
+
+      const response = await this._requestWithRetry(() =>
+        this.client.get(`https://console.vast.ai/api/v1/instances/${instanceId}/`)
+      );
+
+      return response.data?.instances?.[0] || response.data?.instance || response.data;
+    } catch (error) {
+      return null;
     }
   }
 

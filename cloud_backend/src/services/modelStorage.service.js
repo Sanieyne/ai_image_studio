@@ -182,6 +182,32 @@ class ModelStorageService {
       throw err;
     }
   }
+
+  /**
+   * Generates signed download URLs for all files in a model.
+   * Used by Flutter client for direct, authorized downloading from R2.
+   * @param {string} modelId
+   * @param {number} [expiresInSec=86400]
+   * @returns {Promise<{ modelId: string, totalFiles: number, totalBytes: number, files: Array<{ key: string, filename: string, size: number, etag: string, downloadUrl: string }> }>}
+   */
+  async getModelDownloadUrls(modelId, expiresInSec = 86400) {
+    const files = await this.listModelFiles(modelId);
+    const signedFiles = await Promise.all(
+      files.map(async (file) => ({
+        key: file.key,
+        filename: file.filename,
+        size: file.size,
+        etag: file.etag,
+        downloadUrl: await this.getModelDownloadUrl(modelId, file.filename, expiresInSec),
+      }))
+    );
+    return {
+      modelId,
+      totalFiles: signedFiles.length,
+      totalBytes: signedFiles.reduce((sum, f) => sum + f.size, 0),
+      files: signedFiles,
+    };
+  }
 }
 
 export const modelStorageService = new ModelStorageService();
