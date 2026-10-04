@@ -39,7 +39,7 @@ export const env = Object.freeze({
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '15m',
-  JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '7d',
+  JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '60d',
 
   BCRYPT_SALT: parseInt(process.env.BCRYPT_SALT || '12', 10),
   FREE_CREDITS: parseInt(process.env.FREE_CREDITS || '10', 10),

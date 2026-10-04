@@ -371,6 +371,24 @@ void main() {
       expect(await store.read(AuthService.refreshTokenKey), isNull);
     });
 
+    test('handleSessionExpired destroys tokens and transitions to unauthenticated',
+        () async {
+      final backend = FakeBackend();
+      final store = InMemoryTokenStore();
+      final auth = _service(backend, store);
+      await store.write(AuthService.accessTokenKey, 'active-access');
+      await store.write(AuthService.refreshTokenKey, 'active-refresh');
+      await auth.init();
+      expect(auth.isAuthenticated, isTrue);
+
+      await auth.handleSessionExpired();
+
+      expect(auth.status, AuthStatus.unauthenticated);
+      expect(auth.isAuthenticated, isFalse);
+      expect(await store.read(AuthService.accessTokenKey), isNull);
+      expect(await store.read(AuthService.refreshTokenKey), isNull);
+    });
+
     test('concurrent 401s share a single refresh call', () async {
       final backend = FakeBackend();
       var protectedCalls = 0;

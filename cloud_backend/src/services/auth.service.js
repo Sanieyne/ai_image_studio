@@ -4,6 +4,7 @@
  */
 
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { creditService } from './credit.service.js';
@@ -12,6 +13,10 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/
 import { TRANSACTION_TYPES } from '../config/constants.js';
 import { env } from '../config/env.js';
 import { canUseTransactions } from '../config/database.js';
+
+function hashTokenForStorage(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 class AuthService {
   /**
@@ -79,7 +84,7 @@ class AuthService {
 
       // 4. Hash and store refresh token for secure rotation
       const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
-      user.refreshTokenHash = await bcrypt.hash(refreshToken, salt);
+      user.refreshTokenHash = await bcrypt.hash(hashTokenForStorage(refreshToken), salt);
       user.lastLoginAt = new Date();
       if (useTransaction) {
         await user.save({ session });
@@ -133,7 +138,7 @@ class AuthService {
 
     // Store hashed refresh token
     const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
-    user.refreshTokenHash = await bcrypt.hash(refreshToken, salt);
+    user.refreshTokenHash = await bcrypt.hash(hashTokenForStorage(refreshToken), salt);
     user.lastLoginAt = new Date();
     await user.save();
 
@@ -166,7 +171,12 @@ class AuthService {
       throw ApiError.unauthorized('Invalid session. Please log in again.');
     }
 
-    const isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    const preHashed = hashTokenForStorage(refreshToken);
+    let isMatch = await bcrypt.compare(preHashed, user.refreshTokenHash);
+    if (!isMatch) {
+      isMatch = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    }
+
     if (!isMatch) {
       // Possible token reuse attack - invalidate stored refresh token
       user.refreshTokenHash = null;
@@ -179,7 +189,7 @@ class AuthService {
     const newRefreshToken = signRefreshToken({ id: user._id });
 
     const salt = await bcrypt.genSalt(env.BCRYPT_SALT);
-    user.refreshTokenHash = await bcrypt.hash(newRefreshToken, salt);
+    user.refreshTokenHash = await bcrypt.hash(hashTokenForStorage(newRefreshToken), salt);
     await user.save();
 
     return {

@@ -429,6 +429,14 @@ class AuthService extends ChangeNotifier {
     return getCurrentUser(forceRefresh: true);
   }
 
+  /// Explicitly terminates the session and triggers a clean redirect to login.
+  /// Called by transports (REST ApiClient, WebSocket clients) when authentication
+  /// is expired/invalid and cannot be refreshed.
+  Future<void> handleSessionExpired() async {
+    debugPrint('[AuthService] Session expired. Terminating session and redirecting to login.');
+    await logout();
+  }
+
   Future<CloudUserProfile> _handleSessionResponse(http.Response res) async {
     if (res.statusCode == 200 || res.statusCode == 201) {
       try {
