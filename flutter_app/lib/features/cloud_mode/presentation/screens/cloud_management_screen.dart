@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../services/auth_service.dart';
 import '../../../../theme/app_theme.dart';
+import '../../../../widgets/app_toast.dart';
 import '../../data/models/cloud_model.dart';
 import '../../data/services/cloud_api_service.dart';
 import '../widgets/gpu_recommendation_card.dart';
@@ -178,18 +179,18 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
               Navigator.of(ctx).pop();
               final targetOfferId = offer?.id.toString() ?? _selectedOffer?.id.toString();
               if (targetOfferId == null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please select a GPU offer first.')),
+                AppToast.showInfo(
+                  context,
+                  title: 'Select GPU Offer',
+                  message: 'Please select a GPU offer first.',
                 );
                 return;
               }
 
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: LuminaColors.infoBlue,
-                  content: Text('⚡ Requesting GPU instance ($gpuName)...'),
-                  duration: const Duration(seconds: 4),
-                ),
+              AppToast.showInfo(
+                context,
+                title: 'Requesting GPU',
+                message: 'Requesting GPU instance ($gpuName)...',
               );
 
               final result = await _cloudApi.rentGpuInstance(
@@ -201,19 +202,18 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
               if (!mounted) return;
               if (result != null) {
                 AuthService.instance.refreshProfile();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    backgroundColor: LuminaColors.primaryEnd,
-                    content: Text('🚀 Instance provisioned successfully! Bootstrapping engine with ${_selectedModelIds.length} models...'),
-                    duration: const Duration(seconds: 6),
-                  ),
+                AppToast.showSuccess(
+                  context,
+                  title: 'Instance Provisioned',
+                  message: '🚀 Instance provisioned successfully! Bootstrapping engine with ${_selectedModelIds.length} models...',
                 );
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    backgroundColor: Colors.redAccent,
-                    content: Text('Failed to rent instance. Check your balance or authentication.'),
-                  ),
+                final errorMsg = _cloudApi.lastRentError ??
+                    'Failed to rent instance. Check your balance or authentication.';
+                AppToast.showError(
+                  context,
+                  title: 'GPU Launch Failed',
+                  message: errorMsg,
                 );
               }
             },

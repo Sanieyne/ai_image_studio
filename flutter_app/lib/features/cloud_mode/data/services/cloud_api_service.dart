@@ -212,6 +212,9 @@ class CloudApiService {
     return null;
   }
 
+  String? _lastRentError;
+  String? get lastRentError => _lastRentError;
+
   /// Provision and rent a dedicated GPU instance with selected models
   Future<Map<String, dynamic>?> rentGpuInstance({
     required String offerId,
@@ -219,7 +222,10 @@ class CloudApiService {
     int storageGB = 50,
   }) async {
     await initAuth();
-    if (!isAuthenticated) return null;
+    if (!isAuthenticated) {
+      _lastRentError = 'Authentication required. Please log in.';
+      return null;
+    }
     try {
       final res = await _api.post(
         '/gpu/rent',
@@ -231,10 +237,18 @@ class CloudApiService {
         timeout: const Duration(seconds: 45),
       );
       if (res.statusCode == 201 || res.statusCode == 200) {
+        _lastRentError = null;
         final body = jsonDecode(res.body) as Map<String, dynamic>;
         return body['data'] as Map<String, dynamic>?;
       }
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        _lastRentError = body['message'] as String? ?? 'Failed to rent instance (${res.statusCode})';
+      } catch (_) {
+        _lastRentError = 'Server error (${res.statusCode})';
+      }
     } catch (e) {
+      _lastRentError = 'Connection error: $e';
       debugPrint('[CloudApiService] rentGpuInstance error: $e');
     }
     return null;
