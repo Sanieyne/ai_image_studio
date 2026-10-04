@@ -359,6 +359,42 @@ class VastaiService {
   }
 
   /**
+   * Retrieve structured connection and network details for an instance
+   * Extracts public IP, port mapping for container:8000 (Python Engine), SSH coordinates, and lifecycle state.
+   * @param {string|number} contractId
+   * @returns {Promise<{ publicIp: string|null, mappedPort: number|null, sshHost: string|null, sshPort: number|null, status: string, actualStatus: string|null, curState: string|null, statusMsg: string, raw: Object }|null>}
+   */
+  async getInstanceDetails(contractId) {
+    const raw = await this.getInstance(contractId);
+    if (!raw) return null;
+
+    let publicIp = raw.public_ipaddr || raw.ssh_host || null;
+    let mappedPort = null;
+
+    if (raw.ports && typeof raw.ports === 'object') {
+      const p8000 = raw.ports['8000/tcp'] || raw.ports['8000'];
+      if (Array.isArray(p8000) && p8000.length > 0 && p8000[0]?.HostPort) {
+        mappedPort = Number(p8000[0].HostPort);
+      }
+    }
+
+    const actualStatus = raw.actual_status || raw.cur_state || 'provisioning';
+
+    return {
+      contractId: String(raw.id || contractId),
+      publicIp,
+      mappedPort,
+      sshHost: raw.ssh_host || null,
+      sshPort: raw.ssh_port ? Number(raw.ssh_port) : null,
+      status: actualStatus,
+      actualStatus: raw.actual_status || null,
+      curState: raw.cur_state || null,
+      statusMsg: raw.status_msg || '',
+      raw,
+    };
+  }
+
+  /**
    * Fetch instance console logs
    * @param {string|number} instanceId
    * @returns {Promise<string>}

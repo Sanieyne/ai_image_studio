@@ -24,6 +24,7 @@ export const TRANSACTION_TYPES = Object.freeze({
 
 export const GPU_STATUS = Object.freeze({
   PROVISIONING: 'provisioning',
+  DOWNLOADING_MODEL: 'downloading_model',
   READY: 'ready',
   RUNNING: 'running',
   STOPPED: 'stopped',

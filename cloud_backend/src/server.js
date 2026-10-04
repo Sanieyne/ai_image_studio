@@ -12,6 +12,8 @@ import { ModelCatalog } from './models/ModelCatalog.js';
 import { MODEL_MODES } from './config/constants.js';
 import { authenticateWebSocket, handleRecommendationWS } from './websocket/recommendation.ws.js';
 import { handleGpuMarketWS } from './websocket/gpuMarket.ws.js';
+import { handleInstanceStatusWS } from './websocket/instanceStatus.ws.js';
+import { instancePollerService } from './services/instancePoller.service.js';
 
 // Default AI model registry to seed on initial database setup
 const INITIAL_MODELS = [
@@ -167,6 +169,7 @@ async function startServer() {
     // 4. Initialize WebSocket Servers (Multiplexed on HTTP server via upgrade)
     const wssRecommendations = new WebSocketServer({ noServer: true });
     const wssGpuMarket = new WebSocketServer({ noServer: true });
+    const wssInstanceStatus = new WebSocketServer({ noServer: true });
 
     wssRecommendations.on('connection', async (ws, req) => {
       try {
@@ -188,6 +191,16 @@ async function startServer() {
       }
     });
 
+    wssInstanceStatus.on('connection', async (ws, req) => {
+      try {
+        const user = await authenticateWebSocket(req);
+        await handleInstanceStatusWS(ws, req, user);
+      } catch (error) {
+        ws.send(JSON.stringify({ type: 'ERROR', message: error.message }));
+        ws.close(1008, error.message);
+      }
+    });
+
     server.on('upgrade', (request, socket, head) => {
       try {
         const { pathname } = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
@@ -200,6 +213,10 @@ async function startServer() {
           wssGpuMarket.handleUpgrade(request, socket, head, (ws) => {
             wssGpuMarket.emit('connection', ws, request);
           });
+        } else if (pathname === '/ws/instance-status') {
+          wssInstanceStatus.handleUpgrade(request, socket, head, (ws) => {
+            wssInstanceStatus.emit('connection', ws, request);
+          });
         } else {
           socket.destroy();
         }
@@ -208,7 +225,10 @@ async function startServer() {
       }
     });
 
-    // 5. Start HTTP Listener
+    // 5. Start Instance Poller Service
+    instancePollerService.start();
+
+    // 6. Start HTTP Listener
     server.listen(env.PORT, '0.0.0.0', () => {
       console.info('=====================================================');
       console.info(`🚀 AI Image Studio Cloud Orchestrator Started`);
@@ -217,14 +237,17 @@ async function startServer() {
       console.info(`🩺 Health Check: http://localhost:${env.PORT}/api/v1/health`);
       console.info(`⚡ WS Recs:     ws://localhost:${env.PORT}/ws/recommendations`);
       console.info(`⚡ WS Market:   ws://localhost:${env.PORT}/ws/gpu-market`);
+      console.info(`⚡ WS Status:   ws://localhost:${env.PORT}/ws/instance-status`);
       console.info('=====================================================');
     });
 
-    // 6. Graceful Termination Handlers
+    // 7. Graceful Termination Handlers
     const shutdown = async (signal) => {
       console.info(`\n[Server] Received ${signal}. Commencing graceful shutdown...`);
+      instancePollerService.stop();
       wssRecommendations.close();
-      wssGpuMarket.close(() => {
+      wssGpuMarket.close();
+      wssInstanceStatus.close(() => {
         console.info('[Server] WebSocket servers closed.');
       });
       server.close(async () => {

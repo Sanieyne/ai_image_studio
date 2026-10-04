@@ -28,7 +28,7 @@ export async function authenticateWebSocket(req) {
     }
 
     const decoded = verifyAccessToken(token);
-    const user = await User.findById(decoded.id).select('_id username email selectedModels isActive');
+    const user = await User.findById(decoded.id).select('_id username email selectedModels isActive role');
 
     if (!user) {
       throw new Error('User not found.');
