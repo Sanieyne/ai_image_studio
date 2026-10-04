@@ -115,13 +115,21 @@ export const GPU_TIERS = Object.freeze([
   },
 ]);
 
-// Cloud Storage Volume Pricing Plans (Raw provider baseline monthly costs)
+// Continuous Storage Volume Pricing Constants
+export const STORAGE_MIN_GB = 10;
+export const STORAGE_MAX_GB = 1000;
+export const STORAGE_RATE_PER_GB_MONTH = 0.07; // $0.07 per GB per month linear baseline rate
+export const STORAGE_HOURS_PER_MONTH = 730;
+
+// Benchmark Storage Volume Presets (Retained for backward compatibility & UI presets)
 export const STORAGE_PLANS = Object.freeze([
-  { id: '30gb', sizeGB: 30, pricePerMonth: 3, name: 'Starter 30GB' },
-  { id: '50gb', sizeGB: 50, pricePerMonth: 5, name: 'Creator 50GB' },
-  { id: '100gb', sizeGB: 100, pricePerMonth: 9, name: 'Studio 100GB' },
-  { id: '200gb', sizeGB: 200, pricePerMonth: 16, name: 'Pro 200GB' },
-  { id: '500gb', sizeGB: 500, pricePerMonth: 35, name: 'Enterprise 500GB' },
+  { id: '10gb', sizeGB: 10, pricePerMonth: 0.70, name: 'Minimal 10GB' },
+  { id: '30gb', sizeGB: 30, pricePerMonth: 2.10, name: 'Starter 30GB' },
+  { id: '50gb', sizeGB: 50, pricePerMonth: 3.50, name: 'Creator 50GB' },
+  { id: '100gb', sizeGB: 100, pricePerMonth: 7.00, name: 'Studio 100GB' },
+  { id: '200gb', sizeGB: 200, pricePerMonth: 14.00, name: 'Pro 200GB' },
+  { id: '500gb', sizeGB: 500, pricePerMonth: 35.00, name: 'Enterprise 500GB' },
+  { id: '1000gb', sizeGB: 1000, pricePerMonth: 70.00, name: 'Max 1TB' },
 ]);
 
 // Vast.ai Marketplace & Provisioning Constants (Raw baseline cost)

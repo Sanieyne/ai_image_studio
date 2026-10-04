@@ -9,6 +9,7 @@ import { vastaiService } from '../services/vastai.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { ApiError } from '../utils/ApiError.js';
+import { STORAGE_MIN_GB, STORAGE_MAX_GB } from '../config/constants.js';
 
 /**
  * GET /api/v1/gpu/offers
@@ -91,10 +92,15 @@ export const rent = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('offerId is required.');
   }
 
+  const numericStorage = Number(storageGB);
+  if (isNaN(numericStorage) || !Number.isInteger(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
+    throw ApiError.badRequest(`storageGB must be an integer between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+  }
+
   const instance = await gpuProviderService.rentGPU({
     userId: req.user._id,
     offerId,
-    storageGB: Number(storageGB) || 100,
+    storageGB: numericStorage,
     selectedModelIds,
   });
 
@@ -173,10 +179,15 @@ export const estimatePricing = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('offerId query param is required.');
   }
 
+  const numericStorage = Number(storageGB);
+  if (isNaN(numericStorage) || !Number.isInteger(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
+    throw ApiError.badRequest(`storageGB must be an integer between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+  }
+
   const offer = await vastaiService.getOffer(offerId);
   const estimate = gpuProviderService.estimateCost({
     offer,
-    storageGB: Number(storageGB),
+    storageGB: numericStorage,
     hours: Number(hours),
     bandwidthGB: Number(bandwidthGB),
   });

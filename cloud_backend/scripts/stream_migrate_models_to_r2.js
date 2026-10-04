@@ -95,36 +95,55 @@ async function streamUploadFile(repo, relPath, expectedSize, modelId, hfToken, m
       const reportedLen = Number(streamRes.headers['content-length'] || expectedSize);
       const startTime = Date.now();
       let lastLogTime = Date.now();
+      let lastActivityTime = Date.now();
       let lastLoaded = 0;
+      let uploaderInstance = null;
 
-      await modelStorageService.uploadStream(
-        streamRes.data,
-        modelId,
-        relPath,
-        {
-          contentLength: reportedLen,
-          partSize: 50 * 1024 * 1024, // 50MB parts
-          queueSize: 4,
-          onProgress: (p) => {
-            const now = Date.now();
-            if (now - lastLogTime >= 8000) {
-              const loaded = p.loaded || 0;
-              const total = p.total || reportedLen;
-              const pct = total > 0 ? ((loaded / total) * 100).toFixed(1) : '?';
-              const deltaBytes = loaded - lastLoaded;
-              const deltaSec = (now - lastLogTime) / 1000;
-              const speedMB = deltaSec > 0 ? (deltaBytes / (1024 * 1024 * deltaSec)).toFixed(1) : '0';
-              const elapsed = (now - startTime) / 1000;
-              console.log(
-                `    -> [${pct}%] ${formatBytes(loaded)} / ${formatBytes(total)} ` +
-                `(${speedMB} MB/s, elapsed: ${formatDuration(elapsed)})`
-              );
-              lastLogTime = now;
-              lastLoaded = loaded;
-            }
-          },
+      const stallInterval = setInterval(() => {
+        const idleSec = (Date.now() - lastActivityTime) / 1000;
+        if (idleSec > 60) {
+          console.warn(`    [!] Stalled: No transfer activity for ${Math.round(idleSec)}s on ${relPath}. Aborting attempt ${attempt}...`);
+          try { uploaderInstance?.abort(); } catch (_) {}
+          try { streamRes?.data?.destroy(new Error('Stalled transfer')); } catch (_) {}
         }
-      );
+      }, 5000);
+
+      try {
+        await modelStorageService.uploadStream(
+          streamRes.data,
+          modelId,
+          relPath,
+          {
+            contentLength: reportedLen,
+            partSize: 50 * 1024 * 1024, // 50MB parts
+            queueSize: 2, // 2 concurrent parts prevents TCP socket congestion
+            onUploadInstance: (u) => {
+              uploaderInstance = u;
+            },
+            onProgress: (p) => {
+              lastActivityTime = Date.now();
+              const now = Date.now();
+              if (now - lastLogTime >= 8000) {
+                const loaded = p.loaded || 0;
+                const total = p.total || reportedLen;
+                const pct = total > 0 ? ((loaded / total) * 100).toFixed(1) : '?';
+                const deltaBytes = loaded - lastLoaded;
+                const deltaSec = (now - lastLogTime) / 1000;
+                const speedMB = deltaSec > 0 ? (deltaBytes / (1024 * 1024 * deltaSec)).toFixed(1) : '0';
+                const elapsed = (now - startTime) / 1000;
+                console.log(
+                  `    -> [${pct}%] ${formatBytes(loaded)} / ${formatBytes(total)} ` +
+                  `(${speedMB} MB/s, elapsed: ${formatDuration(elapsed)})`
+                );
+                lastLogTime = now;
+                lastLoaded = loaded;
+              }
+            },
+          }
+        );
+      } finally {
+        clearInterval(stallInterval);
+      }
 
       // Verify final object in R2
       const verified = await modelStorageService.getModelFileInfo(modelId, relPath);

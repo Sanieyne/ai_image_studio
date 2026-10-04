@@ -225,6 +225,50 @@ export const resolveReportSchema = Joi.object({
     .default(''),
 });
 
+export const validateQuery = (schema, options = {}) => (req, res, next) => {
+  const { error, value } = schema.validate(req.query, {
+    abortEarly: false,
+    stripUnknown: options.stripUnknown !== undefined ? options.stripUnknown : true,
+    ...options,
+  });
 
+  if (error) {
+    const errorMessages = error.details.map((detail) => detail.message.replace(/['"]/g, ''));
+    return next(new ApiError(400, 'Validation Error', errorMessages));
+  }
 
+  Object.defineProperty(req, 'query', {
+    value,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+  next();
+};
 
+export const rentGpuSchema = Joi.object({
+  offerId: Joi.alternatives().try(Joi.string().trim(), Joi.number()).required().messages({
+    'any.required': 'offerId is required',
+  }),
+  storageGB: Joi.number().integer().min(10).max(1000).default(100).messages({
+    'number.base': 'storageGB must be an integer between 10 and 1000 GB',
+    'number.integer': 'storageGB must be an integer between 10 and 1000 GB',
+    'number.min': 'storageGB must be at least 10GB',
+    'number.max': 'storageGB cannot exceed 1000GB (1TB)',
+  }),
+  selectedModelIds: Joi.array().items(Joi.string().trim()).default([]),
+});
+
+export const estimatePricingSchema = Joi.object({
+  offerId: Joi.alternatives().try(Joi.string().trim(), Joi.number()).required().messages({
+    'any.required': 'offerId is required',
+  }),
+  storageGB: Joi.number().integer().min(10).max(1000).default(100).messages({
+    'number.base': 'storageGB must be an integer between 10 and 1000 GB',
+    'number.integer': 'storageGB must be an integer between 10 and 1000 GB',
+    'number.min': 'storageGB must be at least 10GB',
+    'number.max': 'storageGB cannot exceed 1000GB (1TB)',
+  }),
+  hours: Joi.number().min(0.01).default(1),
+  bandwidthGB: Joi.number().min(0).default(10),
+});

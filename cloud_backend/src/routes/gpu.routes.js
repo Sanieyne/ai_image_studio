@@ -16,17 +16,23 @@ import {
 } from '../controllers/gpu.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
+import {
+  validate,
+  validateQuery,
+  rentGpuSchema,
+  estimatePricingSchema,
+} from '../middleware/validation.middleware.js';
 
 const router = Router();
 
 // Public marketplace browsing and pricing discovery (permissive browsing limiter)
 router.get('/offers', publicReadLimiter, getOffers);
 router.get('/recommended', publicReadLimiter, getRecommended);
-router.get('/pricing/estimate', publicReadLimiter, estimatePricing);
+router.get('/pricing/estimate', publicReadLimiter, validateQuery(estimatePricingSchema), estimatePricing);
 router.get('/offers/:offerId', publicReadLimiter, getOfferById);
 
 // Authenticated instance provisioning and lifecycle management
-router.post('/rent', protect, rent);
+router.post('/rent', protect, validate(rentGpuSchema), rent);
 router.get('/instances/me', protect, getMyInstances);
 router.get('/instances/:instanceId', protect, getInstanceById);
 router.delete('/instances/:instanceId', protect, destroyInstance);

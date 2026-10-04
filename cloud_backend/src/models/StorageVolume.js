@@ -23,7 +23,8 @@ const storageVolumeSchema = new mongoose.Schema(
     sizeGB: {
       type: Number,
       required: [true, 'Volume size in GB is required'],
-      min: 1,
+      min: 10,
+      max: 1000,
     },
     usedGB: {
       type: Number,

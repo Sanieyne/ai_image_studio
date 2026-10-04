@@ -9,7 +9,13 @@ import { recommendationService } from './recommendation.service.js';
 import { creditService } from './credit.service.js';
 import { pricingService } from './pricing.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
-import { GPU_STATUS, GPU_PROVIDERS, BANDWIDTH_COST_PER_GB } from '../config/constants.js';
+import {
+  GPU_STATUS,
+  GPU_PROVIDERS,
+  BANDWIDTH_COST_PER_GB,
+  STORAGE_MIN_GB,
+  STORAGE_MAX_GB,
+} from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
 import { env } from '../config/env.js';
 
@@ -184,8 +190,14 @@ class GpuProviderService {
       throw ApiError.badRequest('Offer specification is required for pricing estimation.');
     }
 
+    const numericStorage = Number(storageGB);
+    if (isNaN(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
+      throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+    }
+
     const computeCost = Math.round(offer.pricePerHour * hours * 1000) / 1000;
-    const storageRatePerHour = (offer.storageCostPerHour / (offer.diskGB || 100)) * storageGB;
+    const storagePricing = pricingService.calculateStoragePricing(numericStorage);
+    const storageRatePerHour = storagePricing.pricePerHour;
     const storageCost = Math.round(storageRatePerHour * hours * 1000) / 1000;
     const bandwidthCost = Math.round(bandwidthGB * (offer.bandwidthCostPerGB || BANDWIDTH_COST_PER_GB) * 1000) / 1000;
     const totalCost = Math.round((computeCost + storageCost + bandwidthCost) * 1000) / 1000;
@@ -193,16 +205,16 @@ class GpuProviderService {
 
     // Server-computed authoritative credit values
     const computeCredits = pricingService.usdToCredits(computeCost, 1);
-    const storageCredits = pricingService.usdToCredits(storageCost, 2);
+    const storageCredits = Math.round(storagePricing.creditsPerHour * hours * 10) / 10;
     const bandwidthCredits = pricingService.usdToCredits(bandwidthCost, 2);
-    const totalCredits = pricingService.usdToCredits(totalCost, 1);
-    const creditsPerHour = pricingService.usdToCredits(costPerHour, 1);
+    const totalCredits = Math.round((computeCredits + storageCredits + bandwidthCredits) * 10) / 10;
+    const creditsPerHour = Math.round((offer.creditsPerHour + storagePricing.creditsPerHour) * 10) / 10;
 
     return {
       offerId: offer.id,
       gpuName: offer.gpuName,
       hours,
-      storageGB,
+      storageGB: numericStorage,
       bandwidthGB,
       breakdown: {
         computeCost,
@@ -340,14 +352,23 @@ class GpuProviderService {
     if (!userId) throw ApiError.unauthorized('User must be logged in to rent a cloud GPU.');
     if (!offerId) throw ApiError.badRequest('Vast.ai offer ID is required.');
 
+    const numericStorage = Number(storageGB);
+    if (isNaN(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
+      throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+    }
+
     // 1. Fetch offer details
     const offer = await vastaiService.getOffer(offerId);
 
-    // 2. Compute minimum initial funding required in CREDITS (at least 1 hour total cost or minLaunchCredits)
+    // 2. Compute live continuous storage pricing and initial funding required in CREDITS
+    const storagePricing = pricingService.calculateStoragePricing(numericStorage);
+    const totalHourlyCost = Math.round((offer.pricePerHour + storagePricing.pricePerHour) * 1000) / 1000;
+    const totalCreditsPerHour = Math.round((offer.creditsPerHour + storagePricing.creditsPerHour) * 10) / 10;
+
     const minLaunch = pricingService.getCachedConfig().minLaunchCredits || 10;
     const initialCreditsRequired = Math.max(
       minLaunch,
-      offer.totalCreditsPerHour ?? pricingService.usdToCredits(offer.totalHourlyCost, 1)
+      totalCreditsPerHour
     );
     const hasSufficientCredits = await creditService.hasEnough(userId, initialCreditsRequired);
 
@@ -365,17 +386,17 @@ class GpuProviderService {
       status: GPU_STATUS.PROVISIONING,
       gpuType: offer.gpuName,
       vramGB: offer.vramGB,
-      costPerHour: offer.totalHourlyCost,
+      costPerHour: totalHourlyCost,
       modelsRequested: selectedModelIds,
       vastOffer: offer,
       pricing: {
         dph_total: offer.pricePerHour,
-        storageCost: offer.storageCostPerHour,
+        storageCost: storagePricing.pricePerHour,
         bandwidthCost: offer.bandwidthCostPerGB,
-        totalPerHour: offer.totalHourlyCost,
+        totalPerHour: totalHourlyCost,
         creditsPerHour: offer.creditsPerHour,
-        totalCreditsPerHour: offer.totalCreditsPerHour,
-        storageCreditsPerHour: offer.storageCreditsPerHour,
+        totalCreditsPerHour: totalCreditsPerHour,
+        storageCreditsPerHour: storagePricing.creditsPerHour,
         bandwidthCreditsPerGB: offer.bandwidthCreditsPerGB,
         creditsPerUsd: pricingService.getCachedConfig().tokenValue,
       },
@@ -391,7 +412,7 @@ class GpuProviderService {
         directPortCount: offer.directPortCount,
         cpuCores: offer.cpuCores,
         ramGB: offer.ramGB,
-        diskGB: storageGB,
+        diskGB: numericStorage,
       },
       provisioningLogs: [
         { message: `Requested provisioning on Vast.ai for ${offer.gpuName} (${offer.id})` },
@@ -403,7 +424,7 @@ class GpuProviderService {
     try {
       const onstartScript = this._generateOnstartScript({ selectedModelIds });
       const vastResult = await vastaiService.createInstance(offerId, {
-        disk: storageGB,
+        disk: numericStorage,
         onstart: onstartScript,
         env: {
           AI_STUDIO_USER_ID: String(userId),

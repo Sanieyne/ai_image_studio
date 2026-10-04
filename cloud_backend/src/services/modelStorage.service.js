@@ -9,15 +9,17 @@
 
 import fs from 'fs';
 import path from 'path';
+import https from 'https';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { env } from '../config/env.js';
 
 // Single-shot PutObject caps at 5GB; weight shards can exceed that, so all
 // uploads go through managed multipart regardless of size.
-const MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024; // 100MB parts
-const MULTIPART_QUEUE_SIZE = 4;
+const MULTIPART_THRESHOLD_BYTES = 50 * 1024 * 1024; // 50MB parts
+const MULTIPART_QUEUE_SIZE = 2; // conservative concurrency to prevent socket saturation
 
 class ModelStorageService {
   constructor() {
@@ -56,6 +58,15 @@ class ModelStorageService {
           accessKeyId: env.R2_ACCESS_KEY_ID,
           secretAccessKey: env.R2_SECRET_ACCESS_KEY,
         },
+        requestHandler: new NodeHttpHandler({
+          connectionTimeout: 15000,
+          requestTimeout: 60000,
+          httpsAgent: new https.Agent({
+            keepAlive: true,
+            maxSockets: 30,
+            timeout: 60000,
+          }),
+        }),
       });
     }
     return this._client;
@@ -149,6 +160,10 @@ class ModelStorageService {
 
     if (options.onProgress) {
       upload.on('httpUploadProgress', options.onProgress);
+    }
+
+    if (typeof options.onUploadInstance === 'function') {
+      options.onUploadInstance(upload);
     }
 
     const result = await upload.done();

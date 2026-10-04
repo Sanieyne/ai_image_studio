@@ -8,6 +8,8 @@ import { ModelCatalog } from '../models/ModelCatalog.js';
 import {
   GPU_TIERS,
   STORAGE_PLANS,
+  STORAGE_MIN_GB,
+  STORAGE_MAX_GB,
   BASE_OVERHEAD_GB,
   OUTPUT_BUFFER_PERCENT,
 } from '../config/constants.js';
@@ -80,11 +82,20 @@ class RecommendationService {
     const totalWithBufferGB =
       Math.round((totalModelSizeGB + BASE_OVERHEAD_GB + bufferGB) * 100) / 100;
 
-    // 6. Find optimal storage plan and enrich with server-calculated credits
-    const recommendedStorageRaw =
-      STORAGE_PLANS.find((plan) => plan.sizeGB >= totalWithBufferGB) ||
-      STORAGE_PLANS[STORAGE_PLANS.length - 1];
-    const recommendedStorage = pricingService.formatStoragePricing(recommendedStorageRaw);
+    // 6. Continuous storage allocation (clamped to 10GB - 1000GB)
+    const continuousStorageGB = Math.max(
+      STORAGE_MIN_GB,
+      Math.min(STORAGE_MAX_GB, Math.ceil(totalWithBufferGB))
+    );
+    const storagePricing = pricingService.calculateStoragePricing(continuousStorageGB);
+    const recommendedStorage = {
+      id: `${continuousStorageGB}gb`,
+      name: `${continuousStorageGB}GB Volume`,
+      sizeGB: continuousStorageGB,
+      fits: continuousStorageGB >= totalWithBufferGB,
+      freeAfterGB: Math.max(0, Math.round((continuousStorageGB - totalWithBufferGB) * 100) / 100),
+      ...storagePricing,
+    };
     const allPlans = STORAGE_PLANS.map((plan) => pricingService.formatStoragePricing(plan));
 
     // 7. Compatible GPUs filtered by maxVramGB requirement and formatted with server credits
@@ -117,9 +128,9 @@ class RecommendationService {
     // 8. Generate intelligent warnings
     const warnings = [];
 
-    if (totalWithBufferGB > 30 && models.length > 2) {
+    if (totalWithBufferGB > STORAGE_MAX_GB) {
       warnings.push(
-        `Starter 30GB storage is insufficient (requires ${totalWithBufferGB}GB). Please upgrade your storage volume or delete unused models.`
+        `Selected models require ${totalWithBufferGB}GB storage which exceeds the maximum supported storage volume (${STORAGE_MAX_GB}GB). Please reduce model selection.`
       );
     }
 

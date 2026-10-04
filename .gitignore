@@ -24,7 +24,7 @@ flutter_app/vast_batch/
 flutter_app/fa-brands-400.woff2
 cloud_backend/node_modules/
 cloud_backend/.env
-models/
+/models/
 python_engine/weights/
 *.pth
 *.safetensors

@@ -6,7 +6,14 @@
 
 import mongoose from 'mongoose';
 import { PricingConfig } from '../models/PricingConfig.js';
-import { CREDITS_PER_USD, VASTAI_PRICE_MARKUP } from '../config/constants.js';
+import {
+  CREDITS_PER_USD,
+  VASTAI_PRICE_MARKUP,
+  STORAGE_MIN_GB,
+  STORAGE_MAX_GB,
+  STORAGE_RATE_PER_GB_MONTH,
+  STORAGE_HOURS_PER_MONTH,
+} from '../config/constants.js';
 
 class PricingService {
   constructor() {
@@ -232,23 +239,81 @@ class PricingService {
   }
 
   /**
-   * Format Storage Plan pricing with server-computed credits
-   * @param {Object} plan
+   * Calculate storage cost and credits dynamically for any continuous storageGB (10GB - 1000GB)
+   * Formula:
+   *   rawPricePerHour = (storageGB * ratePerGBPerMonth / 730)
+   *   pricePerHour = rawPricePerHour * markupMultiplier
+   *   creditsPerHour = (storageGB * ratePerGBPerMonth / 730) * markupMultiplier * creditsPerUsd
+   * @param {number|string} storageGB
    * @returns {Object}
    */
-  formatStoragePricing(plan = {}) {
-    const basePricePerMonth = Number(plan.rawPricePerMonth || plan.pricePerMonth || 5.0);
-    const markedUpMonth = this.applyMarkup(basePricePerMonth, 2);
-    const creditsPerMonth = this.usdToCredits(markedUpMonth, 0);
-    const creditsPerHour = Math.round((creditsPerMonth / 720) * 100) / 100;
+  calculateStoragePricing(storageGB) {
+    const rawNum = typeof storageGB === 'string' ? parseFloat(storageGB.replace(/[^\d.]/g, '')) : Number(storageGB);
+    const gb = Math.max(STORAGE_MIN_GB, Math.min(STORAGE_MAX_GB, Math.round(rawNum || 10)));
+    const ratePerGBPerMonth = STORAGE_RATE_PER_GB_MONTH; // 0.07 $/GB/month
+    const hoursPerMonth = STORAGE_HOURS_PER_MONTH; // 730 hours
+
+    // Baseline raw USD rates
+    const rawPricePerMonth = Math.round(gb * ratePerGBPerMonth * 1000) / 1000;
+    const rawPricePerHour = rawPricePerMonth / hoursPerMonth;
+
+    // Marked-up USD rates
+    const mult = this._cachedConfig.markupMultiplier || 1.25;
+    const tokenVal = this._cachedConfig.tokenValue || 50;
+
+    const pricePerMonth = Math.round(rawPricePerMonth * mult * 100) / 100;
+    const pricePerHour = Math.round(rawPricePerHour * mult * 10000) / 10000;
+
+    // creditsPerHour = (storageGB * ratePerGBPerMonth / 730) * markupMultiplier * creditsPerUsd
+    const creditsPerHour = Math.round((rawPricePerHour * mult * tokenVal) * 100) / 100;
+    const creditsPerMonth = Math.round(pricePerMonth * tokenVal);
 
     return {
-      ...plan,
-      pricePerMonth: markedUpMonth,
-      creditsPerMonth,
+      storageGB: gb,
+      ratePerGBPerMonth,
+      rawPricePerMonth,
+      rawPricePerHour: Math.round(rawPricePerHour * 10000) / 10000,
+      pricePerMonth,
+      pricePerHour,
       creditsPerHour,
-      creditsPerUsd: this._cachedConfig.tokenValue,
+      creditsPerMonth,
+      creditsPerUsd: tokenVal,
       markupPercentage: this._cachedConfig.markupPercentage,
+      markupMultiplier: mult,
+    };
+  }
+
+  /**
+   * Format Storage Plan pricing with continuous formula-based credits
+   * Supports continuous numbers, legacy plan objects, and legacy plan ID strings ('30gb', etc.)
+   * @param {Object|number|string} planOrGB
+   * @returns {Object}
+   */
+  formatStoragePricing(planOrGB = {}) {
+    let sizeGB = 50;
+    let name = null;
+    let id = null;
+
+    if (typeof planOrGB === 'number') {
+      sizeGB = planOrGB;
+    } else if (typeof planOrGB === 'string') {
+      const match = planOrGB.match(/\d+/);
+      sizeGB = match ? parseInt(match[0], 10) : 50;
+      id = planOrGB;
+    } else if (typeof planOrGB === 'object' && planOrGB !== null) {
+      sizeGB = Number(planOrGB.sizeGB || planOrGB.diskGB || 50);
+      name = planOrGB.name;
+      id = planOrGB.id;
+    }
+
+    const calculated = this.calculateStoragePricing(sizeGB);
+
+    return {
+      ...(typeof planOrGB === 'object' && planOrGB !== null ? planOrGB : {}),
+      id: id || `${calculated.storageGB}gb`,
+      name: name || `${calculated.storageGB}GB Storage`,
+      sizeGB: calculated.storageGB,
+      ...calculated,
     };
   }
 }
