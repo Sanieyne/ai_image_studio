@@ -188,39 +188,63 @@ class PricingService {
   formatOfferPricing(raw = {}) {
     const rawDphTotal = Number(raw.dph_total || raw.pricePerHour || 0.44);
     const rawDphBase = Number(raw.dph_base || raw.dphBase || rawDphTotal);
-    const rawStorage = Math.max(0, rawDphTotal - rawDphBase);
     const rawBandwidth = Number(raw.inet_down_cost || raw.bandwidthCostPerGB || 0.02);
 
-    // 1. Marked up USD rates
-    const dphTotal = this.applyMarkup(rawDphTotal, 4);
-    const dphBase = this.applyMarkup(rawDphBase, 4);
-    const storageCostPerHour = this.applyMarkup(rawStorage, 4);
-    const bandwidthCostPerGB = this.applyMarkup(rawBandwidth, 4);
-    const totalHourlyCost = dphTotal;
+    // Derive raw storage cost per GB per hour directly from the host offer
+    let rawStoragePerGBHour;
+    if (raw.storage_cost != null && !isNaN(Number(raw.storage_cost)) && Number(raw.storage_cost) > 0) {
+      rawStoragePerGBHour = Number(raw.storage_cost);
+    } else if (rawDphTotal > rawDphBase) {
+      // Vast.ai default query bundles price storage at 100GB
+      rawStoragePerGBHour = (rawDphTotal - rawDphBase) / 100;
+    } else {
+      rawStoragePerGBHour = 0.00015; // default fallback ($0.11/GB/mo)
+    }
 
-    // 2. Credits conversion (Server authoritative)
-    const creditsPerHour = this.usdToCredits(dphTotal, 1);
-    const totalCreditsPerHour = this.usdToCredits(totalHourlyCost, 1);
-    const storageCreditsPerHour = this.usdToCredits(storageCostPerHour, 2);
+    const mult = this._cachedConfig.markupMultiplier || 1.25;
+    const tokenVal = this._cachedConfig.tokenValue || 50;
+
+    // 1. Marked-up USD rates (kept internal for billing & logs)
+    const computePricePerHour = this.applyMarkup(rawDphBase, 4);
+    const computeCreditsPerHour = this.usdToCredits(computePricePerHour, 1);
+
+    const storagePricePerGBHour = this.applyMarkup(rawStoragePerGBHour, 6);
+    const storageCreditsPerGBHour = Number((storagePricePerGBHour * tokenVal).toFixed(6));
+
+    const defaultDiskGB = Number(raw.disk_space || 100);
+    const storagePricePerHour = Math.round(storagePricePerGBHour * defaultDiskGB * 10000) / 10000;
+    const storageCreditsPerHour = Math.round(storageCreditsPerGBHour * defaultDiskGB * 100) / 100;
+
+    const totalHourlyCost = Math.round((computePricePerHour + storagePricePerHour) * 10000) / 10000;
+    const totalCreditsPerHour = Math.round((computeCreditsPerHour + storageCreditsPerHour) * 10) / 10;
+
+    const bandwidthCostPerGB = this.applyMarkup(rawBandwidth, 4);
     const bandwidthCreditsPerGB = this.usdToCredits(bandwidthCostPerGB, 2);
 
     return {
-      pricePerHour: dphTotal,
-      dphBase,
-      storageCostPerHour,
+      // Server internal rates
+      rawDphBase,
+      rawDphTotal,
+      rawStoragePerGBHour,
+      computePricePerHour,
+      storagePricePerGBHour,
+      storagePricePerHour,
       bandwidthCostPerGB,
       totalHourlyCost,
-      creditsPerHour,
-      totalCreditsPerHour,
+
+      // Authoritative credits
+      creditsPerHour: computeCreditsPerHour,
       storageCreditsPerHour,
+      storageCreditsPerGBHour,
+      totalCreditsPerHour,
       bandwidthCreditsPerGB,
-      creditsPerUsd: this._cachedConfig.tokenValue,
+      creditsPerUsd: tokenVal,
       markupPercentage: this._cachedConfig.markupPercentage,
     };
   }
 
   /**
-   * Format GPU Tier pricing with server-computed credits
+   * Format GPU Tier pricing with server-computed credits (client-safe)
    * @param {Object} tier
    * @returns {Object}
    */
@@ -229,62 +253,76 @@ class PricingService {
     const markedUpPrice = this.applyMarkup(basePrice, 4);
     const creditsPerHour = this.usdToCredits(markedUpPrice, 1);
 
-    return {
-      ...tier,
-      pricePerHour: markedUpPrice,
-      creditsPerHour,
-      creditsPerUsd: this._cachedConfig.tokenValue,
-      markupPercentage: this._cachedConfig.markupPercentage,
-    };
+    const formatted = { ...tier, creditsPerHour };
+    delete formatted.rawPricePerHour;
+    delete formatted.pricePerHour;
+    delete formatted.creditsPerUsd;
+    delete formatted.markupPercentage;
+    return formatted;
   }
 
   /**
-   * Calculate storage cost and credits dynamically for any continuous storageGB (10GB - 1000GB)
-   * Formula:
-   *   rawPricePerHour = (storageGB * ratePerGBPerMonth / 730)
-   *   pricePerHour = rawPricePerHour * markupMultiplier
-   *   creditsPerHour = (storageGB * ratePerGBPerMonth / 730) * markupMultiplier * creditsPerUsd
+   * Calculate storage credits dynamically for any continuous storageGB (10GB - 1000GB)
+   * Uses the real per-offer Vast.ai rate when an offer is provided.
+   * If no offer is provided, uses the baseline fallback rate.
    * @param {number|string} storageGB
+   * @param {Object} [offer=null]
    * @returns {Object}
    */
-  calculateStoragePricing(storageGB) {
+  calculateStoragePricing(storageGB, offer = null) {
     const rawNum = typeof storageGB === 'string' ? parseFloat(storageGB.replace(/[^\d.]/g, '')) : Number(storageGB);
     const gb = Math.max(STORAGE_MIN_GB, Math.min(STORAGE_MAX_GB, Math.round(rawNum || 10)));
-    const ratePerGBPerMonth = STORAGE_RATE_PER_GB_MONTH; // 0.07 $/GB/month
-    const hoursPerMonth = STORAGE_HOURS_PER_MONTH; // 730 hours
-
-    // Baseline raw USD rates
-    const rawPricePerMonth = Math.round(gb * ratePerGBPerMonth * 1000) / 1000;
-    const rawPricePerHour = rawPricePerMonth / hoursPerMonth;
-
-    // Marked-up USD rates
     const mult = this._cachedConfig.markupMultiplier || 1.25;
     const tokenVal = this._cachedConfig.tokenValue || 50;
 
-    const pricePerMonth = Math.round(rawPricePerMonth * mult * 100) / 100;
-    const pricePerHour = Math.round(rawPricePerHour * mult * 10000) / 10000;
+    let storageCreditsPerGBHour;
+    let storagePricePerGBHour;
 
-    // creditsPerHour = (storageGB * ratePerGBPerMonth / 730) * markupMultiplier * creditsPerUsd
-    const creditsPerHour = Math.round((rawPricePerHour * mult * tokenVal) * 100) / 100;
-    const creditsPerMonth = Math.round(pricePerMonth * tokenVal);
+    if (offer) {
+      if (offer.storageCreditsPerGBHour != null && offer.storagePricePerGBHour != null) {
+        storageCreditsPerGBHour = offer.storageCreditsPerGBHour;
+        storagePricePerGBHour = offer.storagePricePerGBHour;
+      } else {
+        const rawOffer = offer.rawOffer || offer;
+        let rawRate = Number(rawOffer.storage_cost);
+        if (isNaN(rawRate) || rawRate <= 0) {
+          const dphTotal = Number(rawOffer.dph_total || 0);
+          const dphBase = Number(rawOffer.dph_base || 0);
+          if (dphTotal > dphBase) {
+            rawRate = (dphTotal - dphBase) / 100;
+          } else {
+            rawRate = 0.00015;
+          }
+        }
+        storagePricePerGBHour = this.applyMarkup(rawRate, 6);
+        storageCreditsPerGBHour = Number((storagePricePerGBHour * tokenVal).toFixed(6));
+      }
+    } else {
+      // Baseline fallback rate when no offer is specified
+      const rawPricePerMonth = gb * STORAGE_RATE_PER_GB_MONTH;
+      const rawPricePerHour = rawPricePerMonth / STORAGE_HOURS_PER_MONTH;
+      storagePricePerGBHour = (rawPricePerHour * mult) / gb;
+      storageCreditsPerGBHour = Number((storagePricePerGBHour * tokenVal).toFixed(6));
+    }
+
+    const pricePerHour = Math.round(storagePricePerGBHour * gb * 10000) / 10000;
+    const creditsPerHour = Math.round(storageCreditsPerGBHour * gb * 100) / 100;
+    const creditsPerMonth = Math.round(creditsPerHour * 730);
 
     return {
       storageGB: gb,
-      ratePerGBPerMonth,
-      rawPricePerMonth,
-      rawPricePerHour: Math.round(rawPricePerHour * 10000) / 10000,
-      pricePerMonth,
-      pricePerHour,
+      storageCreditsPerGBHour,
       creditsPerHour,
       creditsPerMonth,
-      creditsPerUsd: tokenVal,
-      markupPercentage: this._cachedConfig.markupPercentage,
-      markupMultiplier: mult,
+      _internal: {
+        storagePricePerGBHour,
+        pricePerHour,
+      },
     };
   }
 
   /**
-   * Format Storage Plan pricing with continuous formula-based credits
+   * Format Storage Plan pricing with continuous formula-based credits (client-safe)
    * Supports continuous numbers, legacy plan objects, and legacy plan ID strings ('30gb', etc.)
    * @param {Object|number|string} planOrGB
    * @returns {Object}
@@ -309,11 +347,12 @@ class PricingService {
     const calculated = this.calculateStoragePricing(sizeGB);
 
     return {
-      ...(typeof planOrGB === 'object' && planOrGB !== null ? planOrGB : {}),
       id: id || `${calculated.storageGB}gb`,
       name: name || `${calculated.storageGB}GB Storage`,
       sizeGB: calculated.storageGB,
-      ...calculated,
+      storageGB: calculated.storageGB,
+      creditsPerHour: calculated.creditsPerHour,
+      creditsPerMonth: calculated.creditsPerMonth,
     };
   }
 }

@@ -101,7 +101,7 @@ class GpuProviderService {
       if (orderBy === 'reliability') {
         return b.reliability - a.reliability;
       }
-      return a.totalHourlyCost - b.totalHourlyCost;
+      return (a.totalCreditsPerHour ?? a.creditsPerHour) - (b.totalCreditsPerHour ?? b.creditsPerHour);
     });
 
     return {
@@ -195,41 +195,33 @@ class GpuProviderService {
       throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
     }
 
-    const computeCost = Math.round(offer.pricePerHour * hours * 1000) / 1000;
-    const storagePricing = pricingService.calculateStoragePricing(numericStorage);
-    const storageRatePerHour = storagePricing.pricePerHour;
-    const storageCost = Math.round(storageRatePerHour * hours * 1000) / 1000;
-    const bandwidthCost = Math.round(bandwidthGB * (offer.bandwidthCostPerGB || BANDWIDTH_COST_PER_GB) * 1000) / 1000;
-    const totalCost = Math.round((computeCost + storageCost + bandwidthCost) * 1000) / 1000;
-    const costPerHour = Math.round((offer.pricePerHour + storageRatePerHour) * 1000) / 1000;
+    // Compute storage pricing using the host's real rate
+    const storagePricing = pricingService.calculateStoragePricing(numericStorage, offer);
 
-    // Server-computed authoritative credit values
-    const computeCredits = pricingService.usdToCredits(computeCost, 1);
-    const storageCredits = Math.round(storagePricing.creditsPerHour * hours * 10) / 10;
+    const computeCreditsPerHour = offer.creditsPerHour;
+    const storageCreditsPerHour = storagePricing.creditsPerHour;
+    const computeCredits = Math.round(computeCreditsPerHour * hours * 10) / 10;
+    const storageCredits = Math.round(storageCreditsPerHour * hours * 100) / 100;
+
+    const bandwidthCost = Math.round(bandwidthGB * (offer.bandwidthCostPerGB || BANDWIDTH_COST_PER_GB) * 1000) / 1000;
     const bandwidthCredits = pricingService.usdToCredits(bandwidthCost, 2);
+
+    const totalCreditsPerHour = Math.round((computeCreditsPerHour + storageCreditsPerHour) * 100) / 100;
     const totalCredits = Math.round((computeCredits + storageCredits + bandwidthCredits) * 10) / 10;
-    const creditsPerHour = Math.round((offer.creditsPerHour + storagePricing.creditsPerHour) * 10) / 10;
 
     return {
-      offerId: offer.id,
+      offerId: String(offer.id),
       gpuName: offer.gpuName,
-      hours,
+      hours: Number(hours),
       storageGB: numericStorage,
-      bandwidthGB,
+      bandwidthGB: Number(bandwidthGB),
       breakdown: {
-        computeCost,
-        storageCost,
-        bandwidthCost,
         computeCredits,
         storageCredits,
         bandwidthCredits,
       },
-      totalCost,
-      costPerHour,
       totalCredits,
-      creditsPerHour,
-      creditsPerUsd: pricingService.getCachedConfig().tokenValue,
-      markupPercentage: pricingService.getCachedConfig().markupPercentage,
+      creditsPerHour: totalCreditsPerHour,
     };
   }
 
@@ -360,9 +352,10 @@ class GpuProviderService {
     // 1. Fetch offer details
     const offer = await vastaiService.getOffer(offerId);
 
-    // 2. Compute live continuous storage pricing and initial funding required in CREDITS
-    const storagePricing = pricingService.calculateStoragePricing(numericStorage);
-    const totalHourlyCost = Math.round((offer.pricePerHour + storagePricing.pricePerHour) * 1000) / 1000;
+    // 2. Compute live continuous storage pricing and initial funding required in CREDITS using the offer's real rate
+    const storagePricing = pricingService.calculateStoragePricing(numericStorage, offer);
+    const storagePricePerHour = storagePricing._internal?.pricePerHour || 0;
+    const totalHourlyCost = Math.round(((offer.dphBase || offer.pricePerHour) + storagePricePerHour) * 1000) / 1000;
     const totalCreditsPerHour = Math.round((offer.creditsPerHour + storagePricing.creditsPerHour) * 10) / 10;
 
     const minLaunch = pricingService.getCachedConfig().minLaunchCredits || 10;
@@ -391,7 +384,7 @@ class GpuProviderService {
       vastOffer: offer,
       pricing: {
         dph_total: offer.pricePerHour,
-        storageCost: storagePricing.pricePerHour,
+        storageCost: storagePricePerHour,
         bandwidthCost: offer.bandwidthCostPerGB,
         totalPerHour: totalHourlyCost,
         creditsPerHour: offer.creditsPerHour,

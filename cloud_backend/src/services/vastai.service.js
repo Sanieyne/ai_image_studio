@@ -57,6 +57,8 @@ class VastaiService {
     const pricing = pricingService.formatOfferPricing({
       dph_total: raw.dph_total || raw.pricePerHour || 0.44,
       dph_base: raw.dph_base,
+      storage_cost: raw.storage_cost,
+      disk_space: raw.disk_space,
       inet_down_cost: raw.inet_down_cost || BANDWIDTH_COST_PER_GB || 0.025,
     });
 
@@ -75,14 +77,16 @@ class VastaiService {
       vramGB,
       numGpus: raw.num_gpus || 1,
       totalFlops: raw.total_flops || 0,
-      pricePerHour: pricing.pricePerHour,
-      dphBase: pricing.dphBase,
-      storageCostPerHour: pricing.storageCostPerHour,
+      pricePerHour: pricing.computePricePerHour,
+      dphBase: pricing.computePricePerHour,
+      storageCostPerHour: pricing.storagePricePerHour,
+      storagePricePerGBHour: pricing.storagePricePerGBHour,
       bandwidthCostPerGB: pricing.bandwidthCostPerGB,
       totalHourlyCost: pricing.totalHourlyCost,
       creditsPerHour: pricing.creditsPerHour,
       totalCreditsPerHour: pricing.totalCreditsPerHour,
       storageCreditsPerHour: pricing.storageCreditsPerHour,
+      storageCreditsPerGBHour: pricing.storageCreditsPerGBHour,
       bandwidthCreditsPerGB: pricing.bandwidthCreditsPerGB,
       creditsPerUsd: pricing.creditsPerUsd,
       markupPercentage: pricing.markupPercentage,

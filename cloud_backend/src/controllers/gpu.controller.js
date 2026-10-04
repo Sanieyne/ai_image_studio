@@ -10,6 +10,7 @@ import { priceTrackerService } from '../services/priceTracker.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { ApiError } from '../utils/ApiError.js';
 import { STORAGE_MIN_GB, STORAGE_MAX_GB } from '../config/constants.js';
+import { sanitizeOfferForClient, sanitizeInstanceForClient } from '../utils/sanitize.js';
 
 /**
  * GET /api/v1/gpu/offers
@@ -42,10 +43,15 @@ export const getOffers = asyncHandler(async (req, res) => {
     orderBy: orderBy || 'price',
   });
 
+  const sanitizedOffers = (result.offers || []).map(sanitizeOfferForClient);
+
   res.status(200).json({
     success: true,
-    count: result.count,
-    data: result,
+    count: sanitizedOffers.length,
+    data: {
+      ...result,
+      offers: sanitizedOffers,
+    },
   });
 });
 
@@ -59,7 +65,7 @@ export const getOfferById = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    data: offer,
+    data: sanitizeOfferForClient(offer),
   });
 });
 
@@ -75,9 +81,18 @@ export const getRecommended = asyncHandler(async (req, res) => {
 
   const recommendations = await gpuProviderService.getRecommendedGPUsForSelection(modelIdsList);
 
+  const sanitized = {
+    requirements: recommendations.requirements,
+    cheapestOffer: sanitizeOfferForClient(recommendations.cheapestOffer),
+    fastestOffer: sanitizeOfferForClient(recommendations.fastestOffer),
+    mostReliableOffer: sanitizeOfferForClient(recommendations.mostReliableOffer),
+    balancedOffer: sanitizeOfferForClient(recommendations.balancedOffer),
+    allOffers: (recommendations.allOffers || []).map(sanitizeOfferForClient),
+  };
+
   res.status(200).json({
     success: true,
-    data: recommendations,
+    data: sanitized,
   });
 });
 
@@ -107,7 +122,7 @@ export const rent = asyncHandler(async (req, res) => {
   res.status(201).json({
     success: true,
     message: `GPU instance launch initiated for ${instance.gpuType}.`,
-    data: instance,
+    data: sanitizeInstanceForClient(instance),
   });
 });
 
@@ -119,7 +134,7 @@ export const getMyInstances = asyncHandler(async (req, res) => {
   const instances = await gpuProviderService.getUserInstances(req.user._id);
 
   const enriched = instances.map((instance) => ({
-    ...instance,
+    ...sanitizeInstanceForClient(instance),
     burnRate: priceTrackerService.calculateBurnRate(instance),
   }));
 
@@ -147,7 +162,7 @@ export const getInstanceById = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: {
-      ...instance,
+      ...sanitizeInstanceForClient(instance),
       liveMetrics,
     },
   });
@@ -164,7 +179,7 @@ export const destroyInstance = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message: `GPU instance (${instance.gpuType}) stopped successfully.`,
-    data: instance,
+    data: sanitizeInstanceForClient(instance),
   });
 });
 

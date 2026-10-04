@@ -93,6 +93,10 @@ const gpuInstanceSchema = new mongoose.Schema(
       storageCost: { type: Number, default: 0 },
       bandwidthCost: { type: Number, default: 0 },
       totalPerHour: { type: Number, default: 0 },
+      creditsPerHour: { type: Number, default: 0 },
+      totalCreditsPerHour: { type: Number, default: 0 },
+      storageCreditsPerHour: { type: Number, default: 0 },
+      bandwidthCreditsPerGB: { type: Number, default: 0 },
     },
     network: {
       inet_up: { type: Number, default: 0 },

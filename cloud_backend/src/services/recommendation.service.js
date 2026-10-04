@@ -92,9 +92,11 @@ class RecommendationService {
       id: `${continuousStorageGB}gb`,
       name: `${continuousStorageGB}GB Volume`,
       sizeGB: continuousStorageGB,
+      storageGB: continuousStorageGB,
       fits: continuousStorageGB >= totalWithBufferGB,
       freeAfterGB: Math.max(0, Math.round((continuousStorageGB - totalWithBufferGB) * 100) / 100),
-      ...storagePricing,
+      creditsPerHour: storagePricing.creditsPerHour,
+      creditsPerMonth: storagePricing.creditsPerMonth,
     };
     const allPlans = STORAGE_PLANS.map((plan) => pricingService.formatStoragePricing(plan));
 

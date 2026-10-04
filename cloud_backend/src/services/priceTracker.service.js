@@ -26,28 +26,12 @@ class PriceTrackerService {
     const dailyCredits = Math.round(creditsPerHour * 24 * 10) / 10;
     const monthlyCredits = Math.round(creditsPerHour * 24 * 30 * 10) / 10;
 
-    const perHour = instance.pricing?.totalPerHour ?? instance.costPerHour ?? 0.44;
-    const perMinute = Math.round((perHour / 60) * 10000) / 10000;
-    const perSecond = Math.round((perHour / 3600) * 100000) / 100000;
-    const daily = Math.round(perHour * 24 * 100) / 100;
-    const monthly = Math.round(perHour * 24 * 30 * 100) / 100;
-
-    const storageEstimate = Math.round(((instance.pricing?.storageCost || 0.02) * 24 * 30) * 100) / 100;
-    const bandwidthEstimate = Math.round((100 * BANDWIDTH_COST_PER_GB) * 100) / 100;
-
     return {
       creditsPerHour,
       creditsPerMinute,
       creditsPerSecond,
       dailyCredits,
       monthlyCredits,
-      perHour,
-      perMinute,
-      perSecond,
-      daily,
-      monthly,
-      storageEstimate,
-      bandwidthEstimate,
     };
   }
 
@@ -72,13 +56,10 @@ class PriceTrackerService {
     const elapsedSeconds = Math.max(0, Math.floor((now - startTime) / 1000));
     const hoursElapsed = elapsedSeconds / 3600;
 
-    const ratePerHour = instance.pricing?.totalPerHour || instance.costPerHour || 0.44;
-    const totalCostSoFar = Math.round(hoursElapsed * ratePerHour * 1000) / 1000;
-
     const creditsRatePerHour =
       instance.pricing?.totalCreditsPerHour ??
       instance.pricing?.creditsPerHour ??
-      pricingService.usdToCredits(ratePerHour, 1);
+      pricingService.usdToCredits(instance.pricing?.totalPerHour || instance.costPerHour || 0.44, 1);
     const creditsBurnedSoFar = Math.round(hoursElapsed * creditsRatePerHour * 10) / 10;
 
     const burnRate = this.calculateBurnRate(instance);
@@ -90,7 +71,6 @@ class PriceTrackerService {
       status: instance.status,
       elapsedSeconds,
       hoursElapsed: Math.round(hoursElapsed * 100) / 100,
-      totalCostSoFar,
       creditsBurnedSoFar,
       currentBalance: user.credits,
       creditsRemaining: Math.max(0, Math.round((user.credits - creditsBurnedSoFar) * 10) / 10),
