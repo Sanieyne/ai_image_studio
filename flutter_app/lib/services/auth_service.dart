@@ -334,12 +334,12 @@ class AuthService extends ChangeNotifier {
     return false;
   }
 
-  /// Returns the cached profile, fetching `GET /users/me` when needed.
+  /// Returns the cached profile, fetching `GET /users/me` when needed or when [forceRefresh] is true.
   ///
   /// Returns null when logged out. Retries once after a silent refresh on
   /// 401 (the access token may have expired mid-session).
-  Future<CloudUserProfile?> getCurrentUser() async {
-    if (_user != null) return _user;
+  Future<CloudUserProfile?> getCurrentUser({bool forceRefresh = false}) async {
+    if (_user != null && !forceRefresh) return _user;
     await init();
     if (_accessToken == null || _accessToken!.isEmpty) return null;
     var res = await _fetchProfile(_accessToken!);
@@ -422,6 +422,11 @@ class AuthService extends ChangeNotifier {
   void updateCachedUser(CloudUserProfile user) {
     _user = user;
     notifyListeners();
+  }
+
+  /// Force-refreshes the latest profile and credits balance from GET /users/me.
+  Future<CloudUserProfile?> refreshProfile() async {
+    return getCurrentUser(forceRefresh: true);
   }
 
   Future<CloudUserProfile> _handleSessionResponse(http.Response res) async {

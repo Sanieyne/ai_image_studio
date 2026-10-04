@@ -8,6 +8,7 @@ import '../models/project_item.dart';
 import '../models/video_template.dart';
 import '../models/image_template.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
 import 'model_download_button.dart';
 import 'settings_dialog.dart';
@@ -119,6 +120,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     if (widget.activeTab != null) {
       _currentTab = widget.activeTab!;
     }
+    AuthService.instance.getCurrentUser();
   }
 
   @override
@@ -623,13 +625,23 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           ),
 
           const SizedBox(height: 10),
-          Tooltip(
-            message: 'Alex Dan — PRO',
-            child: InkWell(
-              onTap: widget.onExpand,
-              borderRadius: BorderRadius.circular(16),
-              child: _avatar(card, 32),
-            ),
+          ListenableBuilder(
+            listenable: AuthService.instance,
+            builder: (context, _) {
+              final user = AuthService.instance.currentUser;
+              final name = user?.displayName?.isNotEmpty == true
+                  ? user!.displayName!
+                  : (user?.username ?? 'Guest');
+              final credits = user?.credits ?? 0;
+              return Tooltip(
+                message: '$name — $credits Credits',
+                child: InkWell(
+                  onTap: widget.onExpand,
+                  borderRadius: BorderRadius.circular(16),
+                  child: _avatar(card, 32),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -2555,158 +2567,204 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   }
 
   // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
   // Profile Card (Bottom of Sidebar)
   // ─────────────────────────────────────────────────────────────
   Widget _buildProfile(BuildContext context, bool isDark) {
-    final avatarWidget = Stack(
-      clipBehavior: Clip.none,
-      children: [
-        const CircleAvatar(
-          radius: 15,
-          backgroundColor: Color(0xFFD32F2F),
-          child: Text(
-            'AD',
-            style: TextStyle(
-                color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
-          ),
-        ),
-        Positioned(
-          bottom: -1,
-          right: -1,
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: const Color(0xFF34A853),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isDark ? const Color(0xFF14181F) : const Color(0xFFF3F1EC),
-                width: 1.5,
+    return ListenableBuilder(
+      listenable: AuthService.instance,
+      builder: (context, _) {
+        final user = AuthService.instance.currentUser;
+        final displayName = user?.displayName?.isNotEmpty == true
+            ? user!.displayName!
+            : (user?.username ?? 'Guest User');
+        final email = user?.email ?? 'Not signed in';
+        final credits = user?.credits ?? 0;
+        final initials = (user?.displayName ?? user?.username ?? 'CG')
+            .trim()
+            .split(' ')
+            .where((s) => s.isNotEmpty)
+            .map((s) => s[0])
+            .take(2)
+            .join('')
+            .toUpperCase();
+
+        final avatarWidget = Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: const Color(0xFFD32F2F),
+              backgroundImage: (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty)
+                  ? NetworkImage(user.avatarUrl!)
+                  : null,
+              child: (user?.avatarUrl == null || user!.avatarUrl!.isEmpty)
+                  ? Text(
+                      initials.isEmpty ? 'CG' : initials,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  : null,
+            ),
+            Positioned(
+              bottom: -1,
+              right: -1,
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: user != null ? const Color(0xFF34A853) : Colors.grey,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isDark ? const Color(0xFF14181F) : const Color(0xFFF3F1EC),
+                    width: 1.5,
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-      ],
-    );
+          ],
+        );
 
-    return PopupMenuButton<String>(
-      tooltip: '',
-      padding: EdgeInsets.zero,
-      offset: const Offset(0, -190),
-      elevation: 12,
-      color: isDark ? const Color(0xFF1E232D) : Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.06),
-        ),
-      ),
-      onSelected: (value) {
-        if (value == 'account') {
-          _openSettingsDialog(context, initialTab: 0);
-        } else if (value == 'models') {
-          _openSettingsDialog(context, initialTab: 1);
-        } else if (value == 'preferences') {
-          _openSettingsDialog(context, initialTab: 2);
-        }
-      },
-      itemBuilder: (ctx) => [
-        _buildProfileMenuItem(
-          value: 'account',
-          icon: Icons.person_outline_rounded,
-          title: 'Account Settings',
-          isDark: isDark,
-        ),
-        _buildProfileMenuItem(
-          value: 'models',
-          icon: Icons.tune_rounded,
-          title: 'Models & Paths',
-          isDark: isDark,
-        ),
-        _buildProfileMenuItem(
-          value: 'preferences',
-          icon: Icons.settings_outlined,
-          title: 'Preferences',
-          isDark: isDark,
-        ),
-        const PopupMenuDivider(height: 10),
-        _buildProfileMenuItem(
-          value: 'logout',
-          icon: Icons.logout_rounded,
-          title: 'Sign Out',
-          isDark: isDark,
-          isDestructive: true,
-        ),
-      ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1A1F29) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.06)
-                : Colors.black.withValues(alpha: 0.05),
+        return PopupMenuButton<String>(
+          tooltip: '',
+          padding: EdgeInsets.zero,
+          offset: const Offset(0, -190),
+          elevation: 12,
+          color: isDark ? const Color(0xFF1E232D) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.06),
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            avatarWidget,
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+          onSelected: (value) async {
+            if (value == 'account') {
+              _openSettingsDialog(context, initialTab: 0);
+            } else if (value == 'models') {
+              _openSettingsDialog(context, initialTab: 1);
+            } else if (value == 'preferences') {
+              _openSettingsDialog(context, initialTab: 2);
+            } else if (value == 'logout') {
+              await AuthService.instance.logout();
+            }
+          },
+          itemBuilder: (ctx) => [
+            _buildProfileMenuItem(
+              value: 'account',
+              icon: Icons.person_outline_rounded,
+              title: 'Account Settings',
+              isDark: isDark,
+            ),
+            _buildProfileMenuItem(
+              value: 'models',
+              icon: Icons.tune_rounded,
+              title: 'Models & Paths',
+              isDark: isDark,
+            ),
+            _buildProfileMenuItem(
+              value: 'preferences',
+              icon: Icons.settings_outlined,
+              title: 'Preferences',
+              isDark: isDark,
+            ),
+            const PopupMenuDivider(height: 10),
+            _buildProfileMenuItem(
+              value: 'logout',
+              icon: Icons.logout_rounded,
+              title: 'Sign Out',
+              isDark: isDark,
+              isDestructive: true,
+            ),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1F29) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.black.withValues(alpha: 0.05),
+              ),
+            ),
+            child: Row(
+              children: [
+                avatarWidget,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        'Alex Dan',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12.5,
-                          color: isDark ? Colors.white : const Color(0xFF14181F),
-                        ),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              displayName,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12.5,
+                                color: isDark ? Colors.white : const Color(0xFF14181F),
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5B942).withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(5),
+                              border: Border.all(
+                                color: const Color(0xFFF5B942).withValues(alpha: 0.35),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.stars_rounded, color: Color(0xFFF5B942), size: 10),
+                                const SizedBox(width: 2.5),
+                                Text(
+                                  '$credits cr',
+                                  style: const TextStyle(
+                                    color: Color(0xFFF5B942),
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 5),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD32F2F),
-                          borderRadius: BorderRadius.circular(4),
+                      const SizedBox(height: 2),
+                      Text(
+                        email,
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: isDark ? Colors.white54 : Colors.black45,
                         ),
-                        child: const Text(
-                          'PRO',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.bold),
-                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'alex.dan@example.com',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: isDark ? Colors.white54 : Colors.black45,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
+                ),
+                Icon(
+                  Icons.more_vert,
+                  size: 16,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+              ],
             ),
-            Icon(
-              Icons.more_vert,
-              size: 16,
-              color: isDark ? Colors.white38 : Colors.black38,
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -2745,6 +2803,16 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   }
 
   Widget _avatar(Color card, double size) {
+    final user = AuthService.instance.currentUser;
+    final initials = (user?.displayName ?? user?.username ?? 'CG')
+        .trim()
+        .split(' ')
+        .where((s) => s.isNotEmpty)
+        .map((s) => s[0])
+        .take(2)
+        .join('')
+        .toUpperCase();
+
     return Stack(
       children: [
         Container(
@@ -2755,11 +2823,31 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             gradient: LuminaColors.primaryGradient,
           ),
           child: Center(
-            child: Text('AD',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: size * 0.35)),
+            child: (user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty)
+                ? ClipOval(
+                    child: Image.network(
+                      user.avatarUrl!,
+                      width: size,
+                      height: size,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Text(
+                        initials.isEmpty ? 'CG' : initials,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: size * 0.35,
+                        ),
+                      ),
+                    ),
+                  )
+                : Text(
+                    initials.isEmpty ? 'CG' : initials,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: size * 0.35,
+                    ),
+                  ),
           ),
         ),
         Positioned(
@@ -2770,7 +2858,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             height: size * 0.28,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF34D17B),
+              color: user != null ? const Color(0xFF34D17B) : Colors.grey,
               border: Border.all(color: card, width: 2),
             ),
           ),

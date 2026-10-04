@@ -484,6 +484,9 @@ class CloudApiService {
     return null;
   }
 
+  String? _lastProfileUpdateError;
+  String? get lastProfileUpdateError => _lastProfileUpdateError;
+
   /// Update creator public profile
   Future<bool> updateProfile({
     String? displayName,
@@ -502,8 +505,25 @@ class CloudApiService {
       if (isPublicProfile != null) payload['isPublicProfile'] = isPublicProfile;
 
       final res = await _api.patch('/users/me/profile', jsonBody: payload);
-      return res.statusCode == 200;
+      if (res.statusCode == 200) {
+        _lastProfileUpdateError = null;
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>?;
+        if (data != null) {
+          final updated = CloudUserProfile.fromJson(data);
+          AuthService.instance.updateCachedUser(updated);
+        }
+        return true;
+      }
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        _lastProfileUpdateError = body['message'] as String? ?? 'Failed to update profile (${res.statusCode})';
+      } catch (_) {
+        _lastProfileUpdateError = 'Server error (${res.statusCode})';
+      }
+      return false;
     } catch (e) {
+      _lastProfileUpdateError = e.toString();
       debugPrint('[CloudApiService] updateProfile error: $e');
       return false;
     }

@@ -11,6 +11,7 @@ import '../models/project_item.dart';
 import '../models/video_template.dart';
 import '../models/image_template.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_sidebar.dart';
@@ -758,6 +759,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     await _refreshProjects(selectId: _activeProject?.id);
+    AuthService.instance.refreshProfile();
   }
 
   Future<void> _retryItem(GenerationItem item) async {
@@ -825,24 +827,31 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: TopBar(
-        engineOnline: _engineOnline,
-        cloudOnline: _cloudOnline,
-        executionMode: _executionMode,
-        onExecutionModeChanged: _setExecutionMode,
-        deviceName: _api.activeDeviceName,
-        isDark: widget.isDark,
-        workspaceLabel: _activeProject?.title ?? 'Creative Studio',
-        onThemeToggle: widget.onThemeToggle,
-        sidebarCollapsed: _isSidebarCollapsed,
-        onMenuToggle: () => setState(
-            () => _isSidebarCollapsed = !_isSidebarCollapsed),
-        onBuyCredits: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Checkout is disabled in this build.')),
-          );
-        },
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(64),
+        child: ListenableBuilder(
+          listenable: AuthService.instance,
+          builder: (context, _) => TopBar(
+            credits: AuthService.instance.currentUser?.credits ?? 0,
+            engineOnline: _engineOnline,
+            cloudOnline: _cloudOnline,
+            executionMode: _executionMode,
+            onExecutionModeChanged: _setExecutionMode,
+            deviceName: _api.activeDeviceName,
+            isDark: widget.isDark,
+            workspaceLabel: _activeProject?.title ?? 'Creative Studio',
+            onThemeToggle: widget.onThemeToggle,
+            sidebarCollapsed: _isSidebarCollapsed,
+            onMenuToggle: () => setState(
+                () => _isSidebarCollapsed = !_isSidebarCollapsed),
+            onBuyCredits: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('Checkout is disabled in this build.')),
+              );
+            },
+          ),
+        ),
       ),
       body: _executionMode == StudioExecutionMode.cloud
           ? CloudManagementScreen(isDark: widget.isDark)

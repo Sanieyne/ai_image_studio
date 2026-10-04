@@ -21,7 +21,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
 
   const TopBar({
     super.key,
-    this.appTitle = 'LUMINA AI',
+    this.appTitle = 'COSMIC-GEN AI',
     this.workspaceLabel = 'Creative Studio',
     this.credits = 2450,
     required this.engineOnline,

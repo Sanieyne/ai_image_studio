@@ -52,7 +52,7 @@ class _AiImageStudioAppState extends State<AiImageStudioApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Lumina AI — Creative Studio',
+      title: 'Cosmic-Gen AI — Creative Studio',
       debugShowCheckedModeBanner: false,
       scrollBehavior: const MaterialScrollBehavior().copyWith(
         dragDevices: {
@@ -161,7 +161,7 @@ class _AuthSplash extends StatelessWidget {
             ),
             SizedBox(height: 18),
             Text(
-              'Lumina AI',
+              'Cosmic-Gen AI',
               style: TextStyle(
                 color: LuminaColors.darkText,
                 fontSize: 20,

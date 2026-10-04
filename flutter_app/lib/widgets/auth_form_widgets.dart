@@ -329,7 +329,7 @@ class LuminaAuthScaffold extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Lumina AI',
+                  'Cosmic-Gen AI',
                   style: TextStyle(
                     color: LuminaColors.darkText,
                     fontSize: 24,

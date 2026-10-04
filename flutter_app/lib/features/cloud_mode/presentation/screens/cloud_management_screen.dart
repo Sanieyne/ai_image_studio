@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../services/auth_service.dart';
 import '../../../../theme/app_theme.dart';
 import '../../data/models/cloud_model.dart';
 import '../../data/services/cloud_api_service.dart';
@@ -199,6 +200,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
 
               if (!mounted) return;
               if (result != null) {
+                AuthService.instance.refreshProfile();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     backgroundColor: LuminaColors.primaryEnd,
@@ -260,7 +262,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Lumina Cloud GPU Orchestrator',
+                          'Cosmic-Gen Cloud GPU Orchestrator',
                           style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 2),
