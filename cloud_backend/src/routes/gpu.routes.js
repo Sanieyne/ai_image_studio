@@ -13,6 +13,7 @@ import {
   getInstanceById,
   destroyInstance,
   estimatePricing,
+  getGpuSeries,
 } from '../controllers/gpu.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -27,6 +28,7 @@ const router = Router();
 
 // Public marketplace browsing and pricing discovery (permissive browsing limiter)
 router.get('/offers', publicReadLimiter, getOffers);
+router.get('/series', publicReadLimiter, getGpuSeries);
 router.get('/recommended', publicReadLimiter, getRecommended);
 router.get('/pricing/estimate', publicReadLimiter, validateQuery(estimatePricingSchema), estimatePricing);
 router.get('/offers/:offerId', publicReadLimiter, getOfferById);

@@ -166,6 +166,52 @@ class CloudApiService {
     return null;
   }
 
+  /// Estimate live pricing dynamically for arbitrary storage size (credits only)
+  Future<LivePricingEstimate?> estimateStoragePricing({
+    required String offerId,
+    required int storageGB,
+    double hours = 1.0,
+  }) async {
+    try {
+      final uri = Uri.parse('$baseUrl/gpu/pricing/estimate').replace(
+        queryParameters: {
+          'offerId': offerId,
+          'storageGB': storageGB.toString(),
+          'hours': hours.toString(),
+        },
+      );
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>;
+        return LivePricingEstimate.fromJson(data);
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] estimateStoragePricing error: $e');
+    }
+    return null;
+  }
+
+  /// Retrieve GPU series grouping from backend (RTX 30-Series, RTX 40-Series, Datacenter)
+  Future<Map<String, List<String>>?> fetchGpuSeries() async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/gpu/series')).timeout(const Duration(seconds: 6));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = body['data'] as Map<String, dynamic>;
+        final Map<String, List<String>> result = {};
+        for (final entry in data.entries) {
+          result[entry.key] = List<String>.from((entry.value as List<dynamic>).map((e) => e.toString()));
+        }
+        return result;
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchGpuSeries error: $e');
+    }
+    return null;
+  }
+
   /// Provision and rent a dedicated GPU instance with selected models
   Future<Map<String, dynamic>?> rentGpuInstance({
     required String offerId,

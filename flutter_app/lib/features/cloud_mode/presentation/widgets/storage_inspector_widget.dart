@@ -1,18 +1,25 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../../../theme/app_theme.dart';
 import '../../data/models/cloud_model.dart';
+import '../../data/services/cloud_api_service.dart';
 
 class StorageInspectorWidget extends StatefulWidget {
   final RecommendationResult? result;
   final MarketplaceOffer? selectedOffer;
+  final int initialStorageGB;
+  final ValueChanged<int>? onStorageChanged;
   final bool isDark;
   final Function(String modelId)? onEvictModel;
-  final Function(MarketplaceOffer? offer)? onLaunchInstance;
+  final Function(MarketplaceOffer? offer, int storageGB)? onLaunchInstance;
 
   const StorageInspectorWidget({
     super.key,
     required this.result,
     this.selectedOffer,
+    this.initialStorageGB = 50,
+    this.onStorageChanged,
     required this.isDark,
     this.onEvictModel,
     this.onLaunchInstance,
@@ -24,11 +31,68 @@ class StorageInspectorWidget extends StatefulWidget {
 
 class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
   final ScrollController _scrollController = ScrollController();
+  final _cloudApi = CloudApiService.instance;
+
+  late double _storageSliderValue;
+  LivePricingEstimate? _liveEstimate;
+  bool _isEstimating = false;
+  Timer? _debounceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    final baseGB = widget.initialStorageGB > 0
+        ? widget.initialStorageGB
+        : (widget.result?.recommendedStorage.sizeGB.toInt() ?? 50);
+    _storageSliderValue = baseGB.toDouble().clamp(10.0, 1000.0);
+    if (widget.selectedOffer != null) {
+      _fetchLiveEstimate(_storageSliderValue.round());
+    }
+  }
+
+  @override
+  void didUpdateWidget(StorageInspectorWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selectedOffer?.id != oldWidget.selectedOffer?.id) {
+      _fetchLiveEstimate(_storageSliderValue.round());
+    } else if (widget.initialStorageGB != oldWidget.initialStorageGB && widget.initialStorageGB > 0) {
+      _storageSliderValue = widget.initialStorageGB.toDouble().clamp(10.0, 1000.0);
+    }
+  }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onSliderChanged(double value) {
+    setState(() {
+      _storageSliderValue = value;
+    });
+    widget.onStorageChanged?.call(value.round());
+
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 350), () {
+      _fetchLiveEstimate(value.round());
+    });
+  }
+
+  Future<void> _fetchLiveEstimate(int storageGB) async {
+    final offerId = widget.selectedOffer?.id;
+    if (offerId == null || offerId.isEmpty) return;
+
+    setState(() => _isEstimating = true);
+    final estimate = await _cloudApi.estimateStoragePricing(
+      offerId: offerId,
+      storageGB: storageGB,
+    );
+    if (!mounted) return;
+    setState(() {
+      _liveEstimate = estimate;
+      _isEstimating = false;
+    });
   }
 
   @override
@@ -38,25 +102,27 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
     final req = widget.result?.requirements;
-    final plan = widget.result?.recommendedStorage;
     final offer = widget.selectedOffer;
     final primaryFallbackGpu = widget.result?.compatibleGPUs.firstOrNull;
 
     final displayName = offer?.gpuName ?? primaryFallbackGpu?.name ?? 'RTX 4090';
     final fit = offer?.fit ?? primaryFallbackGpu?.fit ?? 'optimal';
     final price = offer?.pricePerHour ?? primaryFallbackGpu?.pricePerHour ?? 0.58;
-    final totalHourly = offer?.totalHourlyCost ?? price;
     final creditsPerHour = offer?.creditsPerHour ?? primaryFallbackGpu?.creditsPerHour ?? (price * kVastPriceMarkup * kCreditsPerUsd);
-    final totalCreditsPerHour = offer?.totalCreditsPerHour ?? (totalHourly * kVastPriceMarkup * kCreditsPerUsd);
-    final storageCreditsPerHour = offer?.storageCreditsPerHour ?? ((offer?.storageCostPerHour ?? 0.004) * kVastPriceMarkup * kCreditsPerUsd);
+    final currentStorageGB = _storageSliderValue.round();
+    final storageCreditsPerHour = _liveEstimate?.storageCredits ??
+        (offer?.storageCreditsPerHour != null
+            ? (offer!.storageCreditsPerHour * (currentStorageGB / 50.0))
+            : ((offer?.storageCostPerHour ?? 0.004) * kVastPriceMarkup * kCreditsPerUsd * (currentStorageGB / 50.0)));
+    final totalCreditsPerHour = _liveEstimate?.totalCredits ?? (creditsPerHour + storageCreditsPerHour);
     final bandwidthCreditsPerGB = offer?.bandwidthCreditsPerGB ?? ((offer?.bandwidthCostPerGB ?? 0.02) * kVastPriceMarkup * kCreditsPerUsd);
     final maxVram = req?.maxVramGB ?? 12.0;
     final totalVram = offer?.vramGB ?? primaryFallbackGpu?.vramGB ?? 24.0;
     final headroom = offer?.headroomVramGB ?? primaryFallbackGpu?.headroomVramGB ?? 12.0;
 
     final totalGB = req?.totalWithBufferGB ?? 15.97;
-    final planGB = plan?.sizeGB ?? 30.0;
-    final usedRatio = (totalGB / planGB).clamp(0.0, 1.0);
+    final usedRatio = (totalGB / _storageSliderValue).clamp(0.0, 1.0);
+    final freeAfterGB = math.max(0.0, _storageSliderValue - totalGB);
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -212,7 +278,191 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Section 2: Internet Speed & Weights Streaming
+                    // Section 2: Cloud Storage Volume Allocation (Interactive Continuous Slider)
+                    _buildSectionHeader(Icons.cloud_upload_rounded, 'Cloud Storage Volume Allocation', LuminaColors.purple),
+                    const SizedBox(height: 8),
+                    _buildSectionCard(
+                      border: border,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '${_storageSliderValue.round()} GB Volume',
+                                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: LuminaColors.purple.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: LuminaColors.purple.withValues(alpha: 0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_isEstimating) ...[
+                                      const SizedBox(
+                                        width: 10,
+                                        height: 10,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: LuminaColors.purple),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    Text(
+                                      '${storageCreditsPerHour.toStringAsFixed(2)} credits/hr',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: LuminaColors.purple,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              activeTrackColor: LuminaColors.purple,
+                              inactiveTrackColor: widget.isDark ? Colors.white12 : Colors.black12,
+                              thumbColor: LuminaColors.purple,
+                              overlayColor: LuminaColors.purple.withValues(alpha: 0.2),
+                              valueIndicatorColor: LuminaColors.purple,
+                              trackHeight: 4,
+                            ),
+                            child: Slider(
+                              value: _storageSliderValue,
+                              min: 10,
+                              max: 1000,
+                              divisions: 99,
+                              label: '${_storageSliderValue.round()} GB',
+                              onChanged: _onSliderChanged,
+                            ),
+                          ),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [10, 30, 50, 100, 200, 500, 1000].map((gb) {
+                                final isSelected = _storageSliderValue.round() == gb;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(6),
+                                    onTap: () => _onSliderChanged(gb.toDouble()),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: isSelected ? LuminaColors.purple.withValues(alpha: 0.25) : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                          color: isSelected ? LuminaColors.purple : border,
+                                          width: isSelected ? 1.5 : 1.0,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        '$gb GB',
+                                        style: TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                          color: isSelected ? LuminaColors.purple : muted,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'Required: ${totalGB.toStringAsFixed(1)} GB',
+                                style: TextStyle(fontSize: 11, color: muted),
+                              ),
+                              Text(
+                                'Free: ${freeAfterGB.toStringAsFixed(1)} GB',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: freeAfterGB < 2.0 ? Colors.redAccent : Colors.greenAccent.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: LinearProgressIndicator(
+                              value: usedRatio,
+                              minHeight: 8,
+                              backgroundColor: widget.isDark ? Colors.white12 : Colors.black12,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                usedRatio > 0.9 ? Colors.redAccent : (usedRatio > 0.75 ? Colors.amber : LuminaColors.purple),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              _buildFootprintChip('Model Weights: ${(req?.totalModelSizeGB ?? 6.9).toStringAsFixed(1)} GB', LuminaColors.infoBlue),
+                              _buildFootprintChip('Engine & venv: ${(req?.baseOverheadGB ?? 7.0).toStringAsFixed(0)} GB', Colors.amber),
+                              _buildFootprintChip('Output Buffer: ${(req?.bufferGB ?? 2.1).toStringAsFixed(1)} GB', LuminaColors.purple),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Section 3: Cost Summary (Credits only)
+                    _buildSectionCard(
+                      border: border,
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('GPU Hourly Compute:', style: TextStyle(fontSize: 12, color: muted)),
+                              Text('${creditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('Storage Volume Lease (${_storageSliderValue.round()} GB):', style: TextStyle(fontSize: 12, color: muted)),
+                              Text('+${storageCreditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          const Divider(height: 14),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Total Hourly Cost:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                              Flexible(
+                                child: Text(
+                                  '${totalCreditsPerHour.toStringAsFixed(2)} credits/hr',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Section 4: Internet Speed & Weights Streaming
                     _buildSectionHeader(Icons.speed_rounded, 'Internet Speed & Weights Streaming', LuminaColors.amber),
                     const SizedBox(height: 8),
                     _buildSectionCard(
@@ -287,7 +537,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Section 3: Geolocation & Host Infrastructure
+                    // Section 5: Geolocation & Host Infrastructure
                     _buildSectionHeader(Icons.public_rounded, 'Location & Host Infrastructure', LuminaColors.infoBlue),
                     const SizedBox(height: 8),
                     _buildSectionCard(
@@ -342,60 +592,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                     ),
                     const SizedBox(height: 12),
 
-                    // Section 4: Cloud Storage Volume Sizing
-                    _buildSectionHeader(Icons.cloud_upload_rounded, 'Cloud Storage Volume Sizing', LuminaColors.purple),
-                    const SizedBox(height: 8),
-                    _buildSectionCard(
-                      border: border,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                '${totalGB.toStringAsFixed(1)} GB Footprint',
-                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
-                              ),
-                              Flexible(
-                                child: Text(
-                                  '${planGB.toInt()} GB Plan (${plan?.name ?? 'Starter'})',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 11.5, color: LuminaColors.purple, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: LinearProgressIndicator(
-                              value: usedRatio,
-                              minHeight: 8,
-                              backgroundColor: widget.isDark ? Colors.white12 : Colors.black12,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                usedRatio > 0.85 ? Colors.redAccent : LuminaColors.purple,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              _buildFootprintChip('Model Weights: ${(req?.totalModelSizeGB ?? 6.9).toStringAsFixed(1)} GB', LuminaColors.infoBlue),
-                              _buildFootprintChip('Engine & venv: ${(req?.baseOverheadGB ?? 7.0).toStringAsFixed(0)} GB', Colors.amber),
-                              _buildFootprintChip('Output Buffer: ${(req?.bufferGB ?? 2.1).toStringAsFixed(1)} GB', LuminaColors.purple),
-                              _buildFootprintChip('Free Space: ${(plan?.freeAfterGB ?? 14.0).toStringAsFixed(1)} GB', Colors.greenAccent.shade700),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Section 5: Cached Models in Volume
+                    // Section 6: Cached Models in Volume
                     _buildSectionHeader(Icons.folder_copy_rounded, 'Selected AI Models (${widget.result?.selectedModels.length ?? 1})', Colors.grey),
                     const SizedBox(height: 8),
                     _buildSectionCard(
@@ -442,46 +639,6 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                         }).toList(),
                       ),
                     ),
-                    const SizedBox(height: 12),
-
-                    // Section 6: Cost Summary
-                    _buildSectionCard(
-                      border: border,
-                      child: Column(
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('GPU Hourly Compute:', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('${creditsPerHour.toStringAsFixed(1)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text('Storage Volume Lease:', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('+${storageCreditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                            ],
-                          ),
-                          const Divider(height: 14),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text('Total Hourly Cost:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
-                              Flexible(
-                                child: Text(
-                                  '${totalCreditsPerHour.toStringAsFixed(1)} credits/hr',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -494,10 +651,10 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: () => widget.onLaunchInstance?.call(offer),
+              onPressed: () => widget.onLaunchInstance?.call(offer, _storageSliderValue.round()),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: Text(
-                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)',
+                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(2)} credits/hr)',
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(

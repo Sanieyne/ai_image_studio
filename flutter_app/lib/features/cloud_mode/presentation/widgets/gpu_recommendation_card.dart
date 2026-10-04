@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../theme/app_theme.dart';
 import '../../data/models/cloud_model.dart';
+import '../../data/services/cloud_api_service.dart';
 
 class GpuRecommendationCard extends StatefulWidget {
   final RecommendationResult? result;
@@ -9,6 +10,8 @@ class GpuRecommendationCard extends StatefulWidget {
   final ValueChanged<MarketplaceOffer?>? onSelectOffer;
   final bool isDark;
   final Function(MarketplaceOffer? offer) onLaunchInstance;
+  final String? initialTab;
+  final String? initialSearchQuery;
 
   const GpuRecommendationCard({
     super.key,
@@ -18,6 +21,8 @@ class GpuRecommendationCard extends StatefulWidget {
     this.onSelectOffer,
     required this.isDark,
     required this.onLaunchInstance,
+    this.initialTab,
+    this.initialSearchQuery,
   });
 
   @override
@@ -26,12 +31,44 @@ class GpuRecommendationCard extends StatefulWidget {
 
 class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _searchController = TextEditingController();
+  final _cloudApi = CloudApiService.instance;
+
+  String _browsingTab = 'recommended'; // 'recommended' | 'series' | 'search'
   String _selectedRankMode = 'balanced'; // 'balanced' | 'cheapest' | 'fastest' | 'reliable'
   MarketplaceOffer? _selectedOfferOverride;
+
+  Map<String, List<String>> _gpuSeriesMap = {};
+  String _selectedSeries = 'All';
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialTab != null) {
+      _browsingTab = widget.initialTab!;
+    }
+    if (widget.initialSearchQuery != null && widget.initialSearchQuery!.isNotEmpty) {
+      _searchQuery = widget.initialSearchQuery!;
+      _searchController.text = widget.initialSearchQuery!;
+    }
+    _loadSeries();
+  }
+
+  Future<void> _loadSeries() async {
+    final series = await _cloudApi.fetchGpuSeries();
+    if (!mounted) return;
+    if (series != null && series.isNotEmpty) {
+      setState(() {
+        _gpuSeriesMap = series;
+      });
+    }
+  }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -42,27 +79,56 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
     final mr = widget.marketplaceResult;
+
+    // Filter displayed offers based on current tab
+    List<MarketplaceOffer> displayedOffers = mr?.allOffers ?? [];
+    if (_browsingTab == 'series') {
+      if (_selectedSeries != 'All') {
+        final allowedModels = _gpuSeriesMap[_selectedSeries] ?? [];
+        displayedOffers = displayedOffers.where((offer) {
+          if (allowedModels.isNotEmpty) {
+            return allowedModels.any((m) => offer.gpuName.toLowerCase().contains(m.toLowerCase()));
+          }
+          if (_selectedSeries == 'RTX 30-Series') return offer.gpuName.contains('30');
+          if (_selectedSeries == 'RTX 40-Series') return offer.gpuName.contains('40');
+          if (_selectedSeries == 'Datacenter') return offer.gpuName.contains('A100') || offer.gpuName.contains('H100');
+          return true;
+        }).toList();
+      }
+    } else if (_browsingTab == 'search') {
+      final query = _searchQuery.trim().toLowerCase();
+      if (query.isNotEmpty) {
+        displayedOffers = displayedOffers.where((offer) {
+          return offer.gpuName.toLowerCase().contains(query);
+        }).toList();
+      }
+    }
+
     MarketplaceOffer? activeOffer;
 
     if (_selectedOfferOverride != null) {
       activeOffer = _selectedOfferOverride;
     } else if (widget.selectedOffer != null) {
       activeOffer = widget.selectedOffer;
-    } else if (mr != null) {
-      switch (_selectedRankMode) {
-        case 'cheapest':
-          activeOffer = mr.cheapestOffer ?? mr.allOffers.firstOrNull;
-          break;
-        case 'fastest':
-          activeOffer = mr.fastestOffer ?? mr.allOffers.firstOrNull;
-          break;
-        case 'reliable':
-          activeOffer = mr.mostReliableOffer ?? mr.allOffers.firstOrNull;
-          break;
-        case 'balanced':
-        default:
-          activeOffer = mr.balancedOffer ?? mr.allOffers.firstOrNull;
-          break;
+    } else if (displayedOffers.isNotEmpty) {
+      if (_browsingTab == 'recommended' && mr != null) {
+        switch (_selectedRankMode) {
+          case 'cheapest':
+            activeOffer = mr.cheapestOffer ?? displayedOffers.firstOrNull;
+            break;
+          case 'fastest':
+            activeOffer = mr.fastestOffer ?? displayedOffers.firstOrNull;
+            break;
+          case 'reliable':
+            activeOffer = mr.mostReliableOffer ?? displayedOffers.firstOrNull;
+            break;
+          case 'balanced':
+          default:
+            activeOffer = mr.balancedOffer ?? displayedOffers.firstOrNull;
+            break;
+        }
+      } else {
+        activeOffer = displayedOffers.firstOrNull;
       }
     }
 
@@ -113,10 +179,28 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
-          // Marketplace ranking selection pills
-          if (mr != null && mr.allOffers.isNotEmpty) ...[
+          // Three GPU Browsing Tabs: Recommended | By Series | Search
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.25),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: border),
+            ),
+            child: Row(
+              children: [
+                _buildTopNavTab('recommended', Icons.auto_awesome_rounded, 'Recommended'),
+                _buildTopNavTab('series', Icons.layers_rounded, 'By Series'),
+                _buildTopNavTab('search', Icons.search_rounded, 'Search'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Sub-navigation filter bar
+          if (_browsingTab == 'recommended' && mr != null && mr.allOffers.isNotEmpty) ...[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -131,7 +215,13 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+          ] else if (_browsingTab == 'series') ...[
+            _buildSeriesFilterRow(border, muted, mr),
+            const SizedBox(height: 10),
+          ] else if (_browsingTab == 'search') ...[
+            _buildSearchField(border, muted),
+            const SizedBox(height: 10),
           ],
 
           // Scrollable Content Area: Hero Card + Telemetry + Available GPU Offers
@@ -365,7 +455,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                     Row(
                       children: [
                         Text(
-                          'Live Available GPU Instances (${mr?.allOffers.length ?? widget.result?.compatibleGPUs.length ?? 0})',
+                          _browsingTab == 'recommended'
+                              ? 'Live Available GPU Instances (${displayedOffers.length})'
+                              : (_browsingTab == 'series'
+                                  ? 'GPUs in $_selectedSeries (${displayedOffers.length})'
+                                  : 'Search Results (${displayedOffers.length})'),
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                         const Spacer(),
@@ -373,7 +467,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                           InkWell(
                             onTap: () {
                               setState(() => _selectedOfferOverride = null);
-                              final rec = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
+                              final rec = mr?.balancedOffer ?? displayedOffers.firstOrNull;
                               widget.onSelectOffer?.call(rec);
                             },
                             child: const Text(
@@ -390,14 +484,14 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                     const SizedBox(height: 8),
 
                     // Compatible Offers List
-                    if (mr != null && mr.allOffers.isNotEmpty)
+                    if (displayedOffers.isNotEmpty)
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
-                        itemCount: mr.allOffers.length,
+                        itemCount: displayedOffers.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, idx) {
-                          final offer = mr.allOffers[idx];
+                          final offer = displayedOffers[idx];
                           final isSelected = offer.id == activeOffer?.id;
 
                           return InkWell(
@@ -484,6 +578,33 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                             ),
                           );
                         },
+                      )
+                    else if (mr != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+                        alignment: Alignment.center,
+                        child: Column(
+                          children: [
+                            Icon(Icons.search_off_rounded, size: 36, color: muted),
+                            const SizedBox(height: 8),
+                            Text(
+                              _browsingTab == 'search'
+                                  ? 'No GPUs matching "$_searchQuery"'
+                                  : 'No available GPUs in $_selectedSeries',
+                              style: TextStyle(fontSize: 12.5, color: muted, fontWeight: FontWeight.w600),
+                            ),
+                            if (_browsingTab == 'search') ...[
+                              const SizedBox(height: 6),
+                              TextButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                                child: const Text('Clear search filter', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ],
+                        ),
                       )
                     else if (widget.result?.compatibleGPUs.isNotEmpty ?? false)
                       ListView.separated(
@@ -595,6 +716,165 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTopNavTab(String tabKey, IconData icon, String label) {
+    final active = _browsingTab == tabKey;
+    final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () {
+          setState(() {
+            _browsingTab = tabKey;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: BoxDecoration(
+            color: active
+                ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.25 : 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: active
+                ? Border.all(color: LuminaColors.infoBlue.withValues(alpha: 0.6))
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 14,
+                color: active ? LuminaColors.infoBlue : muted,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: active ? FontWeight.bold : FontWeight.w500,
+                  color: active ? LuminaColors.infoBlue : muted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSeriesFilterRow(Color border, Color muted, MarketplaceRecommendedResult? mr) {
+    final seriesKeys = ['All', ...(_gpuSeriesMap.isNotEmpty ? _gpuSeriesMap.keys : ['RTX 30-Series', 'RTX 40-Series', 'Datacenter'])];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: seriesKeys.map((key) {
+          final isSelected = _selectedSeries == key;
+          int count = 0;
+          if (mr != null) {
+            if (key == 'All') {
+              count = mr.allOffers.length;
+            } else {
+              final models = _gpuSeriesMap[key] ?? [];
+              count = mr.allOffers.where((o) {
+                if (models.isNotEmpty) return models.any((m) => o.gpuName.toLowerCase().contains(m.toLowerCase()));
+                if (key == 'RTX 30-Series') return o.gpuName.contains('30');
+                if (key == 'RTX 40-Series') return o.gpuName.contains('40');
+                if (key == 'Datacenter') return o.gpuName.contains('A100') || o.gpuName.contains('H100');
+                return false;
+              }).length;
+            }
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => setState(() => _selectedSeries = key),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.25 : 0.15)
+                      : (widget.isDark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isSelected ? LuminaColors.infoBlue : border,
+                    width: isSelected ? 1.5 : 1.0,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      key,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        color: isSelected ? LuminaColors.infoBlue : muted,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: isSelected ? LuminaColors.infoBlue.withValues(alpha: 0.3) : (widget.isDark ? Colors.white10 : Colors.black12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        '$count',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected ? LuminaColors.infoBlue : muted,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSearchField(Color border, Color muted) {
+    return Container(
+      height: 38,
+      decoration: BoxDecoration(
+        color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: TextField(
+        controller: _searchController,
+        style: const TextStyle(fontSize: 12.5),
+        decoration: InputDecoration(
+          hintText: 'Search GPU models (e.g. 4090, 3090, A100)...',
+          hintStyle: TextStyle(fontSize: 12, color: muted),
+          prefixIcon: const Icon(Icons.search_rounded, size: 16),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear_rounded, size: 14),
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchQuery = '');
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          isDense: true,
+        ),
+        onChanged: (val) {
+          setState(() => _searchQuery = val);
+        },
       ),
     );
   }

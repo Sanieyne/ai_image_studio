@@ -8,8 +8,19 @@ import '../widgets/storage_inspector_widget.dart';
 
 class CloudManagementScreen extends StatefulWidget {
   final bool isDark;
+  final Set<String>? initialSelectedModelIds;
+  final int? initialStorageGB;
+  final String? initialGpuTab;
+  final String? initialSearchQuery;
 
-  const CloudManagementScreen({super.key, required this.isDark});
+  const CloudManagementScreen({
+    super.key,
+    required this.isDark,
+    this.initialSelectedModelIds,
+    this.initialStorageGB,
+    this.initialGpuTab,
+    this.initialSearchQuery,
+  });
 
   @override
   State<CloudManagementScreen> createState() => _CloudManagementScreenState();
@@ -25,10 +36,17 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   RecommendationResult? _recommendation;
   MarketplaceRecommendedResult? _marketplaceResult;
   MarketplaceOffer? _selectedOffer;
+  int _selectedStorageGB = 50;
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialSelectedModelIds != null) {
+      _selectedModelIds = Set<String>.from(widget.initialSelectedModelIds!);
+    }
+    if (widget.initialStorageGB != null) {
+      _selectedStorageGB = widget.initialStorageGB!;
+    }
     _models = _cloudApi.fallbackModels;
     _recommendation = _cloudApi.calculateOfflineFallback(_selectedModelIds.toList());
     _loadCloudData();
@@ -95,7 +113,8 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     }
   }
 
-  void _handleLaunchInstance([MarketplaceOffer? offer]) {
+  void _handleLaunchInstance([MarketplaceOffer? offer, int? storageGB]) {
+    final effectiveStorageGB = storageGB ?? _selectedStorageGB;
     final primaryGpu = _recommendation?.compatibleGPUs.firstOrNull;
     final gpuName = offer?.gpuName ?? primaryGpu?.name ?? 'Cloud GPU';
     final creditsPerHour = offer?.totalCreditsPerHour ?? primaryGpu?.creditsPerHour ?? (0.44 * kVastPriceMarkup * kCreditsPerUsd);
@@ -134,7 +153,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
             const SizedBox(height: 14),
             Text('Hourly Rate: ${creditsPerHour.toStringAsFixed(1)} credits / hr'),
             const SizedBox(height: 4),
-            Text('Recommended Volume: ${_recommendation?.recommendedStorage.name ?? 'Starter 30GB'}'),
+            Text('Allocated Storage: $effectiveStorageGB GB Volume'),
             const SizedBox(height: 14),
             const Text(
               'The Cloud Orchestrator will allocate dedicated GPU instances, stream the model weights into your isolated volume, and connect your studio in seconds.',
@@ -172,11 +191,10 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                 ),
               );
 
-              final storageGB = _recommendation?.recommendedStorage.sizeGB.toInt() ?? 50;
               final result = await _cloudApi.rentGpuInstance(
                 offerId: targetOfferId,
                 selectedModelIds: _selectedModelIds.toList(),
-                storageGB: storageGB,
+                storageGB: effectiveStorageGB,
               );
 
               if (!mounted) return;
@@ -206,6 +224,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   @override
   Widget build(BuildContext context) {
     final border = widget.isDark ? LuminaColors.darkBorder : LuminaColors.lightBorder;
+    final surface = widget.isDark ? LuminaColors.darkSurface : Colors.white;
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
     return LayoutBuilder(
@@ -329,22 +348,28 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                               onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
+                              initialTab: widget.initialGpuTab,
+                              initialSearchQuery: widget.initialSearchQuery,
                             ),
                           ),
                           const SizedBox(width: 12),
-                          // Column 3: Storage & Telemetry Inspector (Flex 4)
+                          // Column 3: Storage & Telemetry Inspector (Flex 4) - Shown when models selected
                           Expanded(
                             flex: 4,
-                            child: StorageInspectorWidget(
-                              result: _recommendation,
-                              selectedOffer: _selectedOffer,
-                              isDark: widget.isDark,
-                              onEvictModel: (modelId) {
-                                final next = Set<String>.from(_selectedModelIds)..remove(modelId);
-                                _onSelectionChanged(next);
-                              },
-                              onLaunchInstance: _handleLaunchInstance,
-                            ),
+                            child: _selectedModelIds.isNotEmpty
+                                ? StorageInspectorWidget(
+                                    result: _recommendation,
+                                    selectedOffer: _selectedOffer,
+                                    initialStorageGB: _selectedStorageGB,
+                                    onStorageChanged: (gb) => setState(() => _selectedStorageGB = gb),
+                                    isDark: widget.isDark,
+                                    onEvictModel: (modelId) {
+                                      final next = Set<String>.from(_selectedModelIds)..remove(modelId);
+                                      _onSelectionChanged(next);
+                                    },
+                                    onLaunchInstance: (offer, gb) => _handleLaunchInstance(offer, gb),
+                                  )
+                                : _buildTelemetryPlaceholder(border: border, surface: surface, muted: muted),
                           ),
                         ],
                       )
@@ -355,8 +380,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                             Container(
                               margin: const EdgeInsets.only(bottom: 10),
                               decoration: BoxDecoration(
-                                color: (widget.isDark ? LuminaColors.darkSurface : Colors.white)
-                                    .withValues(alpha: widget.isDark ? 0.72 : 0.85),
+                                color: surface.withValues(alpha: widget.isDark ? 0.72 : 0.85),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(color: border),
                               ),
@@ -388,17 +412,23 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                     onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                                     isDark: widget.isDark,
                                     onLaunchInstance: _handleLaunchInstance,
+                                    initialTab: widget.initialGpuTab,
+                                    initialSearchQuery: widget.initialSearchQuery,
                                   ),
-                                  StorageInspectorWidget(
-                                    result: _recommendation,
-                                    selectedOffer: _selectedOffer,
-                                    isDark: widget.isDark,
-                                    onEvictModel: (modelId) {
-                                      final next = Set<String>.from(_selectedModelIds)..remove(modelId);
-                                      _onSelectionChanged(next);
-                                    },
-                                    onLaunchInstance: _handleLaunchInstance,
-                                  ),
+                                  _selectedModelIds.isNotEmpty
+                                      ? StorageInspectorWidget(
+                                          result: _recommendation,
+                                          selectedOffer: _selectedOffer,
+                                          initialStorageGB: _selectedStorageGB,
+                                          onStorageChanged: (gb) => setState(() => _selectedStorageGB = gb),
+                                          isDark: widget.isDark,
+                                          onEvictModel: (modelId) {
+                                            final next = Set<String>.from(_selectedModelIds)..remove(modelId);
+                                            _onSelectionChanged(next);
+                                          },
+                                          onLaunchInstance: (offer, gb) => _handleLaunchInstance(offer, gb),
+                                        )
+                                      : _buildTelemetryPlaceholder(border: border, surface: surface, muted: muted),
                                 ],
                               ),
                             ),
@@ -410,6 +440,75 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildTelemetryPlaceholder({
+    required Color border,
+    required Color surface,
+    required Color muted,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: surface.withValues(alpha: widget.isDark ? 0.72 : 0.85),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: LuminaColors.infoBlue.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.analytics_outlined,
+                size: 44,
+                color: LuminaColors.infoBlue,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No Models Selected',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Select a model to see compatibility and streaming estimates',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: muted,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: widget.isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: border),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.touch_app_rounded, size: 14, color: muted),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Choose models from the left catalog',
+                    style: TextStyle(fontSize: 11.5, color: muted),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

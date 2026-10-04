@@ -441,4 +441,47 @@ class PricingPolicyConfig {
   }
 }
 
+/// Dynamic live pricing estimate returned by GET /gpu/pricing/estimate
+class LivePricingEstimate {
+  final String offerId;
+  final String gpuName;
+  final int hours;
+  final int storageGB;
+  final int bandwidthGB;
+  final double computeCredits;
+  final double storageCredits;
+  final double bandwidthCredits;
+  final double totalCredits;
+  final double creditsPerHour;
+
+  const LivePricingEstimate({
+    required this.offerId,
+    required this.gpuName,
+    required this.hours,
+    required this.storageGB,
+    required this.bandwidthGB,
+    required this.computeCredits,
+    required this.storageCredits,
+    required this.bandwidthCredits,
+    required this.totalCredits,
+    required this.creditsPerHour,
+  });
+
+  factory LivePricingEstimate.fromJson(Map<String, dynamic> json) {
+    final breakdown = (json['breakdown'] as Map<String, dynamic>?) ?? {};
+    return LivePricingEstimate(
+      offerId: json['offerId']?.toString() ?? '',
+      gpuName: json['gpuName']?.toString() ?? '',
+      hours: (json['hours'] as num?)?.toInt() ?? 1,
+      storageGB: (json['storageGB'] as num?)?.toInt() ?? 100,
+      bandwidthGB: (json['bandwidthGB'] as num?)?.toInt() ?? 10,
+      computeCredits: (breakdown['computeCredits'] as num?)?.toDouble() ?? 0.0,
+      storageCredits: (breakdown['storageCredits'] as num?)?.toDouble() ?? 0.0,
+      bandwidthCredits: (breakdown['bandwidthCredits'] as num?)?.toDouble() ?? 0.0,
+      totalCredits: (json['totalCredits'] as num?)?.toDouble() ?? 0.0,
+      creditsPerHour: (json['creditsPerHour'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
 

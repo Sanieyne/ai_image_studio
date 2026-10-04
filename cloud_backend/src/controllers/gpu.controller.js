@@ -9,7 +9,7 @@ import { vastaiService } from '../services/vastai.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { ApiError } from '../utils/ApiError.js';
-import { STORAGE_MIN_GB, STORAGE_MAX_GB } from '../config/constants.js';
+import { STORAGE_MIN_GB, STORAGE_MAX_GB, VASTAI_GPU_NAME_MAP } from '../config/constants.js';
 import { sanitizeOfferForClient, sanitizeInstanceForClient } from '../utils/sanitize.js';
 
 /**
@@ -210,5 +210,39 @@ export const estimatePricing = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     data: estimate,
+  });
+});
+
+/**
+ * GET /api/v1/gpu/series
+ * Expose series groupings derived from VASTAI_GPU_NAME_MAP for client categorization.
+ */
+export const getGpuSeries = asyncHandler(async (req, res) => {
+  const seriesGroups = {
+    'RTX 30-Series': [],
+    'RTX 40-Series': [],
+    'Datacenter': [],
+  };
+
+  for (const [canonical, aliases] of Object.entries(VASTAI_GPU_NAME_MAP)) {
+    if (canonical.includes('A100') || canonical.includes('H100')) {
+      seriesGroups['Datacenter'].push(...aliases);
+    } else if (canonical.includes('30')) {
+      seriesGroups['RTX 30-Series'].push(...aliases);
+    } else if (canonical.includes('40')) {
+      seriesGroups['RTX 40-Series'].push(...aliases);
+    } else {
+      seriesGroups['Datacenter'].push(...aliases);
+    }
+  }
+
+  // Deduplicate
+  for (const key of Object.keys(seriesGroups)) {
+    seriesGroups[key] = Array.from(new Set(seriesGroups[key]));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: seriesGroups,
   });
 });
