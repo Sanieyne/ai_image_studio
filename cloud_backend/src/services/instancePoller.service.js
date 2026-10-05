@@ -110,13 +110,19 @@ export class InstancePollerService {
     const startedAt = instance.startedAt || instance.createdAt || new Date();
     const elapsedMs = Date.now() - new Date(startedAt).getTime();
 
+    // Scale timeout dynamically: 20 min base, 40 min for large models (e.g. Qwen-Image 33GB, Flux, Minimax)
+    const hasLargeModels = (instance.modelsRequested || []).some((m) =>
+      ['qwen-image-2.1', 'flux-1-schnell', 'flux-1-dev', 'minimax-h3', 'sd3-medium'].includes(m)
+    );
+    const dynamicTimeoutMs = hasLargeModels ? 40 * 60 * 1000 : 25 * 60 * 1000;
+
     // 1. Timeout Check: If exceeded timeout ceiling, mark FAILED and auto-terminate
-    if (elapsedMs > this.timeoutMs) {
+    if (elapsedMs > dynamicTimeoutMs) {
       console.warn(`[InstancePoller] Instance ${instance._id} (${instance.providerInstanceId}) timed out after ${Math.round(elapsedMs / 1000)}s.`);
       instance.status = GPU_STATUS.FAILED;
       instance.stoppedAt = new Date();
       instance.provisioningLogs.push({
-        message: `[TIMEOUT] Provisioning exceeded timeout ceiling (${Math.round(this.timeoutMs / 60000)} min) without reaching ready status.`,
+        message: `[TIMEOUT] Provisioning exceeded timeout ceiling (${Math.round(dynamicTimeoutMs / 60000)} min) without reaching ready status.`,
         level: LOG_LEVELS.ERROR,
       });
 
