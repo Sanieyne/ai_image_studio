@@ -7,6 +7,7 @@
 import { authenticateWebSocket } from './recommendation.ws.js';
 import { gpuProviderService } from '../services/gpuProvider.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
+import { MIN_INET_DOWN_FLOOR_MBPS } from '../config/constants.js';
 
 /**
  * Wire up WebSocket client lifecycle and message dispatching for GPU marketplace.
@@ -44,7 +45,7 @@ export async function handleGpuMarketWS(ws, req, user) {
         selectedModelIds: payload?.selectedModelIds || [],
         minVramGB: payload?.minVramGB ? Number(payload.minVramGB) : 0,
         maxPricePerHour: payload?.maxPrice ? Number(payload.maxPrice) : undefined,
-        minInetDown: payload?.minInetDown ? Number(payload.minInetDown) : 50,
+        minInetDown: payload?.minInetDown ? Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(payload.minInetDown)) : MIN_INET_DOWN_FLOOR_MBPS,
         gpuName: payload?.gpuName,
         limit: payload?.limit || 20,
       });

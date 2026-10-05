@@ -9,7 +9,12 @@ import { vastaiService } from '../services/vastai.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { ApiError } from '../utils/ApiError.js';
-import { STORAGE_MIN_GB, STORAGE_MAX_GB, VASTAI_GPU_NAME_MAP } from '../config/constants.js';
+import {
+  STORAGE_MIN_GB,
+  STORAGE_MAX_GB,
+  VASTAI_GPU_NAME_MAP,
+  MIN_INET_DOWN_FLOOR_MBPS,
+} from '../config/constants.js';
 import { sanitizeOfferForClient, sanitizeInstanceForClient } from '../utils/sanitize.js';
 
 /**
@@ -36,7 +41,7 @@ export const getOffers = asyncHandler(async (req, res) => {
     selectedModelIds: modelIdsList,
     minVramGB: minVramGB ? Number(minVramGB) : 0,
     maxPricePerHour: maxPrice ? Number(maxPrice) : undefined,
-    minInetDown: minInetDown ? Number(minInetDown) : 50,
+    minInetDown: minInetDown ? Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown)) : MIN_INET_DOWN_FLOOR_MBPS,
     gpuName: gpuName || undefined,
     verifiedOnly: verified === 'false' ? false : true,
     limit: limit ? Math.min(100, Math.max(1, parseInt(limit, 10))) : 30,

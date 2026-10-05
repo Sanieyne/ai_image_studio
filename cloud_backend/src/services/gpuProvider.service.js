@@ -15,6 +15,7 @@ import {
   BANDWIDTH_COST_PER_GB,
   STORAGE_MIN_GB,
   STORAGE_MAX_GB,
+  MIN_INET_DOWN_FLOOR_MBPS,
 } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
 import { env } from '../config/env.js';
@@ -30,12 +31,15 @@ class GpuProviderService {
       selectedModelIds = [],
       minVramGB = 0,
       maxPricePerHour,
-      minInetDown = 50,
+      minInetDown = MIN_INET_DOWN_FLOOR_MBPS,
       gpuName,
       verifiedOnly = true,
       limit = 30,
       orderBy = 'price',
     } = options;
+
+    // Hard floor enforcement: client cannot request a speed floor below 400 Mbps
+    const effectiveMinInetDown = Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown) || 0);
 
     let requirements = null;
     let requiredVram = minVramGB;
@@ -50,19 +54,19 @@ class GpuProviderService {
       totalModelSizeGB = requirements.requirements.totalModelSizeGB;
     }
 
-    // 2. Fetch live marketplace offers from Vast.ai
+    // 2. Fetch live marketplace offers from Vast.ai with hard 400 Mbps floor
     const rawOffers = await vastaiService.searchOffers({
       minVramGB: requiredVram,
       minDiskGB: requiredDisk,
-      minInetDown,
+      minInetDown: effectiveMinInetDown,
       gpuName,
       verifiedOnly,
       limit: limit * 2, // Fetch slightly more for client-side filtering
       totalModelSizeGB,
     });
 
-    // 3. Filter by maxPricePerHour if set
-    let filteredOffers = rawOffers;
+    // 3. Defense-in-depth: strictly exclude any offer below 400 Mbps and filter by maxPricePerHour
+    let filteredOffers = rawOffers.filter((o) => (o.inetDown ?? 0) >= MIN_INET_DOWN_FLOOR_MBPS);
     if (maxPricePerHour != null && !isNaN(maxPricePerHour)) {
       filteredOffers = filteredOffers.filter((o) => o.pricePerHour <= Number(maxPricePerHour));
     }
@@ -118,7 +122,7 @@ class GpuProviderService {
         minVramGB: requiredVram,
         minDiskGB: requiredDisk,
         maxPricePerHour,
-        minInetDown,
+        minInetDown: effectiveMinInetDown,
       },
     };
   }
@@ -345,6 +349,14 @@ class GpuProviderService {
 
     // 1. Fetch offer details
     const offer = await vastaiService.getOffer(offerId);
+
+    // Defense-in-depth: independently re-verify the host meets the 400 Mbps download speed floor
+    const hostInetDown = offer.inetDown ?? offer.rawOffer?.inet_down ?? 0;
+    if (hostInetDown < MIN_INET_DOWN_FLOOR_MBPS) {
+      throw ApiError.badRequest(
+        `Host download speed (${hostInetDown} Mbps) does not meet the minimum required threshold of ${MIN_INET_DOWN_FLOOR_MBPS} Mbps for reliable model streaming. Please select another offer.`
+      );
+    }
 
     // 2. Compute live continuous storage pricing and initial funding required in CREDITS using the offer's real rate
     const storagePricing = pricingService.calculateStoragePricing(numericStorage, offer);

@@ -145,3 +145,7 @@ export const VASTAI_GPU_NAME_MAP = Object.freeze({
   'H100': ['H100', 'H100 80GB HBM3', 'H100-PCIE-80GB'],
 });
 
+// Enforce a strict minimum 400 Mbps download speed floor for host reliability and rapid R2 weight streaming
+export const MIN_INET_DOWN_FLOOR_MBPS = 400;
+
+

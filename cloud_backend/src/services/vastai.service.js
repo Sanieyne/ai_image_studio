@@ -8,6 +8,7 @@ import { env } from '../config/env.js';
 import {
   BANDWIDTH_COST_PER_GB,
   VASTAI_OFFERS_CACHE_TTL_MS,
+  MIN_INET_DOWN_FLOOR_MBPS,
 } from '../config/constants.js';
 import { pricingService } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -119,7 +120,7 @@ class VastaiService {
       minVramGB = 12,
       minRamGB = 16,
       minDiskGB = 30,
-      minInetDown = 50,
+      minInetDown = MIN_INET_DOWN_FLOOR_MBPS,
       minInetUp,
       minReliability = 0.9,
       gpuName,
@@ -129,11 +130,14 @@ class VastaiService {
       totalModelSizeGB = 15,
     } = filters;
 
+    // Hard floor enforcement: client cannot request a speed floor below 400 Mbps
+    const effectiveMinInetDown = Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown) || 0);
+
     const cacheKey = JSON.stringify({
       minVramGB,
       minRamGB,
       minDiskGB,
-      minInetDown,
+      minInetDown: effectiveMinInetDown,
       minReliability,
       gpuName,
       verifiedOnly,
@@ -160,7 +164,7 @@ class VastaiService {
     if (minVramGB && minVramGB > 0) body.gpu_ram = { gte: minVramGB * 1000 };
     if (minRamGB && minRamGB > 0) body.cpu_ram = { gte: minRamGB * 1000 };
     if (minDiskGB && minDiskGB > 0) body.disk_space = { gte: minDiskGB };
-    if (minInetDown && minInetDown > 0) body.inet_down = { gte: minInetDown };
+    body.inet_down = { gte: effectiveMinInetDown };
     if (minInetUp && minInetUp > 0) body.inet_up = { gte: minInetUp };
     if (minReliability && minReliability > 0) body.reliability2 = { gte: minReliability };
     if (gpuName) body.gpu_name = { eq: gpuName };
@@ -170,7 +174,10 @@ class VastaiService {
         this.client.post('/bundles/', body)
       );
 
-      const rawOffers = response.data?.offers || [];
+      let rawOffers = response.data?.offers || [];
+      // Defense in depth: strictly exclude any offer below 400 Mbps
+      rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+
       if (rawOffers.length > 0) {
         const normalized = rawOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
         this._cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
@@ -183,7 +190,9 @@ class VastaiService {
         const retryRes = await this._requestWithRetry(() =>
           this.client.post('/bundles/', body)
         );
-        const retryOffers = retryRes.data?.offers || [];
+        let retryOffers = retryRes.data?.offers || [];
+        retryOffers = retryOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+
         if (retryOffers.length > 0) {
           const normalized = retryOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
           this._cache.set(cacheKey, { timestamp: Date.now(), data: normalized });
@@ -215,17 +224,21 @@ class VastaiService {
       }
     }
 
-    // 2. Query Vast.ai bundles specifically by offer id
+    // 2. Query Vast.ai bundles specifically by ask_contract_id or id
     try {
       const numericId = Number(offerId);
-      const queryBody = !isNaN(numericId)
-        ? { id: { eq: numericId } }
-        : { ask_contract_id: { eq: offerId } };
+      const queryId = !isNaN(numericId) ? numericId : offerId;
 
-      const response = await this._requestWithRetry(() =>
-        this.client.post('/bundles/', queryBody)
+      let response = await this._requestWithRetry(() =>
+        this.client.post('/bundles/', { ask_contract_id: { eq: queryId } })
       );
-      const raw = response.data?.offers?.[0];
+      let raw = response.data?.offers?.[0];
+      if (!raw) {
+        response = await this._requestWithRetry(() =>
+          this.client.post('/bundles/', { id: { eq: queryId } })
+        );
+        raw = response.data?.offers?.[0];
+      }
       if (raw) {
         return this.normalizeOffer(raw);
       }
