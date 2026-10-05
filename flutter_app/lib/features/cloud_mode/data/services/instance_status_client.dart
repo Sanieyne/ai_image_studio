@@ -4,8 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../../services/api_client.dart';
 import '../../../../services/auth_service.dart';
+import 'cloud_api_service.dart';
 
 /// Client for real-time GPU instance provisioning status streaming over WebSocket.
 /// Route: /ws/instance-status?token=ACCESS_TOKEN&instanceId=INSTANCE_ID
@@ -25,9 +25,12 @@ class InstanceStatusClient {
   String? _currentInstanceId;
   bool _isRefreshing = false;
 
+  /// Current active instance ID
+  String? get currentInstanceId => _currentInstanceId;
+
   /// Translates HTTP base URL to WebSocket base URL
   Uri get wsBaseUri {
-    final httpUri = Uri.parse(kCloudApiBaseUrl);
+    final httpUri = Uri.parse(CloudApiService.instance.baseUrl);
     final wsScheme = httpUri.scheme == 'https' ? 'wss' : 'ws';
     final portPart = httpUri.hasPort ? ':${httpUri.port}' : '';
     // Strip trailing /api/v1 if present to target /ws/instance-status
