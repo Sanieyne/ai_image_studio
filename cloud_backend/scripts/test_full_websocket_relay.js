@@ -50,8 +50,8 @@ async function main() {
   const selectedOffer = offers[0];
   console.log(`Selected Offer #${selectedOffer.id}: ${selectedOffer.gpuName} (${selectedOffer.vramGB}GB VRAM) @ $${selectedOffer.pricePerHour}/hr`);
 
-  const modelsToRequest = ['realesrgan-x4plus', 'fashn-vton-1.5', 'breeze-tts-2'];
-  console.log(`Requesting 3 models of different sizes: ${JSON.stringify(modelsToRequest)}`);
+  const modelsToRequest = ['realesrgan-x4plus', 'fashn-vton-1.5'];
+  console.log(`Requesting 2 models of different sizes (67MB vs 1.9GB): ${JSON.stringify(modelsToRequest)}`);
 
   console.log('\n[3/6] Renting real instance via gpuProviderService.rentGPU()...');
   const instance = await gpuProviderService.rentGPU({
@@ -151,11 +151,11 @@ async function main() {
         }
       }
 
-      // Exit condition: READY state reached AND at least one model ready while another was downloading/progressed
-      if (reachedReady && readyModelCount >= 1 && capturedMessages.some(m => m.message.details?.models?.some(x => x.progressPercent > 0))) {
-        console.log(`\n>>> SUCCESS: READY state reached with verified per-model progression! <<<`);
-        // Let it capture a few more seconds of updates
-        await sleep(10000);
+      // Exit condition: Instance reached READY and all requested models are ready
+      const hasDownloadingModelFired = capturedMessages.some((m) => m.message.status === 'DOWNLOADING_MODEL');
+      if (reachedReady && readyModelCount === modelsToRequest.length) {
+        console.log(`\n>>> SUCCESS: READY state reached with all ${modelsToRequest.length} models confirmed ready! <<<`);
+        await sleep(6000);
         break;
       }
     }

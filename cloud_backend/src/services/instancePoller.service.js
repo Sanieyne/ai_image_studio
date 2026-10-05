@@ -42,7 +42,7 @@ export function toWebSocketStatus(dbStatus) {
 
 export class InstancePollerService {
   constructor(options = {}) {
-    this.intervalMs = options.intervalMs || 6000; // 6 seconds (within 5-10s requirement)
+    this.intervalMs = options.intervalMs || 4000; // 4 seconds for responsive real-time streaming
     this.timeoutMs = options.timeoutMs || 10 * 60 * 1000; // 10 minutes
     this.healthTimeoutMs = options.healthTimeoutMs || 4000;
     this._timer = null;
@@ -192,9 +192,16 @@ export class InstancePollerService {
         });
 
         const data = res.data;
-        const isModelLoaded = Boolean(data?.model_loaded);
         const models = Array.isArray(data?.models) ? data.models : [];
         const instIdStr = String(instance._id);
+
+        // Instance reaches READY only when ALL requested models are ready.
+        // If models list is available, require every entry to have status === 'ready'.
+        // If no models list is provided, fall back to data.model_loaded.
+        const allModelsReady =
+          models.length > 0
+            ? models.every((m) => m.status === 'ready')
+            : Boolean(data?.model_loaded);
 
         // Build models signature to detect progress or status transitions
         const modelsSig = JSON.stringify(
@@ -203,17 +210,17 @@ export class InstancePollerService {
         const prevSig = this._lastModelsSignature.get(instIdStr);
         const hasModelsChanged = models.length > 0 && modelsSig !== prevSig;
 
-        if (isModelLoaded) {
-          // Model is loaded -> Transition to READY
+        if (allModelsReady) {
+          // ALL models have reached ready state -> Transition to READY
           if (instance.status !== GPU_STATUS.READY) {
             const prev = instance.status;
             instance.status = GPU_STATUS.READY;
             instance.provisioningLogs.push({
-              message: `Python engine confirmed READY. Model: ${data.current_model || 'ready'} on ${data.device || 'gpu'} (${data.device_name || 'cuda'})`,
+              message: `Python engine confirmed READY. All ${models.length} model(s) ready. Active: ${data.current_model || 'ready'} on ${data.device || 'gpu'} (${data.device_name || 'cuda'})`,
               level: LOG_LEVELS.INFO,
             });
             await instance.save();
-            console.info(`[InstancePoller] Instance ${instance._id} reached READY state (from ${prev}).`);
+            console.info(`[InstancePoller] Instance ${instance._id} reached READY state (from ${prev}). All models ready.`);
             this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.READY, {
               device: data.device,
@@ -222,7 +229,7 @@ export class InstancePollerService {
               models,
             });
           } else if (hasModelsChanged) {
-            // Already READY, but secondary models are progressing or reached ready
+            // Already READY, push any subtle telemetry or model changes
             this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.READY, {
               device: data.device,
@@ -232,27 +239,30 @@ export class InstancePollerService {
             });
           }
         } else {
-          // 200 OK but model_loaded: false -> DOWNLOADING_MODEL
-          if (instance.status === GPU_STATUS.PROVISIONING) {
+          // At least one model is still queued, downloading, or loading -> DOWNLOADING_MODEL
+          if (instance.status !== GPU_STATUS.DOWNLOADING_MODEL) {
+            const prev = instance.status;
             instance.status = GPU_STATUS.DOWNLOADING_MODEL;
             instance.provisioningLogs.push({
               message: `Python engine online. Model weights are downloading/loading into VRAM...`,
               level: LOG_LEVELS.INFO,
             });
             await instance.save();
-            console.info(`[InstancePoller] Instance ${instance._id} reached DOWNLOADING_MODEL state.`);
+            console.info(`[InstancePoller] Instance ${instance._id} entered DOWNLOADING_MODEL state (from ${prev}).`);
             this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.DOWNLOADING_MODEL, {
               device: data?.device,
               deviceName: data?.device_name,
+              currentModel: data?.current_model,
               models,
             });
           } else if (hasModelsChanged) {
-            // Already in DOWNLOADING_MODEL, relay progress increments
+            // Already in DOWNLOADING_MODEL, relay progress increments as models download/load
             this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.DOWNLOADING_MODEL, {
               device: data?.device,
               deviceName: data?.device_name,
+              currentModel: data?.current_model,
               models,
             });
           }
