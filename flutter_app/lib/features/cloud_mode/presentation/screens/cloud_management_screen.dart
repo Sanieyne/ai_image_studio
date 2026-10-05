@@ -7,6 +7,7 @@ import '../../data/services/cloud_api_service.dart';
 import '../widgets/gpu_recommendation_card.dart';
 import '../widgets/model_selector_widget.dart';
 import '../widgets/storage_inspector_widget.dart';
+import 'instance_provisioning_screen.dart';
 
 class CloudManagementScreen extends StatefulWidget {
   final bool isDark;
@@ -14,6 +15,7 @@ class CloudManagementScreen extends StatefulWidget {
   final int? initialStorageGB;
   final String? initialGpuTab;
   final String? initialSearchQuery;
+  final VoidCallback? onReturnToStudio;
 
   const CloudManagementScreen({
     super.key,
@@ -22,6 +24,7 @@ class CloudManagementScreen extends StatefulWidget {
     this.initialStorageGB,
     this.initialGpuTab,
     this.initialSearchQuery,
+    this.onReturnToStudio,
   });
 
   @override
@@ -205,8 +208,23 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                 AppToast.showSuccess(
                   context,
                   title: 'Instance Provisioned',
-                  message: '🚀 Instance provisioned successfully! Bootstrapping engine with ${_selectedModelIds.length} models...',
+                  message: '🚀 Instance provisioned successfully! Connecting to stream...',
                 );
+
+                final instanceId = (result['_id'] ?? result['id'] ?? '').toString();
+                if (instanceId.isNotEmpty) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (ctx) => InstanceProvisioningScreen(
+                        instanceId: instanceId,
+                        gpuName: gpuName,
+                        selectedModelIds: _selectedModelIds.toList(),
+                        isDark: widget.isDark,
+                        onReturnToStudio: widget.onReturnToStudio,
+                      ),
+                    ),
+                  );
+                }
               } else {
                 final errorMsg = _cloudApi.lastRentError ??
                     'Failed to rent instance. Check your balance or authentication.';

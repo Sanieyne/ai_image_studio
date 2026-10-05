@@ -854,7 +854,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       body: _executionMode == StudioExecutionMode.cloud
-          ? CloudManagementScreen(isDark: widget.isDark)
+          ? CloudManagementScreen(
+              isDark: widget.isDark,
+              onReturnToStudio: () => _setExecutionMode(StudioExecutionMode.local),
+            )
           : Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
