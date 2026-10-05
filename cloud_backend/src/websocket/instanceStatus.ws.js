@@ -7,7 +7,7 @@
 
 import { URL } from 'url';
 import { GpuInstance } from '../models/GpuInstance.js';
-import { instanceEvents, toWebSocketStatus } from '../services/instancePoller.service.js';
+import { instanceEvents, toWebSocketStatus, instancePollerService } from '../services/instancePoller.service.js';
 
 // Map of instanceId -> Set<WebSocket>
 const instanceSubscriptions = new Map();
@@ -93,6 +93,7 @@ export async function handleInstanceStatusWS(ws, req, user) {
 
       // Requirement: Immediately push current status once upon subscription
       const currentStatus = toWebSocketStatus(instance.status);
+      const lastDetails = instancePollerService.getLastKnownDetails(String(instance._id));
       ws.send(
         JSON.stringify({
           type: 'STATUS_UPDATE',
@@ -105,6 +106,7 @@ export async function handleInstanceStatusWS(ws, req, user) {
             pythonEngineUrl: instance.pythonEngineUrl,
             modelsRequested: instance.modelsRequested,
             startedAt: instance.startedAt,
+            ...lastDetails,
           },
         })
       );

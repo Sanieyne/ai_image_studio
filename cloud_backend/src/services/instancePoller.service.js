@@ -47,6 +47,8 @@ export class InstancePollerService {
     this.healthTimeoutMs = options.healthTimeoutMs || 4000;
     this._timer = null;
     this._isPolling = false;
+    this._lastModelsSignature = new Map();
+    this._lastKnownDetails = new Map();
   }
 
   /**
@@ -191,6 +193,15 @@ export class InstancePollerService {
 
         const data = res.data;
         const isModelLoaded = Boolean(data?.model_loaded);
+        const models = Array.isArray(data?.models) ? data.models : [];
+        const instIdStr = String(instance._id);
+
+        // Build models signature to detect progress or status transitions
+        const modelsSig = JSON.stringify(
+          models.map((m) => [m.modelId, m.status, Math.floor(m.progressPercent || 0), m.loadedInVram])
+        );
+        const prevSig = this._lastModelsSignature.get(instIdStr);
+        const hasModelsChanged = models.length > 0 && modelsSig !== prevSig;
 
         if (isModelLoaded) {
           // Model is loaded -> Transition to READY
@@ -203,15 +214,25 @@ export class InstancePollerService {
             });
             await instance.save();
             console.info(`[InstancePoller] Instance ${instance._id} reached READY state (from ${prev}).`);
+            this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.READY, {
               device: data.device,
               deviceName: data.device_name,
               currentModel: data.current_model,
-              models: data?.models || [],
+              models,
+            });
+          } else if (hasModelsChanged) {
+            // Already READY, but secondary models are progressing or reached ready
+            this._lastModelsSignature.set(instIdStr, modelsSig);
+            this.emitStatusChange(instance, GPU_STATUS.READY, {
+              device: data.device,
+              deviceName: data.device_name,
+              currentModel: data.current_model,
+              models,
             });
           }
         } else {
-          // 200 OK but model_loaded: false -> Transition to DOWNLOADING_MODEL
+          // 200 OK but model_loaded: false -> DOWNLOADING_MODEL
           if (instance.status === GPU_STATUS.PROVISIONING) {
             instance.status = GPU_STATUS.DOWNLOADING_MODEL;
             instance.provisioningLogs.push({
@@ -220,13 +241,21 @@ export class InstancePollerService {
             });
             await instance.save();
             console.info(`[InstancePoller] Instance ${instance._id} reached DOWNLOADING_MODEL state.`);
+            this._lastModelsSignature.set(instIdStr, modelsSig);
             this.emitStatusChange(instance, GPU_STATUS.DOWNLOADING_MODEL, {
               device: data?.device,
               deviceName: data?.device_name,
-              models: data?.models || [],
+              models,
+            });
+          } else if (hasModelsChanged) {
+            // Already in DOWNLOADING_MODEL, relay progress increments
+            this._lastModelsSignature.set(instIdStr, modelsSig);
+            this.emitStatusChange(instance, GPU_STATUS.DOWNLOADING_MODEL, {
+              device: data?.device,
+              deviceName: data?.device_name,
+              models,
             });
           }
-          // If already DOWNLOADING_MODEL, stay in DOWNLOADING_MODEL without emitting no-op updates
         }
       } catch (healthErr) {
         // Connection refused / timeout / container still booting -> stay in current status (PROVISIONING)
@@ -245,20 +274,27 @@ export class InstancePollerService {
    */
   emitStatusChange(instance, dbStatus, extraDetails = {}) {
     const status = toWebSocketStatus(dbStatus);
+    const details = {
+      gpuType: instance.gpuType,
+      publicIp: instance.publicIp,
+      pythonEngineUrl: instance.pythonEngineUrl,
+      modelsRequested: instance.modelsRequested,
+      ...extraDetails,
+    };
+    this._lastKnownDetails.set(String(instance._id), details);
+
     const payload = {
       instanceId: String(instance._id),
       status,
       timestamp: new Date().toISOString(),
-      details: {
-        gpuType: instance.gpuType,
-        publicIp: instance.publicIp,
-        pythonEngineUrl: instance.pythonEngineUrl,
-        modelsRequested: instance.modelsRequested,
-        ...extraDetails,
-      },
+      details,
     };
 
     instanceEvents.emit('status_change', payload);
+  }
+
+  getLastKnownDetails(instanceId) {
+    return this._lastKnownDetails.get(String(instanceId)) || {};
   }
 }
 
