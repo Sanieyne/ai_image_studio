@@ -260,7 +260,13 @@ def list_r2_model_files(s3, bucket: str, model_id: str) -> List[Dict]:
     return files
 
 
-def download_single_model(s3, bucket: str, model_id: str, models_root: Path) -> bool:
+def download_single_model(
+    s3,
+    bucket: str,
+    model_id: str,
+    models_root: Path,
+    progress_callback: Optional[callable] = None,
+) -> bool:
     canonical = resolve_canonical_id(model_id)
     log(f"--- Processing model: '{canonical}' (raw: '{model_id}') ---")
 
@@ -277,6 +283,7 @@ def download_single_model(s3, bucket: str, model_id: str, models_root: Path) -> 
 
     downloaded = 0
     skipped = 0
+    bytes_so_far = 0
     t0 = time.time()
 
     from boto3.s3.transfer import TransferConfig
@@ -295,14 +302,25 @@ def download_single_model(s3, bucket: str, model_id: str, models_root: Path) -> 
 
         if local_path.exists() and local_path.stat().st_size == expected_size:
             skipped += 1
+            bytes_so_far += expected_size
+            if progress_callback:
+                progress_callback(bytes_so_far, total_bytes)
             continue
 
         log(f"  -> downloading {rel} ({expected_size / 1e6:.1f} MB)...")
+
+        def _chunk_cb(n_bytes):
+            nonlocal bytes_so_far
+            bytes_so_far += n_bytes
+            if progress_callback:
+                progress_callback(bytes_so_far, total_bytes)
+
         s3.download_file(
             bucket,
             item["key"],
             str(local_path),
             Config=transfer_config,
+            Callback=_chunk_cb,
         )
 
         if local_path.stat().st_size != expected_size:
@@ -310,6 +328,9 @@ def download_single_model(s3, bucket: str, model_id: str, models_root: Path) -> 
                 f"Size mismatch on {rel}: expected {expected_size} bytes, got {local_path.stat().st_size} bytes"
             )
         downloaded += 1
+
+    if progress_callback:
+        progress_callback(total_bytes, total_bytes)
 
     dt = time.time() - t0
     log(f"[OK] Model '{canonical}' ready: {downloaded} downloaded, {skipped} cached, {total_bytes / 1e9:.2f} GB in {dt:.1f}s.")

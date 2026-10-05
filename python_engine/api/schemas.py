@@ -49,12 +49,21 @@ class GenerateResponse(BaseModel):
     active_loras: Dict[str, LoraInfo]
 
 
+class ModelStatusItem(BaseModel):
+    modelId: str
+    status: str  # queued | downloading | loading | ready | failed
+    progressPercent: Optional[float] = None
+    error: Optional[str] = None
+    loadedInVram: Optional[bool] = None
+
+
 class HealthResponse(BaseModel):
     status: str
     device: str
     device_name: Optional[str] = None
     model_loaded: bool
     current_model: Optional[str] = None
+    models: List[ModelStatusItem] = []
 
 
 class ModelSwitchRequest(BaseModel):

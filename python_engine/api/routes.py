@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import time
 from typing import Dict
 
@@ -45,25 +46,35 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     from generation.device import get_device, get_device_name
+    from generation.model_status import model_status_manager
     dev, _ = get_device()
+    models_status = model_status_manager.get_all_statuses()
+    has_any_ready = any(m.get("status") == "ready" for m in models_status)
+    current_model = None
+    pipe_loaded = False
+
     try:
         pipe = get_pipeline()
-        return HealthResponse(
-            status="ok" if pipe.model_loaded else "ok-mock",
-            device=pipe.device,
-            device_name=get_device_name(),
-            model_loaded=pipe.model_loaded,
-            current_model=pipe.current_model,
-        )
+        pipe_loaded = getattr(pipe, "model_loaded", False)
+        if pipe_loaded:
+            current_model = pipe.current_model
     except Exception as e:
-        log.warning("[health] Engine online but pipeline not ready: %s", e)
-        return HealthResponse(
-            status="ok-standby",
-            device=dev,
-            device_name=get_device_name(),
-            model_loaded=False,
-            current_model=None,
-        )
+        log.warning("[health] Pipeline not initialized: %s", e)
+
+    if not current_model and models_status:
+        current_model = model_status_manager.get_first_ready_model_id()
+
+    is_loaded = has_any_ready or pipe_loaded
+    status_str = "ok" if is_loaded else ("ok-mock" if os.environ.get("AI_STUDIO_MOCK", "0") == "1" else "ok-standby")
+
+    return HealthResponse(
+        status=status_str,
+        device=dev,
+        device_name=get_device_name(),
+        model_loaded=is_loaded,
+        current_model=current_model,
+        models=models_status,
+    )
 
 
 

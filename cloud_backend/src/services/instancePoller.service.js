@@ -207,6 +207,7 @@ export class InstancePollerService {
               device: data.device,
               deviceName: data.device_name,
               currentModel: data.current_model,
+              models: data?.models || [],
             });
           }
         } else {
@@ -222,6 +223,7 @@ export class InstancePollerService {
             this.emitStatusChange(instance, GPU_STATUS.DOWNLOADING_MODEL, {
               device: data?.device,
               deviceName: data?.device_name,
+              models: data?.models || [],
             });
           }
           // If already DOWNLOADING_MODEL, stay in DOWNLOADING_MODEL without emitting no-op updates

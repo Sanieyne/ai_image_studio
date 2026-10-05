@@ -59,7 +59,23 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm up pipeline (loads SDXL or falls back to mock) so /health is honest.
+    from generation.model_status import model_status_manager
+
+    # Retrieve models requested via AI_STUDIO_SELECTED_MODELS environment variable
+    selected_env = os.environ.get("AI_STUDIO_SELECTED_MODELS", "").strip()
+    model_ids = [m.strip() for m in selected_env.replace(",", " ").split() if m.strip()]
+    if not model_ids:
+        from config.config import settings
+        default_mid = getattr(settings, "model_id", None) or "stabilityai/stable-diffusion-xl-base-1.0"
+        model_ids = [default_mid]
+
+    # Initialize shared in-memory status store with all requested models in "queued" state
+    model_status_manager.initialize_models(model_ids)
+
+    # Start sequential background worker (queued -> downloading -> loading -> ready)
+    model_status_manager.start_lifecycle_worker(model_ids)
+
+    # Warm up base pipeline if mock mode or available
     try:
         get_pipeline()
     except Exception as e:
