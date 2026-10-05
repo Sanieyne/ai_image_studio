@@ -34,7 +34,7 @@ export const getOffers = asyncHandler(async (req, res) => {
   } = req.query;
 
   const modelIdsList = selectedModelIds
-    ? (Array.isArray(selectedModelIds) ? selectedModelIds : selectedModelIds.split(',').map((s) => s.trim()))
+    ? (Array.isArray(selectedModelIds) ? selectedModelIds : selectedModelIds.split(',').map((s) => s.trim()).filter(Boolean))
     : [];
 
   const result = await gpuProviderService.searchAvailableGPUs({
@@ -44,7 +44,7 @@ export const getOffers = asyncHandler(async (req, res) => {
     minInetDown: minInetDown ? Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown)) : MIN_INET_DOWN_FLOOR_MBPS,
     gpuName: gpuName || undefined,
     verifiedOnly: verified === 'false' ? false : true,
-    limit: limit ? Math.min(100, Math.max(1, parseInt(limit, 10))) : 30,
+    limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250,
     orderBy: orderBy || 'price',
   });
 
@@ -79,12 +79,15 @@ export const getOfferById = asyncHandler(async (req, res) => {
  * Return curated rankings (cheapest, fastest, most reliable, balanced) for selected models.
  */
 export const getRecommended = asyncHandler(async (req, res) => {
-  const { modelIds } = req.query;
-  const modelIdsList = modelIds
-    ? (Array.isArray(modelIds) ? modelIds : modelIds.split(',').map((s) => s.trim()))
-    : ['sdxl-base-1.0'];
+  const { modelIds, limit } = req.query;
+  const modelIdsList = modelIds != null
+    ? (Array.isArray(modelIds)
+        ? modelIds
+        : modelIds.split(',').map((s) => s.trim()).filter(Boolean))
+    : [];
 
-  const recommendations = await gpuProviderService.getRecommendedGPUsForSelection(modelIdsList);
+  const effectiveLimit = limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250;
+  const recommendations = await gpuProviderService.getRecommendedGPUsForSelection(modelIdsList, effectiveLimit);
 
   const sanitized = {
     requirements: recommendations.requirements,
@@ -226,16 +229,19 @@ export const getGpuSeries = asyncHandler(async (req, res) => {
   const seriesGroups = {
     'RTX 30-Series': [],
     'RTX 40-Series': [],
+    'RTX 50-Series': [],
     'Datacenter': [],
   };
 
   for (const [canonical, aliases] of Object.entries(VASTAI_GPU_NAME_MAP)) {
-    if (canonical.includes('A100') || canonical.includes('H100')) {
+    if (canonical.includes('A100') || canonical.includes('H100') || canonical.includes('Datacenter')) {
       seriesGroups['Datacenter'].push(...aliases);
     } else if (canonical.includes('30')) {
       seriesGroups['RTX 30-Series'].push(...aliases);
     } else if (canonical.includes('40')) {
       seriesGroups['RTX 40-Series'].push(...aliases);
+    } else if (canonical.includes('50')) {
+      seriesGroups['RTX 50-Series'].push(...aliases);
     } else {
       seriesGroups['Datacenter'].push(...aliases);
     }

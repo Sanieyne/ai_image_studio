@@ -34,7 +34,7 @@ class GpuProviderService {
       minInetDown = MIN_INET_DOWN_FLOOR_MBPS,
       gpuName,
       verifiedOnly = true,
-      limit = 30,
+      limit = 250,
       orderBy = 'price',
     } = options;
 
@@ -132,10 +132,10 @@ class GpuProviderService {
    * @param {string[]} modelIds
    * @returns {Promise<Object>}
    */
-  async getRecommendedGPUsForSelection(modelIds = []) {
+  async getRecommendedGPUsForSelection(modelIds = [], limit = 250) {
     const searchResult = await this.searchAvailableGPUs({
       selectedModelIds: modelIds,
-      limit: 50,
+      limit,
     });
 
     const { offers, requirements } = searchResult;

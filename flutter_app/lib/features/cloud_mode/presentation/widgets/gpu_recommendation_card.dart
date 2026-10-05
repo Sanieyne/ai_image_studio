@@ -91,7 +91,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           }
           if (_selectedSeries == 'RTX 30-Series') return offer.gpuName.contains('30');
           if (_selectedSeries == 'RTX 40-Series') return offer.gpuName.contains('40');
-          if (_selectedSeries == 'Datacenter') return offer.gpuName.contains('A100') || offer.gpuName.contains('H100');
+          if (_selectedSeries == 'RTX 50-Series') return offer.gpuName.contains('50');
+          if (_selectedSeries == 'Datacenter') return offer.gpuName.contains('A100') || offer.gpuName.contains('H100') || offer.gpuName.contains('Tesla') || offer.gpuName.contains('Ada');
           return true;
         }).toList();
       }
@@ -767,7 +768,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
   }
 
   Widget _buildSeriesFilterRow(Color border, Color muted, MarketplaceRecommendedResult? mr) {
-    final seriesKeys = ['All', ...(_gpuSeriesMap.isNotEmpty ? _gpuSeriesMap.keys : ['RTX 30-Series', 'RTX 40-Series', 'Datacenter'])];
+    final seriesKeys = ['All', ...(_gpuSeriesMap.isNotEmpty ? _gpuSeriesMap.keys : ['RTX 30-Series', 'RTX 40-Series', 'RTX 50-Series', 'Datacenter'])];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -783,7 +784,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                 if (models.isNotEmpty) return models.any((m) => o.gpuName.toLowerCase().contains(m.toLowerCase()));
                 if (key == 'RTX 30-Series') return o.gpuName.contains('30');
                 if (key == 'RTX 40-Series') return o.gpuName.contains('40');
-                if (key == 'Datacenter') return o.gpuName.contains('A100') || o.gpuName.contains('H100');
+                if (key == 'RTX 50-Series') return o.gpuName.contains('50');
+                if (key == 'Datacenter') return o.gpuName.contains('A100') || o.gpuName.contains('H100') || o.gpuName.contains('Tesla') || o.gpuName.contains('Ada');
                 return false;
               }).length;
             }

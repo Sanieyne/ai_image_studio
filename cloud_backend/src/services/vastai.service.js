@@ -117,7 +117,7 @@ class VastaiService {
    */
   async searchOffers(filters = {}) {
     const {
-      minVramGB = 12,
+      minVramGB = 0,
       minRamGB = 16,
       minDiskGB = 30,
       minInetDown = MIN_INET_DOWN_FLOOR_MBPS,
@@ -126,7 +126,7 @@ class VastaiService {
       gpuName,
       verifiedOnly = true,
       rentableOnly = true,
-      limit = 50,
+      limit = 250,
       totalModelSizeGB = 15,
     } = filters;
 
@@ -200,13 +200,23 @@ class VastaiService {
         }
       }
 
-      console.warn('[Vast.ai] 0 offers from live API matching query. Serving sandbox offers.');
-      const fallback = this._generateSandboxOffers(filters, totalModelSizeGB);
-      return fallback;
+      // A genuine live result of 0 offers is a real answer — never substitute fake inventory in production.
+      console.warn('[Vast.ai] 0 offers from live API matching query.');
+      if (env.isProduction) return [];
+      return this._generateSandboxOffers(filters, totalModelSizeGB);
     } catch (error) {
-      console.warn(`[Vast.ai API Error] ${error.message}. Serving resilient sandbox offers.`);
-      const fallback = this._generateSandboxOffers(filters, totalModelSizeGB);
-      return fallback;
+      // Prefer last-known-good LIVE data for this exact query (even if past TTL) over fake sandbox offers.
+      if (cached?.data?.length) {
+        const ageSec = Math.round((Date.now() - cached.timestamp) / 1000);
+        console.warn(`[Vast.ai API Error] ${error.message}. Serving stale live offers (${cached.data.length}, ${ageSec}s old).`);
+        return cached.data;
+      }
+      if (env.isProduction) {
+        console.error(`[Vast.ai API Error] ${error.message}. No live cache available; refusing to serve sandbox offers in production.`);
+        throw ApiError.badGateway('GPU marketplace is temporarily unavailable. Please retry in a few seconds.');
+      }
+      console.warn(`[Vast.ai API Error] ${error.message}. Serving sandbox offers (non-production only).`);
+      return this._generateSandboxOffers(filters, totalModelSizeGB);
     }
   }
 

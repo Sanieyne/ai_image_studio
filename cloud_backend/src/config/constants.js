@@ -138,11 +138,22 @@ export const BANDWIDTH_COST_PER_GB = 0.02; // $0.02 per GB raw egress/ingress ba
 export const VASTAI_OFFERS_CACHE_TTL_MS = 30000; // 30s cache TTL to avoid rate limiting
 
 export const VASTAI_GPU_NAME_MAP = Object.freeze({
-  'RTX 3060': ['RTX 3060', 'GeForce RTX 3060', 'RTX 3060 Ti'],
+  'RTX 3060': ['RTX 3060', 'GeForce RTX 3060', 'RTX 3060 Ti', 'RTX 3060 laptop'],
+  'RTX 3070': ['RTX 3070', 'GeForce RTX 3070', 'RTX 3070 Ti'],
+  'RTX 3080': ['RTX 3080', 'GeForce RTX 3080', 'RTX 3080 Ti'],
   'RTX 3090': ['RTX 3090', 'GeForce RTX 3090', 'RTX 3090 Ti'],
+  'RTX 4060': ['RTX 4060', 'GeForce RTX 4060', 'RTX 4060 Ti'],
+  'RTX 4070': ['RTX 4070', 'GeForce RTX 4070', 'RTX 4070 Ti', 'RTX 4070S Ti'],
+  'RTX 4080': ['RTX 4080', 'GeForce RTX 4080', 'RTX 4080 Ti'],
   'RTX 4090': ['RTX 4090', 'GeForce RTX 4090'],
+  'RTX 50-Series': ['RTX 5060', 'RTX 5060 Ti', 'RTX 5070', 'RTX 5070 Ti', 'RTX 5080', 'RTX 5090'],
   'A100': ['A100', 'A100-SXM4-40GB', 'A100-SXM4-80GB', 'A100-PCIE-40GB', 'A100-PCIE-80GB'],
   'H100': ['H100', 'H100 80GB HBM3', 'H100-PCIE-80GB'],
+  'Datacenter/Pro': [
+    'A4000', 'RTX A4000', 'A5000', 'RTX A5000', 'A6000', 'RTX A6000',
+    '4000Ada', 'RTX 4000Ada', '5000Ada', 'RTX 5000Ada', '6000Ada', 'RTX 6000Ada',
+    'Tesla V100', 'V100', 'Tesla P100', 'P100', 'A2000', 'RTX A2000', 'RTX 2080 Ti'
+  ],
 });
 
 // Enforce a strict minimum 400 Mbps download speed floor for host reliability and rapid R2 weight streaming
