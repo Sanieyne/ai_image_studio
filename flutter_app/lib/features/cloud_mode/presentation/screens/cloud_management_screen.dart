@@ -37,7 +37,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   bool _syncing = false;
   bool _backendOnline = false;
   late List<CloudModel> _models;
-  Set<String> _selectedModelIds = {'sdxl-base-1.0'};
+  Set<String> _selectedModelIds = {};
   RecommendationResult? _recommendation;
   MarketplaceRecommendedResult? _marketplaceResult;
   MarketplaceOffer? _selectedOffer;
@@ -53,7 +53,9 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
       _selectedStorageGB = widget.initialStorageGB!;
     }
     _models = _cloudApi.fallbackModels;
-    _recommendation = _cloudApi.calculateOfflineFallback(_selectedModelIds.toList());
+    if (_selectedModelIds.isNotEmpty) {
+      _recommendation = _cloudApi.calculateOfflineFallback(_selectedModelIds.toList());
+    }
     _loadCloudData();
   }
 
@@ -79,7 +81,6 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         if (rec != null) _recommendation = rec;
         if (market != null) {
           _marketplaceResult = market;
-          _selectedOffer ??= market.balancedOffer ?? market.allOffers.firstOrNull;
         }
         _syncing = false;
       });
@@ -91,7 +92,9 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   Future<void> _onSelectionChanged(Set<String> newSelection) async {
     setState(() {
       _selectedModelIds = newSelection;
-      _recommendation = _cloudApi.calculateOfflineFallback(newSelection.toList());
+      _recommendation = newSelection.isNotEmpty
+          ? _cloudApi.calculateOfflineFallback(newSelection.toList())
+          : null;
       _syncing = true;
     });
 
@@ -109,7 +112,6 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         if (rec != null) _recommendation = rec;
         if (market != null) {
           _marketplaceResult = market;
-          _selectedOffer = market.balancedOffer ?? market.allOffers.firstOrNull;
         }
         _syncing = false;
       });
@@ -119,10 +121,27 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   }
 
   void _handleLaunchInstance([MarketplaceOffer? offer, int? storageGB]) {
+    final effectiveOffer = offer ?? _selectedOffer;
+    if (effectiveOffer == null || _selectedModelIds.isEmpty) {
+      if (_selectedModelIds.isEmpty) {
+        AppToast.showInfo(
+          context,
+          title: 'Select Model',
+          message: 'Please select at least one AI model before renting.',
+        );
+      } else {
+        AppToast.showInfo(
+          context,
+          title: 'Select GPU Offer',
+          message: 'Please click to select a GPU offer first.',
+        );
+      }
+      return;
+    }
+
     final effectiveStorageGB = storageGB ?? _selectedStorageGB;
-    final primaryGpu = _recommendation?.compatibleGPUs.firstOrNull;
-    final gpuName = offer?.gpuName ?? primaryGpu?.name ?? 'Cloud GPU';
-    final creditsPerHour = offer?.totalCreditsPerHour ?? primaryGpu?.creditsPerHour ?? (0.44 * kVastPriceMarkup * kCreditsPerUsd);
+    final gpuName = effectiveOffer.gpuName;
+    final creditsPerHour = effectiveOffer.totalCreditsPerHour;
 
     showDialog(
       context: context,
@@ -180,15 +199,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
             label: const Text('Confirm & Launch'),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              final targetOfferId = offer?.id.toString() ?? _selectedOffer?.id.toString();
-              if (targetOfferId == null) {
-                AppToast.showInfo(
-                  context,
-                  title: 'Select GPU Offer',
-                  message: 'Please select a GPU offer first.',
-                );
-                return;
-              }
+              final targetOfferId = effectiveOffer.id.toString();
 
               AppToast.showInfo(
                 context,
@@ -228,11 +239,23 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
               } else {
                 final errorMsg = _cloudApi.lastRentError ??
                     'Failed to rent instance. Check your balance or authentication.';
-                AppToast.showError(
-                  context,
-                  title: 'GPU Launch Failed',
-                  message: errorMsg,
-                );
+                
+                // If offer was taken / unavailable, deselect it and auto-refresh live inventory
+                if (errorMsg.contains('just rented') || errorMsg.contains('not available') || errorMsg.contains('no_such_ask')) {
+                  setState(() => _selectedOffer = null);
+                  _loadCloudData();
+                  AppToast.showError(
+                    context,
+                    title: 'GPU Unavailable',
+                    message: 'This GPU was just rented by someone else. Refreshing live offers for you...',
+                  );
+                } else {
+                  AppToast.showError(
+                    context,
+                    title: 'GPU Launch Failed',
+                    message: errorMsg,
+                  );
+                }
               }
             },
           ),
@@ -276,21 +299,25 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                       child: const Icon(Icons.cloud_sync_rounded, color: Colors.white, size: 20),
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Cosmic-Gen Cloud GPU Orchestrator',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Dynamic VRAM recommendation, multi-model storage footprinting & high-throughput cloud instances.',
-                          style: TextStyle(fontSize: 12, color: muted),
-                        ),
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Cosmic-Gen Cloud GPU Orchestrator',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Dynamic VRAM recommendation, multi-model storage footprinting & high-throughput cloud instances.',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: muted),
+                          ),
+                        ],
+                      ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 12),
                     // Backend status pill
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -365,6 +392,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                               result: _recommendation,
                               marketplaceResult: _marketplaceResult,
                               selectedOffer: _selectedOffer,
+                              hasModelSelection: _selectedModelIds.isNotEmpty,
                               onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
@@ -429,6 +457,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                     result: _recommendation,
                                     marketplaceResult: _marketplaceResult,
                                     selectedOffer: _selectedOffer,
+                                    hasModelSelection: _selectedModelIds.isNotEmpty,
                                     onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                                     isDark: widget.isDark,
                                     onLaunchInstance: _handleLaunchInstance,
@@ -519,9 +548,13 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                 children: [
                   Icon(Icons.touch_app_rounded, size: 14, color: muted),
                   const SizedBox(width: 6),
-                  Text(
-                    'Choose models from the left catalog',
-                    style: TextStyle(fontSize: 11.5, color: muted),
+                  Flexible(
+                    child: Text(
+                      'Choose models from the left catalog',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11.5, color: muted),
+                    ),
                   ),
                 ],
               ),

@@ -261,7 +261,7 @@ class VastaiService {
     const found = all.find((o) => String(o.id) === String(offerId));
     if (found) return found;
 
-    throw ApiError.notFound(`Vast.ai offer not found with ID: ${offerId}`);
+    throw ApiError.conflict('This GPU was just rented by someone else. Please choose another.');
   }
 
   /**
@@ -305,7 +305,16 @@ class VastaiService {
         raw: response.data,
       };
     } catch (error) {
+      const errorMsg = error.response?.data?.msg || error.response?.data?.error || error.message || '';
       console.error('[Vast.ai createInstance error details]:', error.response?.status, error.response?.data || error.message);
+      if (
+        /no_such_ask/i.test(errorMsg) ||
+        /is not available/i.test(errorMsg) ||
+        /already rented/i.test(errorMsg) ||
+        (error.response?.status === 400 && /404\/3603/i.test(errorMsg))
+      ) {
+        throw ApiError.conflict('This GPU was just rented by someone else. Please choose another.');
+      }
       throw ApiError.badGateway(`Failed to launch Vast.ai instance: ${error.response?.data?.msg || error.message}`);
     }
   }

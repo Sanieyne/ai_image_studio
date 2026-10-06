@@ -12,6 +12,7 @@ class GpuRecommendationCard extends StatefulWidget {
   final Function(MarketplaceOffer? offer) onLaunchInstance;
   final String? initialTab;
   final String? initialSearchQuery;
+  final bool hasModelSelection;
 
   const GpuRecommendationCard({
     super.key,
@@ -23,6 +24,7 @@ class GpuRecommendationCard extends StatefulWidget {
     required this.onLaunchInstance,
     this.initialTab,
     this.initialSearchQuery,
+    this.hasModelSelection = false,
   });
 
   @override
@@ -36,7 +38,6 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
 
   String _browsingTab = 'recommended'; // 'recommended' | 'series' | 'search'
   String _selectedRankMode = 'balanced'; // 'balanced' | 'cheapest' | 'fastest' | 'reliable'
-  MarketplaceOffer? _selectedOfferOverride;
 
   Map<String, List<String>> _gpuSeriesMap = {};
   String _selectedSeries = 'All';
@@ -105,33 +106,33 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
       }
     }
 
-    MarketplaceOffer? activeOffer;
+    final MarketplaceOffer? userSelectedOffer = widget.selectedOffer;
 
-    if (_selectedOfferOverride != null) {
-      activeOffer = _selectedOfferOverride;
-    } else if (widget.selectedOffer != null) {
-      activeOffer = widget.selectedOffer;
-    } else if (displayedOffers.isNotEmpty) {
-      if (_browsingTab == 'recommended' && mr != null) {
-        switch (_selectedRankMode) {
-          case 'cheapest':
-            activeOffer = mr.cheapestOffer ?? displayedOffers.firstOrNull;
-            break;
-          case 'fastest':
-            activeOffer = mr.fastestOffer ?? displayedOffers.firstOrNull;
-            break;
-          case 'reliable':
-            activeOffer = mr.mostReliableOffer ?? displayedOffers.firstOrNull;
-            break;
-          case 'balanced':
-          default:
-            activeOffer = mr.balancedOffer ?? displayedOffers.firstOrNull;
-            break;
-        }
-      } else {
-        activeOffer = displayedOffers.firstOrNull;
+    // Display-only recommendation: computed only when a model is selected,
+    // and only on the Recommended tab. Never written into the selection.
+    MarketplaceOffer? recommendedOffer;
+    if (widget.hasModelSelection && _browsingTab == 'recommended' && mr != null && mr.allOffers.isNotEmpty) {
+      switch (_selectedRankMode) {
+        case 'cheapest':
+          recommendedOffer = mr.cheapestOffer;
+          break;
+        case 'fastest':
+          recommendedOffer = mr.fastestOffer;
+          break;
+        case 'reliable':
+          recommendedOffer = mr.mostReliableOffer;
+          break;
+        case 'balanced':
+        default:
+          recommendedOffer = mr.balancedOffer;
+          break;
       }
     }
+
+    // Hero card shows the user's pick if any, otherwise the highlighted recommendation.
+    final MarketplaceOffer? activeOffer = userSelectedOffer ?? recommendedOffer;
+    final bool heroIsRecommendationOnly = userSelectedOffer == null && recommendedOffer != null;
+    final bool canLaunch = widget.hasModelSelection && userSelectedOffer != null;
 
     final primaryFallbackGpu = widget.result?.compatibleGPUs.firstOrNull;
     final maxVram = widget.result?.requirements.maxVramGB ?? 12.0;
@@ -201,7 +202,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           const SizedBox(height: 10),
 
           // Sub-navigation filter bar
-          if (_browsingTab == 'recommended' && mr != null && mr.allOffers.isNotEmpty) ...[
+          if (_browsingTab == 'recommended' && mr != null && mr.allOffers.isNotEmpty && widget.hasModelSelection) ...[
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -238,25 +239,52 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Primary Recommendation Hero Card
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(14),
-                        gradient: LinearGradient(
-                          colors: [
-                            LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.2 : 0.1),
-                            LuminaColors.primaryEnd.withValues(alpha: widget.isDark ? 0.15 : 0.05),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                    if (activeOffer == null)
+                      _buildSelectionPrompt(border: border, muted: muted)
+                    else ...[
+                      if (heroIsRecommendationOnly)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.auto_awesome_rounded, size: 14, color: LuminaColors.amber),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Top recommendation for your models — tap it to select',
+                                  style: TextStyle(fontSize: 11.5, color: muted, fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              TextButton.icon(
+                                key: const ValueKey('select_recommended_btn'),
+                                onPressed: () => widget.onSelectOffer?.call(recommendedOffer),
+                                icon: const Icon(Icons.check_rounded, size: 14),
+                                label: const Text('Select this GPU', style: TextStyle(fontSize: 11.5)),
+                              ),
+                            ],
+                          ),
                         ),
-                        border: Border.all(
-                          color: LuminaColors.infoBlue.withValues(alpha: 0.5),
-                          width: 1.5,
+                      // Primary Recommendation Hero Card
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          gradient: LinearGradient(
+                            colors: [
+                              LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.2 : 0.1),
+                              LuminaColors.primaryEnd.withValues(alpha: widget.isDark ? 0.15 : 0.05),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          border: Border.all(
+                            color: heroIsRecommendationOnly
+                                ? LuminaColors.amber.withValues(alpha: 0.6)
+                                : LuminaColors.infoBlue.withValues(alpha: 0.5),
+                            width: 1.5,
+                          ),
                         ),
-                      ),
-                      child: Column(
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
@@ -277,24 +305,22 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         ),
                                       ),
                                     ),
-                                    if (activeOffer != null) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          '${activeOffer.inetDown} Mbps ↓',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.greenAccent.shade700,
-                                          ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.greenAccent.shade700.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        '${activeOffer.inetDown} Mbps ↓',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.greenAccent.shade700,
                                         ),
                                       ),
-                                    ],
+                                    ),
                                   ],
                                 ),
                               ),
@@ -320,7 +346,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            activeOffer?.fitReason ?? 'Best balance of VRAM headroom, network bandwidth, and cost.',
+                            activeOffer.fitReason.isNotEmpty ? activeOffer.fitReason : 'Best balance of VRAM headroom, network bandwidth, and cost.',
                             style: TextStyle(fontSize: 12, color: muted),
                           ),
                           const SizedBox(height: 12),
@@ -352,9 +378,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                             ),
                           ),
 
-                          if (activeOffer != null) ...[
-                            const SizedBox(height: 12),
-                            Container(
+                          const SizedBox(height: 12),
+                          Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
                                 color: (widget.isDark ? Colors.black : Colors.white).withValues(alpha: 0.25),
@@ -447,10 +472,10 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                 ],
                               ),
                             ),
-                          ],
                         ],
                       ),
                     ),
+                  ],
 
                     const SizedBox(height: 14),
                     Row(
@@ -464,15 +489,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                         const Spacer(),
-                        if (_selectedOfferOverride != null)
+                        if (userSelectedOffer != null)
                           InkWell(
-                            onTap: () {
-                              setState(() => _selectedOfferOverride = null);
-                              final rec = mr?.balancedOffer ?? displayedOffers.firstOrNull;
-                              widget.onSelectOffer?.call(rec);
-                            },
+                            onTap: () => widget.onSelectOffer?.call(null),
                             child: const Text(
-                              'Reset to Recommended',
+                              'Clear selection',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -493,15 +514,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                         separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, idx) {
                           final offer = displayedOffers[idx];
-                          final isSelected = offer.id == activeOffer?.id;
+                          final isSelected = offer.id == userSelectedOffer?.id;
+                          final isRecommended = !isSelected && offer.id == recommendedOffer?.id;
 
                           return InkWell(
-                            onTap: () {
-                              setState(() {
-                                _selectedOfferOverride = offer;
-                              });
-                              widget.onSelectOffer?.call(offer);
-                            },
+                            onTap: () => widget.onSelectOffer?.call(offer),
                             borderRadius: BorderRadius.circular(10),
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -510,8 +527,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                 border: Border.all(
                                   color: isSelected
                                       ? LuminaColors.infoBlue
-                                      : border,
-                                  width: isSelected ? 1.5 : 1.0,
+                                      : (isRecommended ? LuminaColors.amber.withValues(alpha: 0.7) : border),
+                                  width: (isSelected || isRecommended) ? 1.5 : 1.0,
                                 ),
                                 color: isSelected
                                     ? LuminaColors.infoBlue.withValues(alpha: widget.isDark ? 0.15 : 0.08)
@@ -532,6 +549,10 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         offer.gpuName,
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                       ),
+                                      if (isRecommended) ...[
+                                        const SizedBox(width: 6),
+                                        _buildMiniTag('★ Recommended', LuminaColors.amber),
+                                      ],
                                       const SizedBox(width: 6),
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
@@ -645,17 +666,24 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: () => widget.onLaunchInstance(activeOffer),
-              icon: const Icon(Icons.rocket_launch_rounded, size: 18),
+              key: const ValueKey('gpu_card_launch_btn'),
+              onPressed: canLaunch ? () => widget.onLaunchInstance(userSelectedOffer) : null,
+              icon: Icon(canLaunch ? Icons.rocket_launch_rounded : Icons.lock_outline_rounded, size: 18),
               label: Text(
-                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)',
+                !widget.hasModelSelection
+                    ? 'Select a model to continue'
+                    : (userSelectedOffer == null
+                        ? 'Select a GPU offer to continue'
+                        : 'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)'),
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: LuminaColors.primaryEnd,
                 foregroundColor: Colors.white,
+                disabledBackgroundColor: (widget.isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
+                disabledForegroundColor: muted,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 4,
+                elevation: canLaunch ? 4 : 0,
               ),
             ),
           ),
@@ -664,37 +692,45 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     );
   }
 
+  Widget _buildSelectionPrompt({required Color border, required Color muted}) {
+    final noModels = !widget.hasModelSelection;
+    return Container(
+      key: const ValueKey('gpu_selection_prompt'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+        color: (widget.isDark ? Colors.white : Colors.black).withValues(alpha: 0.03),
+      ),
+      child: Column(
+        children: [
+          Icon(noModels ? Icons.layers_outlined : Icons.touch_app_rounded, size: 32, color: LuminaColors.infoBlue),
+          const SizedBox(height: 8),
+          Text(
+            noModels ? 'No Models Selected' : 'No GPU Selected',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            noModels
+                ? 'Select a model to see personalized recommendations'
+                : 'Tap a GPU below to select it',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: muted),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildRankTab(String modeKey, String label, bool enabled) {
-    final active = _selectedRankMode == modeKey && _selectedOfferOverride == null;
+    final active = _selectedRankMode == modeKey;
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
     return InkWell(
-      onTap: enabled
-          ? () {
-              final mr = widget.marketplaceResult;
-              MarketplaceOffer? target;
-              switch (modeKey) {
-                case 'cheapest':
-                  target = mr?.cheapestOffer ?? mr?.allOffers.firstOrNull;
-                  break;
-                case 'fastest':
-                  target = mr?.fastestOffer ?? mr?.allOffers.firstOrNull;
-                  break;
-                case 'reliable':
-                  target = mr?.mostReliableOffer ?? mr?.allOffers.firstOrNull;
-                  break;
-                case 'balanced':
-                default:
-                  target = mr?.balancedOffer ?? mr?.allOffers.firstOrNull;
-                  break;
-              }
-              setState(() {
-                _selectedRankMode = modeKey;
-                _selectedOfferOverride = null;
-              });
-              widget.onSelectOffer?.call(target);
-            }
-          : null,
+      // Display-only: changes which offer is highlighted. Never selects an offer.
+      onTap: enabled ? () => setState(() => _selectedRankMode = modeKey) : null,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -745,19 +781,24 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
                 icon,
                 size: 14,
                 color: active ? LuminaColors.infoBlue : muted,
               ),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: active ? FontWeight.bold : FontWeight.w500,
-                  color: active ? LuminaColors.infoBlue : muted,
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: active ? FontWeight.bold : FontWeight.w500,
+                    color: active ? LuminaColors.infoBlue : muted,
+                  ),
                 ),
               ),
             ],
