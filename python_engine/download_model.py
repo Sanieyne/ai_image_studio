@@ -151,6 +151,16 @@ MODEL_CATALOG: Dict[str, dict] = {
             (".", "/root/models/minimax-h3"),
         ],
     },
+    "instantid": {
+        "family": "instantid",
+        "mode": "face",
+        "aliases": ["InstantX/InstantID", "instant-id", "instantid-sdxl"],
+        "target_subpath": "instantid",
+        "symlinks": [
+            (".", "/workspace/models/instantid"),
+            (".", "/root/models/instantid"),
+        ],
+    },
 }
 
 
