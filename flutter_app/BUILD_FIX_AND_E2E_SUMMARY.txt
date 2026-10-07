@@ -54,7 +54,7 @@ mediaUrl verdict: GENUINE NAMING MISMATCH, not a missing field.
   2. Clicked "Create one" -> Register screen renders (username / email /
      password + Create Account button).
   3. Filled username `e2e093001`, email `e2e093001@test.local`, password
-     `Testpass123`, submitted -> account created on live backend ->
+     (see /root/backups/test-account/credentials on the server), submitted -> account created on live backend ->
      redirected to Home; sidebar profile shows the real user with E2
      avatar initials.
      Tokens verified present in the OS keyring (Login collection item
