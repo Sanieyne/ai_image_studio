@@ -34,3 +34,14 @@ export function verifyAccessToken(token) {
 export function verifyRefreshToken(token) {
   return jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
 }
+
+/** Signature and algorithm are still checked; only expiry is ignored (used by logout). */
+export function verifyRefreshTokenIgnoringExpiry(token) {
+  return jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'], ignoreExpiration: true });
+}
+
+/** Expiry of a token this server signed, as a Date. */
+export function tokenExpiry(token) {
+  const { exp } = jwt.decode(token) || {};
+  return exp ? new Date(exp * 1000) : null;
+}

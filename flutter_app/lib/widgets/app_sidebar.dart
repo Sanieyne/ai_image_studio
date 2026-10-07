@@ -2650,7 +2650,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             } else if (value == 'preferences') {
               _openSettingsDialog(context, initialTab: 2);
             } else if (value == 'logout') {
-              await AuthService.instance.logout();
+              await AuthService.instance.signOut();
             }
           },
           itemBuilder: (ctx) => [

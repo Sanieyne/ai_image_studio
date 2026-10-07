@@ -113,6 +113,9 @@ export const env = Object.freeze({
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '15m',
   JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '60d',
+  // After a refresh, the previous refresh token keeps working this long, so
+  // parallel requests from one device don't look like token reuse.
+  REFRESH_GRACE_SECONDS: positiveInt('REFRESH_GRACE_SECONDS', 30),
 
   BCRYPT_SALT: parseInt(process.env.BCRYPT_SALT || '12', 10),
   FREE_CREDITS: parseInt(process.env.FREE_CREDITS || '10', 10),

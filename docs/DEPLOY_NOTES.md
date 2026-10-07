@@ -109,3 +109,49 @@ rental). Note: 20.83 of those 28.9 credits/hr are the overpriced storage fixed i
    Expected today: #54547010 (no longer on Vast.ai), `test-contract-1791101619182`,
    `test-contract-1791101680240`, `pending-1791099211934`.
 3. Build the index above.
+
+## Phase 1b: one session per device
+
+### What changes
+- Each login or registration creates a `sessions` document (one per device). Refresh
+  tokens carry `sid` (session) and `gen` (generation); no token values are stored.
+- A refresh rotates only its own session. The previous token keeps working for
+  `REFRESH_GRACE_SECONDS` (30 s) and gets a token for the current generation, so
+  parallel refreshes from one app never look like reuse. Any older token revokes
+  that session only (`revokeReason: refresh_token_reuse`).
+- New endpoints: `POST /api/v1/auth/logout` (body `{ refreshToken }`, this device; works
+  with an expired token) and `POST /api/v1/auth/logout-all` (Bearer access token, every
+  device). Access tokens already issued stay valid until they expire (15 min).
+- Login/register accept an optional `deviceLabel` (max 64 chars); otherwise the
+  User-Agent is used. The app sends e.g. `Windows app`.
+
+### Compatibility with v0.2.0 and with sessions from before the deploy
+- Request and response shapes are unchanged; v0.2.0 keeps working without changes
+  (it just doesn't call logout on Sign Out).
+- A refresh token issued before the deploy (no `sid`) is checked against the old
+  `User.refreshTokenHash` slot and becomes a session on first use
+  (label "Signed in before device sessions"). Nobody is logged out by the deploy.
+- With sessions in place, set `JWT_ACCESS_EXPIRES=15m` in the live `.env` (it is `60d` now).
+
+### New collection, fields and indexes
+- Collection `sessions`: `user`, `familyId`, `generation`, `previousValidUntil`,
+  `deviceLabel`, `lastUsedAt`, `expiresAt`, `revokedAt`, `revokeReason`.
+- `User.legacySession` (select: false): links a migrated pre-sessions token to its session
+  for the grace period.
+- Build the indexes once (`autoIndex` is off in production). The TTL index deletes
+  sessions when their refresh token expires:
+  ```bash
+  mongosh ai_image_studio --quiet --eval '
+    db.sessions.createIndex({ user: 1 });
+    db.sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });'
+  ```
+
+### New setting
+| Variable | Default | Meaning |
+|---|---|---|
+| `REFRESH_GRACE_SECONDS` | `30` | How long the previous refresh token is accepted after a rotation. |
+
+### Test account
+The e2e test account (`e2e093001@test.local`) password was rotated on 8 Oct 2026.
+Credentials: `/root/backups/test-account/credentials` (chmod 600, never in git).
+Smoke test: `python3 -I /root/diagnostics/scripts/smoke_login.py --refresh`.
