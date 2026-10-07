@@ -131,6 +131,7 @@ jobs:
         env:
           CONTABO_SSH_KEY_B64: ${{ secrets.CONTABO_SSH_KEY_B64 }}
           CONTABO_IP: ${{ secrets.CONTABO_IP }}
+          CONTABO_KNOWN_HOSTS: ${{ secrets.CONTABO_KNOWN_HOSTS }}
         run: |
           $ErrorActionPreference = 'Stop'
           $keyPath = "$HOME\.ssh\contabo_key"
@@ -150,9 +151,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "deploy key does not parse" }
           Write-Host "deploy key OK"
 
+          # Pin the server's host key: only the key in the CONTABO_KNOWN_HOSTS
+          # secret (output of `ssh-keyscan <host>`, checked by hand) is trusted.
+          if ([string]::IsNullOrWhiteSpace($env:CONTABO_KNOWN_HOSTS)) { throw "CONTABO_KNOWN_HOSTS secret is not set" }
+          $knownHostsPath = "$HOME\.ssh\contabo_known_hosts"
+          [System.IO.File]::WriteAllText($knownHostsPath, $env:CONTABO_KNOWN_HOSTS.Trim() + "`n")
+
           $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
           $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
-          $sshOpts = @('-i', $keyPath, '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=30')
+          $sshOpts = @('-i', $keyPath, '-o', "UserKnownHostsFile=$knownHostsPath", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=30')
 
           & $scp @sshOpts 'dist\AI_Image_Studio_Windows_x64_GPU.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
           if ($LASTEXITCODE -ne 0) { throw "scp upload failed (exit $LASTEXITCODE)" }

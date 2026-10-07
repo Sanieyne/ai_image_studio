@@ -9,6 +9,17 @@ import { env } from './env.js';
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_INTERVAL_MS = 2000;
 
+/**
+ * Returns "host[,host2] / database" for logging, never credentials or options.
+ */
+export function describeMongoUri(uri) {
+  const match = /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)(?:\/([^?]*))?/.exec(uri || '');
+  if (!match) return '(unparseable MongoDB URI)';
+  const hosts = match[1];
+  const dbName = match[2] ? decodeURIComponent(match[2]) : '(default)';
+  return `${hosts} / ${dbName}`;
+}
+
 export async function connectDB(retries = MAX_RETRIES, delay = INITIAL_RETRY_INTERVAL_MS) {
   mongoose.connection.on('connected', () => {
     console.info(`[Database] MongoDB connected successfully to ${mongoose.connection.host}`);
@@ -26,7 +37,7 @@ export async function connectDB(retries = MAX_RETRIES, delay = INITIAL_RETRY_INT
   if (!uri.includes('retryWrites=')) {
     uri += (uri.includes('?') ? '&' : '?') + 'retryWrites=false';
   }
-  console.info(`[Database] Connecting with URI: ${uri}`);
+  console.info(`[Database] Connecting to ${describeMongoUri(uri)}`);
 
   while (retries > 0) {
     try {

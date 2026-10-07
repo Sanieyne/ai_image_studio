@@ -1,0 +1,4 @@
+tags:
+  # Tests that talk to the live backend or download real files.
+  # Skipped unless their required environment variables are set.
+  integration:

@@ -8,9 +8,12 @@ import jwt from 'jsonwebtoken';
 import fs from 'fs';
 import path from 'path';
 
-const API_BASE = 'http://127.0.0.1:5000/api/v1';
-const MONGODB_URI = 'mongodb://localhost:27017/ai_image_studio?retryWrites=false';
-const JWT_ACCESS_SECRET = 'supersecret_access_jwt_key_ai_image_studio_2026_secure';
+const API_BASE = process.env.QA_API_BASE || 'http://127.0.0.1:5000/api/v1';
+const MONGODB_URI = process.env.MONGODB_URI;
+const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
+if (!MONGODB_URI || !JWT_ACCESS_SECRET) {
+  throw new Error('Set MONGODB_URI and JWT_ACCESS_SECRET in the environment to run this QA pass.');
+}
 
 // Helper to sign JWT access token
 function signToken(userId, role) {

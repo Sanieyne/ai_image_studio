@@ -5,19 +5,60 @@
 
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load .env from project root
-dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+// Load .env from project root. Tests never read it: they supply their own
+// throwaway values and must not pick up a real database URI or secret.
+if (process.env.NODE_ENV !== 'test') {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+}
+
+// SHA-256 of JWT secrets that were published in .env.example. Only the hashes
+// are kept so the leaked values themselves are not repeated in the source.
+export const LEAKED_SECRET_SHA256 = Object.freeze([
+  '2435f6badacf38c61241bb4835ed04ae7512595bd9c9bba5d3a9246925b8bfac',
+  'eefb249ea0a1e9ed8fd405446d868b3c45974148650f228a7a3650f291add6b7',
+]);
+
+export const MIN_SECRET_LENGTH = 32;
 
 const requiredEnvVars = [
   'MONGODB_URI',
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
 ];
+
+// Settings that may be omitted in development but must be set in production.
+// Later features add their variables here.
+const requiredInProductionEnvVars = [];
+
+/**
+ * Throws if the JWT secrets are unsafe to run with, in any NODE_ENV.
+ */
+export function validateJwtSecrets(accessSecret, refreshSecret, leakedHashes = LEAKED_SECRET_SHA256) {
+  const secrets = { JWT_ACCESS_SECRET: accessSecret, JWT_REFRESH_SECRET: refreshSecret };
+  for (const [name, value] of Object.entries(secrets)) {
+    if (typeof value !== 'string' || value.length < MIN_SECRET_LENGTH) {
+      throw new Error(
+        `[Config Error] ${name} must be at least ${MIN_SECRET_LENGTH} characters. ` +
+          `Generate one with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
+      );
+    }
+    const hash = crypto.createHash('sha256').update(value).digest('hex');
+    if (leakedHashes.includes(hash)) {
+      throw new Error(
+        `[Config Error] ${name} is a publicly known example value and must be replaced with a new random secret.`
+      );
+    }
+  }
+  if (accessSecret === refreshSecret) {
+    throw new Error('[Config Error] JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different.');
+  }
+}
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
@@ -26,6 +67,18 @@ for (const envVar of requiredEnvVars) {
     );
   }
 }
+
+if (process.env.NODE_ENV === 'production') {
+  for (const envVar of requiredInProductionEnvVars) {
+    if (!process.env[envVar]) {
+      throw new Error(
+        `[Config Error] Missing environment variable required in production: ${envVar}.`
+      );
+    }
+  }
+}
+
+validateJwtSecrets(process.env.JWT_ACCESS_SECRET, process.env.JWT_REFRESH_SECRET);
 
 export const env = Object.freeze({
   PORT: parseInt(process.env.PORT || '5000', 10),
@@ -38,7 +91,7 @@ export const env = Object.freeze({
 
   JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
-  JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '60d',
+  JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '15m',
   JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '60d',
 
   BCRYPT_SALT: parseInt(process.env.BCRYPT_SALT || '12', 10),

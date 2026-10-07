@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "test": "node --import ./test/setup.js --test --test-concurrency=1 'test/**/*.test.js'"
   },
   "keywords": [
     "ai",
@@ -39,6 +40,8 @@
   },
   "devDependencies": {
     "canvas": "^3.2.3",
-    "nodemon": "^3.1.14"
+    "mongodb-memory-server": "^11.3.0",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.3.1"
   }
 }

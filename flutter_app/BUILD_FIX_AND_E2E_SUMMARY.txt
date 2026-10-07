@@ -71,7 +71,7 @@ mediaUrl verdict: GENUINE NAMING MISMATCH, not a missing field.
 
 6. SCREENSHOTS
 --------------
-  Served for download at http://45.140.185.248/e2e-shots/ :
+  Served for download at the release server under /e2e-shots/ :
     01-fresh-login.png                  (fresh launch -> Login)
     02-register-screen.png              (Register screen)
     03-form-filled.png                  (filled registration form)

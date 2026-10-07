@@ -5,7 +5,12 @@ import { execSync } from 'child_process';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
-  const instanceId = 53979233;
+  // Usage: node scripts/monitor_instance.js <vastInstanceId>
+  const instanceId = process.argv[2];
+  if (!/^\d+$/.test(instanceId || '')) {
+    console.error('Usage: node scripts/monitor_instance.js <vastInstanceId>');
+    process.exit(1);
+  }
   console.log(`=== Monitoring Real Remote Vast.ai Instance #${instanceId} ===`);
 
   const client = axios.create({
@@ -18,7 +23,7 @@ async function main() {
 
   const startTime = Date.now();
   let mappedPort = null;
-  let publicIp = '142.127.68.223';
+  let publicIp = null;
 
   while (Date.now() - startTime < 600000) { // 10 minutes
     try {

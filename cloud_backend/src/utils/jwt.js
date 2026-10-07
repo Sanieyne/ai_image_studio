@@ -28,9 +28,9 @@ export function signRefreshToken(payload) {
 }
 
 export function verifyAccessToken(token) {
-  return jwt.verify(token, env.JWT_ACCESS_SECRET);
+  return jwt.verify(token, env.JWT_ACCESS_SECRET, { algorithms: ['HS256'] });
 }
 
 export function verifyRefreshToken(token) {
-  return jwt.verify(token, env.JWT_REFRESH_SECRET);
+  return jwt.verify(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
 }
