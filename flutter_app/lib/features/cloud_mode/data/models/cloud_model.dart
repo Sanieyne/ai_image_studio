@@ -481,3 +481,16 @@ class LivePricingEstimate {
     );
   }
 }
+
+/// Whether new GPU rentals are open, from GET /gpu/rentals/status.
+class RentalsStatus {
+  final bool rentalsEnabled;
+  final String? message;
+
+  const RentalsStatus({required this.rentalsEnabled, this.message});
+
+  factory RentalsStatus.fromJson(Map<String, dynamic> json) => RentalsStatus(
+        rentalsEnabled: json['rentalsEnabled'] == true,
+        message: json['message'] as String?,
+      );
+}

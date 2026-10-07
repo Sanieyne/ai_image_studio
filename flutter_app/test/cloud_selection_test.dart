@@ -253,4 +253,37 @@ void main() {
     final unpriced = MarketplaceOffer.fromJson({'id': '3', 'priceAvailable': false, 'totalCreditsPerHour': 9.9});
     expect(unpriced.priceAvailable, isFalse);
   });
+
+  testWidgets('while rentals are paused the marketplace stays browsable but Rent is off, with the reason',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 900));
+    final offer = serverOffer();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GpuRecommendationCard(
+            result: null,
+            marketplaceResult: MarketplaceRecommendedResult(
+              requirements: const {},
+              balancedOffer: offer,
+              allOffers: [offer],
+            ),
+            selectedOffer: offer,
+            hasModelSelection: true,
+            onSelectOffer: (_) {},
+            isDark: false,
+            onLaunchInstance: (_) {},
+            rentDisabledReason: 'Cloud GPU rentals are paused while we upgrade them.',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // Prices still show...
+    expect(tester.widget<Text>(find.byKey(const ValueKey('gpu_card_total_rate'))).data, '28.37 credits/hr');
+    // ...but the button is disabled and says why.
+    final button = tester.widget<ElevatedButton>(find.byKey(const ValueKey('gpu_card_launch_btn')));
+    expect(button.onPressed, isNull);
+    expect(find.text('Cloud GPU rentals are paused while we upgrade them.'), findsOneWidget);
+  });
 }

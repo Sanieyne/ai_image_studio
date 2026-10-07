@@ -18,6 +18,9 @@ class StorageInspectorWidget extends StatefulWidget {
   /// CloudApiService.estimateStoragePricing; tests pass a fake.
   final Future<LivePricingEstimate?> Function({required String offerId, required int storageGB})? fetchEstimate;
 
+  /// When set, renting is off (e.g. rentals paused); the reason is shown on the button.
+  final String? rentDisabledReason;
+
   const StorageInspectorWidget({
     super.key,
     required this.result,
@@ -28,6 +31,7 @@ class StorageInspectorWidget extends StatefulWidget {
     this.onEvictModel,
     this.onLaunchInstance,
     this.fetchEstimate,
+    this.rentDisabledReason,
   });
 
   @override
@@ -666,12 +670,14 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: totalCreditsPerHour == null
+              onPressed: totalCreditsPerHour == null || widget.rentDisabledReason != null
                   ? null
                   : () => widget.onLaunchInstance?.call(offer, _storageSliderValue.round()),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: Text(
-                totalCreditsPerHour == null
+                widget.rentDisabledReason != null
+                    ? widget.rentDisabledReason!
+                    : totalCreditsPerHour == null
                     ? 'Rent & Launch $displayName (${rate(null, '')})'
                     : 'Rent & Launch $displayName (${rate(totalCreditsPerHour, 'credits/hr')})',
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),

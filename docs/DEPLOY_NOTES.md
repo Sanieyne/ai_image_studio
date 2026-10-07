@@ -198,3 +198,63 @@ Vast.ai charges us per GB downloaded and uploaded. Whether it reports per-instan
 could not be checked (no instance was running; rentals are paused). Until it is, users see
 bandwidth prices labelled "billed by usage" but are **not charged** for it; we pay it.
 Check on the approved test rental (instance fields such as `inet_down_billed`).
+
+## R2-3: rental progress, Stop, faster and fail-fast boot
+
+### New settings
+| Variable | Default | Meaning |
+|---|---|---|
+| `GPU_RENTALS_ENABLED` | `false` | `POST /gpu/rent` answers 503 with the message below unless `true`. Browsing and prices work either way. |
+| `GPU_RENTALS_PAUSED_MESSAGE` | `Cloud GPU rentals are paused while we upgrade them.` | Shown in the app and returned by rent. |
+| `VASTAI_ENGINE_IMAGE` | `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime` | Image for rented instances. Its torch must match `python_engine/constraints-cloud.txt`. |
+
+Keep `GPU_RENTALS_ENABLED=false` at deploy. Re-enabling rentals = set it to `true`, remove the
+nginx 503 rule from Step 0, reload nginx, restart the backend, and only after the engine
+package below is uploaded.
+
+### WebSocket route (nginx)
+The app now connects to `wss://cosmic-gen.com/ai-api/ws/instance-status` (it used to drop
+`/ai-api` and hit the Next.js site, which answered 504). The existing `/ai-api/` location
+already forwards upgrades, so **no nginx change is needed**. For reference, the block must keep:
+
+```nginx
+location /ai-api/ {
+    proxy_pass http://127.0.0.1:5000/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400s;
+    # (Host / X-Forwarded-* headers as today)
+}
+```
+Check after deploy: a handshake to `/ai-api/ws/instance-status?token=…&instanceId=…` returns `101`.
+While the socket is down, the app polls `GET /gpu/instances/:id` every 5 s.
+
+### Engine package (must be re-uploaded before rentals are re-enabled)
+Instances now install `requirements-cloud.lock` and run `self_test.py`. The package in R2
+(7 Oct) has neither, so an instance would stop at once with "The engine package is outdated".
+Build and upload from the deployed checkout (until FIX_PLAN Phase 3's packaging script exists):
+
+```bash
+cd /root/projects/ai_image_studio/python_engine
+tar --exclude='./examples' --exclude='./tests' --exclude='__pycache__' --exclude='*.pyc' \
+    -czf /tmp/python_engine.tar.gz .
+# upload to s3://<bucket>/models/engine/python_engine.tar.gz with your R2 credentials
+```
+
+### Which GPUs are offered
+The image's torch (2.11, CUDA 12.8) is built for sm_75–sm_120 (checked in the wheel), so offers
+are limited to `compute_cap >= 750` (RTX 20/GTX 16-series and newer, incl. RTX 50) and hosts with
+`cuda_max_good >= 12.8`, with direct ports. On 8 Oct this removed Pascal/Volta cards
+(GTX 10-series, P40, P100, V100) and 24 of 400 hosts with older drivers.
+
+### Boot time
+- Before: image pull + `pip install` of unpinned packages + SDXL (7 GB) from Hugging Face before
+  `/health` answered: 4–8 min when it worked, and it never answered on 7 Oct.
+- Now: image pull (4.3 GB, often cached by hosts) + locked install (~1–2 GB of wheels, about
+  2–4 min at the 400 Mbps floor) + self-test (seconds); `/health` answers immediately and models
+  download in the background. Failures are reported within seconds of the failing step.
+- Next step (next round, not small): a prebuilt engine image (base + locked packages + engine)
+  built by CI and pushed to a registry. Boot becomes image pull + start, saving roughly 3–5 min
+  per rental and removing PyPI from the boot path. Needs a registry account and Vast.ai
+  registry credentials.

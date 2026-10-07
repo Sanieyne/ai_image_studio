@@ -6,6 +6,7 @@ import '../../../../theme/app_theme.dart';
 import '../../../../widgets/app_toast.dart';
 import '../../data/models/cloud_model.dart';
 import '../../data/services/cloud_api_service.dart';
+import '../widgets/active_instances_panel.dart';
 import '../widgets/gpu_recommendation_card.dart';
 import '../widgets/model_selector_widget.dart';
 import '../widgets/storage_inspector_widget.dart';
@@ -44,6 +45,17 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   MarketplaceRecommendedResult? _marketplaceResult;
   MarketplaceOffer? _selectedOffer;
   int _selectedStorageGB = 50;
+  RentalsStatus? _rentals;
+  List<Map<String, dynamic>> _activeInstances = const [];
+  final Set<String> _stoppingIds = {};
+
+  /// Why renting is off right now, or null. Unknown status does not block:
+  /// the server refuses a paused rental anyway.
+  String? get _rentDisabledReason {
+    final r = _rentals;
+    if (r == null || r.rentalsEnabled) return null;
+    return r.message ?? 'Cloud GPU rentals are paused.';
+  }
 
   @override
   void initState() {
@@ -64,6 +76,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   Future<void> _loadCloudData() async {
     setState(() => _syncing = true);
     try {
+      _refreshRentalsAndInstances();
       final results = await Future.wait([
         _cloudApi.checkHealth(),
         _cloudApi.fetchModels(),
@@ -122,6 +135,53 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     }
   }
 
+  Future<void> _refreshRentalsAndInstances() async {
+    final results = await Future.wait([
+      _cloudApi.fetchRentalsStatus(),
+      _cloudApi.fetchMyInstances(),
+    ]);
+    if (!mounted) return;
+    setState(() {
+      _rentals = results[0] as RentalsStatus?;
+      final instances = results[1] as List<Map<String, dynamic>>?;
+      if (instances != null) _activeInstances = instances;
+    });
+  }
+
+  /// Stops an instance after the panel's confirmation.
+  Future<void> _stopActiveInstance(Map<String, dynamic> instance) async {
+    final id = (instance['_id'] ?? instance['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final gpu = instance['gpuType']?.toString() ?? 'GPU';
+    setState(() => _stoppingIds.add(id));
+    final result = await _cloudApi.stopInstance(id);
+    if (!mounted) return;
+    setState(() => _stoppingIds.remove(id));
+    if (result == null) {
+      AppToast.showInfo(context, title: 'Could not stop the GPU',
+          message: _cloudApi.lastStopError ?? 'Try again in a moment.');
+    } else {
+      AuthService.instance.refreshProfile();
+      AppToast.showSuccess(context, title: 'GPU stopped', message: '$gpu was stopped.');
+    }
+    await _refreshRentalsAndInstances();
+  }
+
+  void _openInstance(Map<String, dynamic> instance) {
+    final id = (instance['_id'] ?? instance['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (ctx) => InstanceProvisioningScreen(
+            instanceId: id,
+            gpuName: instance['gpuType']?.toString() ?? 'Cloud GPU',
+            selectedModelIds: (instance['modelsRequested'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+            isDark: widget.isDark,
+          ),
+        ))
+        .then((_) => _refreshRentalsAndInstances());
+  }
+
   /// Stores new offers and keeps the selected offer, now priced for the new size.
   void _applyMarket(MarketplaceRecommendedResult market) {
     _marketplaceResult = market;
@@ -177,6 +237,11 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
       return;
     }
 
+    final paused = _rentDisabledReason;
+    if (paused != null) {
+      AppToast.showInfo(context, title: 'Rentals paused', message: paused);
+      return;
+    }
     final effectiveStorageGB = storageGB ?? _selectedStorageGB;
     final gpuName = effectiveOffer.gpuName;
     // The rate shown here is the server's price for this offer and storage size,
@@ -429,6 +494,31 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                 const SizedBox(height: 14),
               ],
 
+              if (_rentDisabledReason != null)
+                Container(
+                  key: const ValueKey('rentals_paused_banner'),
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: LuminaColors.amber.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: LuminaColors.amber.withValues(alpha: 0.35)),
+                  ),
+                  child: Text(
+                    '${_rentDisabledReason!} You can still browse GPUs and prices.',
+                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              if (_activeInstances.isNotEmpty)
+                ActiveInstancesPanel(
+                  instances: _activeInstances,
+                  stoppingIds: _stoppingIds,
+                  isDark: widget.isDark,
+                  onStop: _stopActiveInstance,
+                  onOpen: _openInstance,
+                ),
+
               // Responsive Columns
               Expanded(
                 child: isWide
@@ -457,6 +547,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                               onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                               isDark: widget.isDark,
                               onLaunchInstance: _handleLaunchInstance,
+                              rentDisabledReason: _rentDisabledReason,
                               initialTab: widget.initialGpuTab,
                               initialSearchQuery: widget.initialSearchQuery,
                             ),
@@ -477,6 +568,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                       _onSelectionChanged(next);
                                     },
                                     onLaunchInstance: (offer, gb) => _handleLaunchInstance(offer, gb),
+                                    rentDisabledReason: _rentDisabledReason,
                                   )
                                 : _buildTelemetryPlaceholder(border: border, surface: surface, muted: muted),
                           ),
@@ -522,6 +614,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                     onSelectOffer: (offer) => setState(() => _selectedOffer = offer),
                                     isDark: widget.isDark,
                                     onLaunchInstance: _handleLaunchInstance,
+                                    rentDisabledReason: _rentDisabledReason,
                                     initialTab: widget.initialGpuTab,
                                     initialSearchQuery: widget.initialSearchQuery,
                                   ),
@@ -537,6 +630,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                             _onSelectionChanged(next);
                                           },
                                           onLaunchInstance: (offer, gb) => _handleLaunchInstance(offer, gb),
+                                          rentDisabledReason: _rentDisabledReason,
                                         )
                                       : _buildTelemetryPlaceholder(border: border, surface: surface, muted: muted),
                                 ],

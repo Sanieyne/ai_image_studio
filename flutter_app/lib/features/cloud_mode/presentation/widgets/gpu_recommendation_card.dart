@@ -14,6 +14,9 @@ class GpuRecommendationCard extends StatefulWidget {
   final String? initialSearchQuery;
   final bool hasModelSelection;
 
+  /// When set, renting is off (e.g. rentals paused); the reason is shown on the button.
+  final String? rentDisabledReason;
+
   const GpuRecommendationCard({
     super.key,
     required this.result,
@@ -24,6 +27,7 @@ class GpuRecommendationCard extends StatefulWidget {
     required this.onLaunchInstance,
     this.initialTab,
     this.initialSearchQuery,
+    this.rentDisabledReason,
     this.hasModelSelection = false,
   });
 
@@ -132,8 +136,10 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     // Hero card shows the user's pick if any, otherwise the highlighted recommendation.
     final MarketplaceOffer? activeOffer = userSelectedOffer ?? recommendedOffer;
     final bool heroIsRecommendationOnly = userSelectedOffer == null && recommendedOffer != null;
-    final bool canLaunch =
-        widget.hasModelSelection && userSelectedOffer != null && userSelectedOffer.priceAvailable;
+    final bool canLaunch = widget.rentDisabledReason == null &&
+        widget.hasModelSelection &&
+        userSelectedOffer != null &&
+        userSelectedOffer.priceAvailable;
 
     final primaryFallbackGpu = widget.result?.compatibleGPUs.firstOrNull;
     final maxVram = widget.result?.requirements.maxVramGB ?? 12.0;
@@ -676,7 +682,9 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
               onPressed: canLaunch ? () => widget.onLaunchInstance(userSelectedOffer) : null,
               icon: Icon(canLaunch ? Icons.rocket_launch_rounded : Icons.lock_outline_rounded, size: 18),
               label: Text(
-                !widget.hasModelSelection
+                widget.rentDisabledReason != null
+                    ? widget.rentDisabledReason!
+                    : !widget.hasModelSelection
                     ? 'Select a model to continue'
                     : (userSelectedOffer == null
                         ? 'Select a GPU offer to continue'
