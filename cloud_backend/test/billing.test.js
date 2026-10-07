@@ -49,19 +49,60 @@ describe('billing', () => {
     const fresh = await reload(inst);
     close(fresh.creditsCharged, 0.9);
     assert.equal(fresh.billedUntil.getTime(), at(90).getTime());
-    assert.equal(await Transaction.countDocuments({ user: user._id, type: 'deduction' }), 2);
+
+    // One ledger entry for the whole rental, updated each cycle.
+    const entries = await Transaction.find({ user: user._id }).lean();
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].type, 'deduction');
+    assert.equal(String(entries[0].gpuInstance), String(inst._id));
+    close(entries[0].amount, -0.9);
+    close(entries[0].balanceAfter, 99.1);
+    assert.equal(entries[0].metadata.billedSeconds, 90);
+    assert.equal(entries[0].metadata.gpuType, 'RTX 4060 Ti');
+    assert.match(entries[0].description, /^GPU rental: RTX 4060 Ti, 2 min at 36 credits\/hr$/);
   });
 
-  test('worked example: 28.9 credits/hr for 37 minutes', async () => {
+  test('worked example: 28.9 credits/hr for 37 minutes, stopped 20 s later', async () => {
     const user = await makeUser(100);
     const inst = await makeInstance(user, { billedUntil: T0, pricing: { totalCreditsPerHour: 28.9 } });
     vast.addInstance(inst.providerInstanceId);
-    // 37 one-minute cycles: each charges round6(60 * 28.9 / 3600) = 0.481667
+
+    // Each cycle charges (total owed so far) - (already charged):
+    //   minute 1: round6(60 * 28.9 / 3600) = 0.481667
+    //   minute 2: round6(120 * 28.9 / 3600) - 0.481667 = 0.963333 - 0.481667 = 0.481666
+    // so the total after 37 cycles is round6(37 * 60 * 28.9 / 3600) = 17.821667, with no drift.
     for (let m = 1; m <= 37; m += 1) await billingService.runCycle(at(m * 60));
-    const fresh = await reload(inst);
-    close(fresh.creditsCharged, 0.481667 * 37);          // 17.821679
-    close(fresh.creditsCharged, (28.9 * 37) / 60, 1e-4); // exact: 17.821667
-    close(await balance(user), 100 - 0.481667 * 37);
+    let fresh = await reload(inst);
+    close(fresh.creditsCharged, 17.821667);
+
+    // Stopped 20 s into the next cycle: total = round6(2240 * 28.9 / 3600) = 17.982222.
+    await billingService.finalizeInstance(inst._id, {
+      status: GPU_STATUS.STOPPED,
+      stopReason: STOP_REASONS.USER_STOPPED,
+      until: at(37 * 60 + 20),
+      refundIfNeverReady: true,
+    });
+    fresh = await reload(inst);
+    close(fresh.creditsCharged, 17.982222);
+    close(fresh.creditsRefunded, 0); // reached READY: no refund
+    close(await balance(user), 100 - 17.982222);
+
+    const [entry] = await Transaction.find({ user: user._id }).lean();
+    close(entry.amount, -17.982222);
+    assert.equal(entry.metadata.billedSeconds, 2240);
+    assert.match(entry.description, /37 min at 28\.9 credits\/hr/);
+  });
+
+  test('charges are computed from total time, so rounding never drifts', async () => {
+    const user = await makeUser(1000);
+    const rate = 28.9;
+    const inst = await makeInstance(user, { billedUntil: T0, pricing: { totalCreditsPerHour: rate } });
+    vast.addInstance(inst.providerInstanceId);
+    // 500 uneven cycles of 7 s: per-cycle rounding would drift; total-based charging cannot.
+    for (let i = 1; i <= 500; i += 1) await billingService.runCycle(at(i * 7));
+    const exact = Math.round(((3500 * rate) / 3600) * 1e6) / 1e6;
+    close((await reload(inst)).creditsCharged, exact, 1e-9);
+    close(await balance(user), 1000 - exact, 1e-9);
   });
 
   test('two billing workers never charge the same period twice', async () => {
@@ -75,7 +116,8 @@ describe('billing', () => {
 
     close((await reload(inst)).creditsCharged, 1.2);
     close(await balance(user), 98.8);
-    assert.equal(await Transaction.countDocuments({ user: user._id }), 2);
+    assert.equal(await Transaction.countDocuments({ user: user._id }), 1);
+    close((await Transaction.findOne({ user: user._id }).lean()).amount, -1.2);
   });
 
   test('an instance with no billedUntil starts billing when first seen, never back-charged', async () => {
@@ -201,7 +243,12 @@ describe('billing', () => {
     close(fresh.creditsCharged, 1.5);
     close(fresh.creditsRefunded, 1.5);
     close(await balance(user), 100);
-    assert.equal(await Transaction.countDocuments({ user: user._id, type: 'refund' }), 1);
+    // One charge entry and one refund entry for the rental.
+    const refund = await Transaction.findOne({ user: user._id, type: 'refund' }).lean();
+    close(refund.amount, 1.5);
+    assert.equal(String(refund.gpuInstance), String(inst._id));
+    close((await Transaction.findOne({ user: user._id, type: 'deduction' }).lean()).amount, -1.5);
+    assert.equal(await Transaction.countDocuments({ user: user._id }), 2);
 
     // Finalizing again changes nothing.
     assert.equal(await billingService.finalizeInstance(inst._id, { status: GPU_STATUS.FAILED, stopReason: 'x' }), null);
@@ -221,5 +268,99 @@ describe('billing', () => {
     });
     close(await balance(user), 99.1);
     assert.equal((await reload(inst)).creditsRefunded, 0);
+  });
+
+  test('running out of credits before READY is refunded in full', async () => {
+    const user = await makeUser(0.25);
+    const inst = await makeInstance(user, {
+      status: GPU_STATUS.PROVISIONING,
+      billedUntil: T0,
+      reachedReadyAt: null,
+    });
+    vast.addInstance(inst.providerInstanceId);
+    await billingService.runCycle(at(60));
+    const fresh = await reload(inst);
+    assert.equal(fresh.stopReason, STOP_REASONS.INSUFFICIENT_CREDITS);
+    close(fresh.creditsRefunded, 0.25);
+    close(await balance(user), 0.25);
+  });
+
+  test('ledger check: consistent rentals pass, a crash between writes is reported', async () => {
+    const user = await makeUser(100);
+    const a = await makeInstance(user, { providerInstanceId: '1001', billedUntil: T0 });
+    const b = await makeInstance(user, { providerInstanceId: '1002', billedUntil: T0, reachedReadyAt: null });
+    vast.addInstance('1001');
+    vast.addInstance('1002');
+    await billingService.runCycle(at(60));
+    await billingService.finalizeInstance(b._id, {
+      status: GPU_STATUS.FAILED,
+      stopReason: STOP_REASONS.PROVISIONING_TIMEOUT,
+      until: at(90),
+      refundIfNeverReady: true,
+    });
+    assert.deepEqual(await billingService.checkLedger({ since: T0, settleMs: 0 }), []);
+
+    // Simulate a crash after the instance record was updated but before the ledger write.
+    await GpuInstance.updateOne({ _id: a._id }, { $inc: { creditsCharged: 0.6 } });
+    const errors = [];
+    const origError = console.error;
+    console.error = (msg) => errors.push(String(msg));
+    let mismatches;
+    try {
+      mismatches = await billingService.checkLedger({ since: T0, settleMs: 0 });
+    } finally {
+      console.error = origError;
+    }
+    assert.equal(mismatches.length, 1);
+    assert.equal(mismatches[0].instanceId, String(a._id));
+    assert.equal(mismatches[0].type, 'charge');
+    close(mismatches[0].instance, 1.2);
+    close(mismatches[0].ledger, 0.6);
+    assert.ok(errors.some((e) => e.includes('LEDGER MISMATCH')));
+  });
+
+  test('concurrent first charges for one rental still create a single ledger entry', async () => {
+    await Transaction.init(); // unique index on (gpuInstance, type)
+    const user = await makeUser(100);
+    const inst = await makeInstance(user, { billedUntil: T0 });
+    const { creditService } = await import('../src/services/credit.service.js');
+    await Promise.all(
+      Array.from({ length: 5 }, () =>
+        creditService.addToRentalEntry({
+          userId: user._id,
+          gpuInstanceId: inst._id,
+          type: 'deduction',
+          amount: -0.1,
+          balanceAfter: 99,
+          description: 'GPU rental',
+          metadata: {},
+        })
+      )
+    );
+    const entries = await Transaction.find({ gpuInstance: inst._id }).lean();
+    assert.equal(entries.length, 1);
+    close(entries[0].amount, -0.5);
+  });
+});
+
+describe('billing: records without billingStartedAt', () => {
+  let db;
+  let vast;
+  before(async () => { db = await startTestDb(); });
+  after(async () => { await db.stop(); });
+  beforeEach(async () => { await db.clear(); vast = installFakeVast(); });
+  afterEach(() => vast.restore());
+
+  test('derives the start from what was already charged and keeps charging exactly', async () => {
+    const user = await makeUser(100);
+    // Billed 10 minutes at 36 credits/hr (6 credits) before billingStartedAt existed.
+    const inst = await makeInstance(user, { billedUntil: at(600), creditsCharged: 6 });
+    assert.equal((await reload(inst)).billingStartedAt, null);
+    vast.addInstance(inst.providerInstanceId);
+    await billingService.runCycle(at(660));
+    const fresh = await reload(inst);
+    assert.equal(fresh.billingStartedAt.getTime(), T0.getTime());
+    close(fresh.creditsCharged, 6.6);
+    close(await balance(user), 99.4);
   });
 });

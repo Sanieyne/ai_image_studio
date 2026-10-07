@@ -7,12 +7,14 @@
  * - Slot counters: a user's activeGpuInstances can drift above the number of
  *   instances actually holding a slot (e.g. a crash between two writes). Such
  *   drift is corrected downwards; it would otherwise block the user from renting.
+ * - Ledger: each rental's creditsCharged/creditsRefunded is compared with its
+ *   ledger entries (billingService.checkLedger); differences are logged.
  */
 
 import { GpuInstance } from '../models/GpuInstance.js';
 import { User } from '../models/User.js';
 import { vastaiService } from './vastai.service.js';
-import { ACTIVE_STATUSES } from './billing.service.js';
+import { ACTIVE_STATUSES, billingService } from './billing.service.js';
 import { INSTANCE_LABEL_PREFIX } from './gpuProvider.service.js';
 import { env } from '../config/env.js';
 
@@ -43,10 +45,10 @@ class ReconcileService {
 
   /**
    * @param {{ now?: Date, destroyOrphans?: boolean }} [options]
-   * @returns {Promise<{ orphans: Array, destroyed: string[], slotFixes: number }>}
+   * @returns {Promise<{ orphans: Array, destroyed: string[], slotFixes: number, ledgerMismatches: Array }>}
    */
-  async runOnce({ now = new Date(), destroyOrphans = env.RECONCILE_DESTROY_ORPHANS } = {}) {
-    if (this._running) return { orphans: [], destroyed: [], slotFixes: 0 };
+  async runOnce({ now = new Date(), destroyOrphans = env.RECONCILE_DESTROY_ORPHANS, ledgerSettleMs } = {}) {
+    if (this._running) return { orphans: [], destroyed: [], slotFixes: 0, ledgerMismatches: [] };
     this._running = true;
     try {
       const orphans = await this.findOrphans(now);
@@ -66,7 +68,15 @@ class ReconcileService {
         }
       }
       const slotFixes = await this.fixSlotCounters();
-      return { orphans, destroyed, slotFixes };
+      let ledgerMismatches = [];
+      try {
+        ledgerMismatches = await billingService.checkLedger(
+          ledgerSettleMs === undefined ? {} : { settleMs: ledgerSettleMs }
+        );
+      } catch (err) {
+        console.error(`[Reconcile] Ledger check failed: ${err.message}`);
+      }
+      return { orphans, destroyed, slotFixes, ledgerMismatches };
     } finally {
       this._running = false;
     }

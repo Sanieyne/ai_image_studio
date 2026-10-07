@@ -47,7 +47,8 @@ class CreditService {
    * @param {string} description - Explanation of credit addition
    * @param {Object} [metadata={}] - Optional reference info
    * @param {mongoose.ClientSession} [externalSession=null]
-   * @returns {Promise<{ user: Object, transaction: Object }>}
+   * @param {{ recordTransaction?: boolean }} [options] false: the caller writes its own ledger entry
+   * @returns {Promise<{ user: Object, transaction: Object|null }>}
    */
   async addCredits(
     userId,
@@ -55,7 +56,8 @@ class CreditService {
     type = TRANSACTION_TYPES.PURCHASE,
     description = 'Credits added',
     metadata = {},
-    externalSession = null
+    externalSession = null,
+    { recordTransaction = true } = {}
   ) {
     if (amount <= 0) {
       throw ApiError.badRequest('Credit amount to add must be greater than zero');
@@ -76,6 +78,7 @@ class CreditService {
       if (!updatedUser) {
         throw ApiError.notFound('User not found');
       }
+      if (!recordTransaction) return { user: updatedUser, transaction: null };
 
       const [transaction] = await Transaction.create(
         [
@@ -114,7 +117,8 @@ class CreditService {
    * @param {string} description - Reason for deduction
    * @param {Object} [metadata={}] - GPU instance ID, job ID, etc.
    * @param {mongoose.ClientSession} [externalSession=null]
-   * @param {{ upTo?: boolean }} [options]
+   * @param {{ upTo?: boolean, recordTransaction?: boolean }} [options]
+   *   recordTransaction false: no ledger row; the caller writes its own (e.g. one row per GPU rental).
    * @returns {Promise<{ user: Object, transaction: Object|null, charged: number }>}
    */
   async deductCredits(
@@ -123,7 +127,7 @@ class CreditService {
     description = 'GPU Compute Usage',
     metadata = {},
     externalSession = null,
-    { upTo = false } = {}
+    { upTo = false, recordTransaction = true } = {}
   ) {
     if (!(amount > 0)) {
       throw ApiError.badRequest('Deduction amount must be greater than zero');
@@ -175,6 +179,8 @@ class CreditService {
       }
     }
 
+    if (!recordTransaction) return { user: updatedUser, transaction: null, charged };
+
     const [transaction] = await Transaction.create(
       [
         {
@@ -190,6 +196,38 @@ class CreditService {
     );
 
     return { user: updatedUser, transaction, charged };
+  }
+
+  /**
+   * Add `amount` to the single ledger entry of one GPU rental (one row per rental
+   * and type, created on first use), so a running rental shows as one line in the
+   * user's history instead of one per billing cycle.
+   *
+   * @param {Object} params
+   * @param {*} params.userId
+   * @param {*} params.gpuInstanceId
+   * @param {string} params.type - TRANSACTION_TYPES.DEDUCTION or REFUND
+   * @param {number} params.amount - signed change (negative for charges)
+   * @param {number} params.balanceAfter
+   * @param {string} params.description
+   * @param {Object} params.metadata - replaces the entry's metadata (current totals)
+   * @returns {Promise<Object>} the updated entry
+   */
+  async addToRentalEntry({ userId, gpuInstanceId, type, amount, balanceAfter, description, metadata }) {
+    const filter = { user: userId, gpuInstance: gpuInstanceId, type };
+    const update = {
+      $inc: { amount },
+      $set: { balanceAfter: Math.max(0, balanceAfter), description, metadata },
+    };
+    try {
+      return await Transaction.findOneAndUpdate(filter, update, { upsert: true, returnDocument: 'after' });
+    } catch (err) {
+      // Two first writes raced on the unique index: the entry exists now.
+      if (err?.code === 11000) {
+        return Transaction.findOneAndUpdate(filter, update, { returnDocument: 'after' });
+      }
+      throw err;
+    }
   }
 }
 

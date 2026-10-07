@@ -122,6 +122,9 @@ const gpuInstanceSchema = new mongoose.Schema(
     // Charged up to this moment. Advanced with a conditional update before each
     // charge, so a period can only be claimed once across backend processes.
     billedUntil: { type: Date, default: null },
+    // Start of the billed time. Each charge is (total owed for billingStartedAt..until)
+    // minus creditsCharged, so per-cycle rounding never accumulates.
+    billingStartedAt: { type: Date, default: null },
     creditsCharged: { type: Number, default: 0 },
     creditsRefunded: { type: Number, default: 0 },
     refundIssued: { type: Boolean, default: false },

@@ -138,9 +138,12 @@ describe('rentGPU', () => {
   test('user stop settles the final charge up to the stop time', async () => {
     const user = await makeUser(500);
     const inst = await gpuProviderService.rentGPU(rentParams(user));
-    // Pretend the last billing cycle ran two minutes ago.
+    // Pretend the contract was confirmed two minutes ago and the instance reached READY.
     const twoMinAgo = new Date(Date.now() - 120_000);
-    await GpuInstance.updateOne({ _id: inst._id }, { $set: { billedUntil: twoMinAgo, reachedReadyAt: twoMinAgo } });
+    await GpuInstance.updateOne(
+      { _id: inst._id },
+      { $set: { billedUntil: twoMinAgo, billingStartedAt: twoMinAgo, reachedReadyAt: twoMinAgo } }
+    );
 
     const stopped = await gpuProviderService.terminateInstance(user._id, inst._id);
     const expected = (inst.pricing.totalCreditsPerHour * 120) / 3600;
@@ -148,5 +151,21 @@ describe('rentGPU', () => {
     assert.equal(stopped.stopReason, 'user_stopped');
     assert.ok(Math.abs(stopped.creditsCharged - expected) < expected * 0.02, `${stopped.creditsCharged} vs ${expected}`);
     assert.deepEqual(vast.calls.destroy, [inst.providerInstanceId]);
+  });
+
+  test('user stop before READY refunds everything charged', async () => {
+    const user = await makeUser(500);
+    const inst = await gpuProviderService.rentGPU(rentParams(user));
+    const twoMinAgo = new Date(Date.now() - 120_000);
+    await GpuInstance.updateOne(
+      { _id: inst._id },
+      { $set: { billedUntil: twoMinAgo, billingStartedAt: twoMinAgo, reachedReadyAt: null } }
+    );
+
+    const stopped = await gpuProviderService.terminateInstance(user._id, inst._id);
+    assert.equal(stopped.stopReason, 'user_stopped');
+    assert.ok(stopped.creditsCharged > 0);
+    assert.ok(Math.abs(stopped.creditsRefunded - stopped.creditsCharged) < 1e-9);
+    assert.ok(Math.abs((await User.findById(user._id).lean()).credits - 500) < 1e-9);
   });
 });

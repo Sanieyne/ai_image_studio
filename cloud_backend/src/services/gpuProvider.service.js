@@ -479,7 +479,12 @@ class GpuProviderService {
     const confirmed = await GpuInstance.findOneAndUpdate(
       { _id: instance._id, status: GPU_STATUS.PROVISIONING },
       {
-        $set: { providerInstanceId: contractId, contractConfirmedAt: confirmedAt, billedUntil: confirmedAt },
+        $set: {
+          providerInstanceId: contractId,
+          contractConfirmedAt: confirmedAt,
+          billedUntil: confirmedAt,
+          billingStartedAt: confirmedAt,
+        },
         $push: { provisioningLogs: { message: `Vast.ai contract established: #${contractId}` } },
       },
       { returnDocument: 'after' }
@@ -542,6 +547,10 @@ class GpuProviderService {
       status: GPU_STATUS.STOPPED,
       stopReason: STOP_REASONS.USER_STOPPED,
       until: new Date(),
+      // Nothing usable before READY, so a stop before then is refunded in full.
+      // TODO: once the app can send work to a rented GPU before every model is
+      // ready, charge from the first generation instead of refunding.
+      refundIfNeverReady: true,
       message: 'Instance manually terminated by user.',
       emitReason: 'USER_STOPPED',
     });

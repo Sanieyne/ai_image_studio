@@ -14,12 +14,18 @@
  * - When the balance can't cover a period, what's left is charged and the
  *   instance is destroyed. If the destroy fails, it stays billable and the stop
  *   is retried next cycle.
- * - Instances that never reach READY (failure, timeout, provider loss) are
- *   refunded everything they were charged.
+ * - Instances that never reach READY are refunded everything they were charged,
+ *   whatever stopped them (failure, timeout, provider loss, user stop, credits
+ *   exhausted): the user gets nothing usable before READY.
+ *   TODO: once the app can send work to a rented GPU before every model is
+ *   ready, charge from the first generation instead of refunding.
+ * - Each rental has one ledger entry (and at most one refund entry), updated as
+ *   it runs. checkLedger() compares them with creditsCharged/creditsRefunded.
  */
 
 import { GpuInstance } from '../models/GpuInstance.js';
 import { User } from '../models/User.js';
+import { Transaction } from '../models/Transaction.js';
 import { creditService } from './credit.service.js';
 import { vastaiService, isConfirmedContractId } from './vastai.service.js';
 import { instanceEvents, toWebSocketStatus } from './instanceEvents.js';
@@ -46,6 +52,13 @@ export const STOP_REASONS = Object.freeze({
 export const LOW_BALANCE_WINDOW_HOURS = 15 / 60;
 
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
+
+/** "37 min" or "1 h 05 min" for ledger descriptions. */
+function formatMinutes(seconds) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`;
+}
 
 /** Vast.ai lists stopped containers too; those are not "running" for billing. */
 export function isRunningOnVast(vastInstance) {
@@ -134,7 +147,18 @@ export class BillingService {
   }
 
   /**
-   * Charge an instance for [billedUntil, until).
+   * Charge an instance up to `until`.
+   *
+   * The amount is the total owed for [billingStartedAt, until) minus what was
+   * already charged, so rounding never accumulates across cycles. Writes, in order:
+   *   1. claim: move billedUntil from its current value and add the amount to
+   *      creditsCharged, in one conditional update (only one caller can win);
+   *   2. take the credits from the user's balance (up to what is left);
+   *   3. correct creditsCharged if the balance was short;
+   *   4. add the amount to the rental's single ledger entry.
+   * A crash between steps leaves creditsCharged and the ledger entry different;
+   * checkLedger() reports that. It can only under-charge the user, never over-charge.
+   *
    * @param {*} instanceId
    * @param {Date} until
    * @param {{ final?: boolean }} [options] final: settling a stop; status is not required to be active.
@@ -142,7 +166,7 @@ export class BillingService {
    */
   async chargeInstance(instanceId, until, { final = false } = {}) {
     const inst = await GpuInstance.findById(instanceId)
-      .select('user status gpuType pricing billedUntil providerInstanceId')
+      .select('user status gpuType pricing billedUntil billingStartedAt creditsCharged providerInstanceId')
       .lean();
     if (!inst || !isConfirmedContractId(inst.providerInstanceId)) return null;
     if (!final && !ACTIVE_STATUSES.includes(inst.status)) return null;
@@ -152,7 +176,7 @@ export class BillingService {
       // Predates billing: start the clock now, never back-charge.
       await GpuInstance.updateOne(
         { _id: instanceId, billedUntil: null },
-        { $set: { billedUntil: until, lastSeenOnVastAt: until } }
+        { $set: { billedUntil: until, billingStartedAt: until, lastSeenOnVastAt: until } }
       );
       return { charged: 0, amount: 0, seconds: 0, rate: 0, shortfall: false, balanceAfter: null, started: true };
     }
@@ -166,41 +190,83 @@ export class BillingService {
       return null;
     }
 
-    // Claim the period first. Only one caller can move billedUntil from `from`.
-    const claimFilter = { _id: instanceId, billedUntil: from };
-    if (!final) claimFilter.status = { $in: ACTIVE_STATUSES };
-    const claimSet = final ? { billedUntil: until } : { billedUntil: until, lastSeenOnVastAt: until };
-    const claimed = await GpuInstance.findOneAndUpdate(claimFilter, { $set: claimSet }, { returnDocument: 'after' });
-    if (!claimed) return null;
-
+    const already = inst.creditsCharged || 0;
+    // Records billed before billingStartedAt existed: the start that matches what was charged.
+    const startedAt = inst.billingStartedAt
+      ? new Date(inst.billingStartedAt)
+      : new Date(from.getTime() - Math.round((already / rate) * 3600 * 1000));
+    const totalSeconds = (until.getTime() - startedAt.getTime()) / 1000;
+    const owed = round6((totalSeconds * rate) / 3600);
+    const amount = Math.max(0, round6(owed - already));
     const seconds = (until.getTime() - from.getTime()) / 1000;
-    const amount = round6((seconds * rate) / 3600);
+
+    // 1. Claim the period. Only one caller can move billedUntil from `from`.
+    const claimFilter = {
+      _id: instanceId,
+      billedUntil: from,
+      // Older records may lack the field; null matches both missing and null.
+      creditsCharged: inst.creditsCharged == null ? null : inst.creditsCharged,
+    };
+    if (!final) claimFilter.status = { $in: ACTIVE_STATUSES };
+    const claimSet = { billedUntil: until, billingStartedAt: startedAt };
+    if (!final) claimSet.lastSeenOnVastAt = until;
+    const claimed = await GpuInstance.findOneAndUpdate(
+      claimFilter,
+      { $set: claimSet, $inc: { creditsCharged: amount } },
+      { returnDocument: 'after' }
+    );
+    if (!claimed) return null;
     if (amount <= 0) {
       return { charged: 0, amount: 0, seconds, rate, shortfall: false, balanceAfter: null };
     }
 
+    // 2. Take the credits.
     let result;
     try {
-      result = await creditService.deductCredits(
-        inst.user,
-        amount,
-        `GPU time: ${inst.gpuType || 'GPU'}, ${Math.round(seconds)} s at ${rate} credits/hr`,
-        { gpuInstanceId: String(instanceId), from, until, seconds, creditsPerHour: rate },
-        null,
-        { upTo: true }
-      );
+      result = await creditService.deductCredits(inst.user, amount, 'GPU rental', {}, null, {
+        upTo: true,
+        recordTransaction: false,
+      });
     } catch (err) {
       // Release the claim so the period is charged on a later attempt.
-      await GpuInstance.updateOne({ _id: instanceId, billedUntil: until }, { $set: { billedUntil: from } });
+      await GpuInstance.updateOne(
+        { _id: instanceId, billedUntil: until },
+        { $set: { billedUntil: from }, $inc: { creditsCharged: -amount } }
+      );
       throw err;
     }
 
-    if (result.charged > 0) {
-      const after = await GpuInstance.findOneAndUpdate(
+    // 3. Short balance: record only what was actually taken.
+    let after = claimed;
+    if (result.charged < amount) {
+      after = await GpuInstance.findOneAndUpdate(
         { _id: instanceId },
-        { $inc: { creditsCharged: result.charged } },
+        { $inc: { creditsCharged: round6(result.charged - amount) } },
         { returnDocument: 'after' }
       );
+    }
+
+    // 4. The rental's ledger entry.
+    if (result.charged > 0) {
+      const billedSeconds = Math.round(totalSeconds);
+      await creditService.addToRentalEntry({
+        userId: inst.user,
+        gpuInstanceId: instanceId,
+        type: TRANSACTION_TYPES.DEDUCTION,
+        amount: -result.charged,
+        balanceAfter: result.user?.credits ?? 0,
+        description: `GPU rental: ${inst.gpuType || 'GPU'}, ${formatMinutes(billedSeconds)} at ${rate} credits/hr`,
+        metadata: {
+          gpuInstanceId: String(instanceId),
+          gpuType: inst.gpuType || null,
+          creditsPerHour: rate,
+          billedSeconds,
+          minutes: round6(billedSeconds / 60),
+          creditsCharged: round6(after?.creditsCharged ?? 0),
+          billedFrom: startedAt,
+          billedUntil: until,
+        },
+      });
       // A charge that landed after a failed-provisioning refund is refunded too.
       if (after?.refundIssued) await this.refundOutstanding(instanceId);
     }
@@ -278,6 +344,7 @@ export class BillingService {
       status: GPU_STATUS.STOPPED,
       stopReason: STOP_REASONS.INSUFFICIENT_CREDITS,
       until: now,
+      refundIfNeverReady: true,
       message: '[BILLING] Credits exhausted. Instance destroyed.',
       emitReason: 'INSUFFICIENT_CREDITS',
     });
@@ -356,13 +423,25 @@ export class BillingService {
       );
       if (claimed.modifiedCount !== 1) continue;
       try {
-        await creditService.addCredits(
+        const { user } = await creditService.addCredits(
           inst.user,
           delta,
           TRANSACTION_TYPES.REFUND,
-          `Refund: ${inst.gpuType || 'GPU'} instance never became ready`,
-          { gpuInstanceId: String(instanceId) }
+          'GPU rental refund',
+          {},
+          null,
+          { recordTransaction: false }
         );
+        const refunded = round6((inst.creditsRefunded || 0) + delta);
+        await creditService.addToRentalEntry({
+          userId: inst.user,
+          gpuInstanceId: instanceId,
+          type: TRANSACTION_TYPES.REFUND,
+          amount: delta,
+          balanceAfter: user.credits,
+          description: `Refund: ${inst.gpuType || 'GPU'} rental stopped before it was ready`,
+          metadata: { gpuInstanceId: String(instanceId), gpuType: inst.gpuType || null, creditsRefunded: refunded },
+        });
         return delta;
       } catch (err) {
         await GpuInstance.updateOne({ _id: instanceId }, { $inc: { creditsRefunded: -delta } });
@@ -371,6 +450,55 @@ export class BillingService {
       }
     }
     return 0;
+  }
+
+  /**
+   * Compare each rental's creditsCharged / creditsRefunded with its ledger
+   * entries and log any difference. A difference means a crash between the
+   * balance update and the ledger write (see chargeInstance). Log only.
+   *
+   * @param {{ since?: Date, settleMs?: number }} [options]
+   *   since: rentals updated after this; settleMs: re-read a mismatch after this
+   *   long before reporting it, so a charge in progress is not reported.
+   * @returns {Promise<Array<{ instanceId: string, type: string, instance: number, ledger: number }>>}
+   */
+  async checkLedger({ since = new Date(Date.now() - 48 * 3600 * 1000), settleMs = 2000 } = {}) {
+    const compare = async (inst) => {
+      const entries = await Transaction.find({ gpuInstance: inst._id }).select('type amount').lean();
+      const ledgerOf = (type) => entries.filter((e) => e.type === type).reduce((sum, e) => sum + e.amount, 0);
+      const out = [];
+      const charged = round6(-ledgerOf(TRANSACTION_TYPES.DEDUCTION));
+      const refunded = round6(ledgerOf(TRANSACTION_TYPES.REFUND));
+      if (Math.abs(charged - (inst.creditsCharged || 0)) > 1e-6) {
+        out.push({ instanceId: String(inst._id), type: 'charge', instance: inst.creditsCharged || 0, ledger: charged });
+      }
+      if (Math.abs(refunded - (inst.creditsRefunded || 0)) > 1e-6) {
+        out.push({ instanceId: String(inst._id), type: 'refund', instance: inst.creditsRefunded || 0, ledger: refunded });
+      }
+      return out;
+    };
+
+    const candidates = await GpuInstance.find({
+      updatedAt: { $gte: since },
+      $or: [{ creditsCharged: { $gt: 0 } }, { creditsRefunded: { $gt: 0 } }],
+    })
+      .select('_id creditsCharged creditsRefunded')
+      .lean();
+
+    const mismatches = [];
+    for (const inst of candidates) {
+      if ((await compare(inst)).length === 0) continue;
+      if (settleMs > 0) await new Promise((r) => setTimeout(r, settleMs));
+      const fresh = await GpuInstance.findById(inst._id).select('_id creditsCharged creditsRefunded').lean();
+      for (const m of await compare(fresh)) {
+        console.error(
+          `[Billing] !!! LEDGER MISMATCH instance ${m.instanceId} (${m.type}): ` +
+            `instance record ${m.instance}, ledger ${m.ledger}, difference ${round6(m.instance - m.ledger)}.`
+        );
+        mismatches.push(m);
+      }
+    }
+    return mismatches;
   }
 
   /**

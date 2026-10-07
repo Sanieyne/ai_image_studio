@@ -35,15 +35,22 @@ Work in progress; completed per phase. Commands assume the live checkout at
 
 ### New fields
 
-- `GpuInstance`: `contractConfirmedAt`, `billedUntil`, `creditsCharged`, `creditsRefunded`,
+- `GpuInstance`: `contractConfirmedAt`, `billedUntil`, `billingStartedAt`, `creditsCharged`, `creditsRefunded`,
   `refundIssued`, `reachedReadyAt`, `stopReason`, `pendingStopReason`, `lowBalanceWarnedAt`,
   `lastSeenOnVastAt`, `vastMissCount`, `firstMissAt`, `holdsSlot`; index `{ status: 1 }`.
 - `User`: `activeGpuInstances` (rental slots in use).
+- `Transaction`: `gpuInstance` (set only on GPU rental entries); unique partial index
+  `{ gpuInstance: 1, type: 1 }`, so each rental has one charge entry and one refund entry.
 
-Indexes are not auto-built in production (`autoIndex` is off). Build the new one once:
+Indexes are not auto-built in production (`autoIndex` is off). Build the new ones once:
 
 ```bash
-mongosh ai_image_studio --quiet --eval 'db.gpuinstances.createIndex({ status: 1 })'
+mongosh ai_image_studio --quiet --eval '
+  db.gpuinstances.createIndex({ status: 1 });
+  db.transactions.createIndex(
+    { gpuInstance: 1, type: 1 },
+    { unique: true, partialFilterExpression: { gpuInstance: { $type: "objectId" } } }
+  );'
 ```
 
 ### How charging works
@@ -53,10 +60,28 @@ mongosh ai_image_studio --quiet --eval 'db.gpuinstances.createIndex({ status: 1 
 - New rentals: billing starts when Vast.ai confirms the contract.
 - Instances that exist before this deploy have no `billedUntil`: billing starts the
   first time the service sees them. Nothing earlier is charged.
+- Each charge is the total owed since billing started minus what was already charged,
+  so per-cycle rounding never accumulates.
 - Stop (user, timeout, credits exhausted, instance gone from Vast.ai) settles a final
-  charge. Instances that never reached READY are refunded in full.
+  charge. A rental that never reached READY is refunded in full, whatever stopped it,
+  including a user stop: nothing usable is delivered before READY.
+  (TODO in code: once the app can send work before every model is ready, charge from
+  the first generation instead.)
 - Out of credits: charge what is left, destroy the instance, status `stopped`,
   `stopReason: insufficient_credits`. A low-balance event is sent when under 15 minutes remain.
+
+### Ledger
+
+- One `deduction` entry per rental, updated every cycle: amount (total charged so far),
+  `balanceAfter`, and in `metadata` the GPU, credits/hr, billed seconds and minutes.
+  Description, e.g. `GPU rental: RTX 4060 Ti, 37 min at 28.9 credits/hr`.
+- At most one `refund` entry per rental (`Refund: RTX 4060 Ti rental stopped before it was ready`).
+- Write order per charge: (1) claim the period and add to `creditsCharged`, (2) take the
+  credits, (3) correct `creditsCharged` if the balance was short, (4) update the ledger entry.
+  A crash between steps can only under-charge the user. The reconcile job (every 10 min)
+  compares each rental's `creditsCharged`/`creditsRefunded` with its ledger entries and logs
+  `[Billing] !!! LEDGER MISMATCH …` for any difference. Grep for it after deploy:
+  `pm2 logs ai-studio-backend --nostream --lines 2000 | grep 'LEDGER MISMATCH'`
 
 ### Worked example
 
@@ -65,12 +90,12 @@ rental). Note: 20.83 of those 28.9 credits/hr are the overpriced storage fixed i
 
 | Step | Value |
 |---|---|
-| Per 60-s cycle | 60 × 28.9 / 3600 = 0.481667 credits (rounded to 6 decimals) |
-| Runs 37 minutes (37 cycles) | 37 × 0.481667 = **17.821679 credits** |
-| Exact | 28.9 × 37 / 60 = 17.821667 (rounding difference 0.000012) |
-| Stopped 20 s into the next cycle | + 20 × 28.9 / 3600 = 0.160556 |
-| Total charged | 17.982235 credits |
-| If it never reached READY | all 17.982235 credits refunded |
+| Cycle 1 (60 s) | owed round6(60 × 28.9 / 3600) = 0.481667; charged 0.481667 |
+| Cycle 2 (120 s) | owed round6(120 × 28.9 / 3600) = 0.963333; charged 0.963333 − 0.481667 = 0.481666 |
+| After 37 cycles | owed = charged = round6(2220 × 28.9 / 3600) = **17.821667** (no drift) |
+| Stopped 20 s later (2240 s) | owed round6(2240 × 28.9 / 3600) = 17.982222; final charge 0.160555 |
+| Total charged | **17.982222 credits**, one ledger row: `GPU rental: RTX 4060 Ti, 37 min at 28.9 credits/hr` |
+| If it never reached READY | 17.982222 refunded; a second row `Refund: …` (+17.982222) |
 
 ### Before restarting with this code
 
