@@ -9,6 +9,7 @@ import { vastaiService } from '../services/vastai.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import { ApiError } from '../utils/ApiError.js';
+import { env } from '../config/env.js';
 import {
   STORAGE_MIN_GB,
   STORAGE_MAX_GB,
@@ -160,7 +161,7 @@ export const getMyInstances = asyncHandler(async (req, res) => {
   const instances = await gpuProviderService.getUserInstances(req.user._id);
 
   const enriched = instances.map((instance) => ({
-    ...sanitizeInstanceForClient(instance),
+    ...instanceProgressView(instance),
     burnRate: priceTrackerService.calculateBurnRate(instance),
   }));
 
@@ -184,12 +185,63 @@ export const getInstanceById = asyncHandler(async (req, res) => {
   }
 
   const liveMetrics = await priceTrackerService.trackPriceEat(instanceId);
-
   res.status(200).json({
     success: true,
     data: {
-      ...sanitizeInstanceForClient(instance),
+      ...instanceProgressView(instance),
       liveMetrics,
+    },
+  });
+});
+
+/**
+ * An instance as the provisioning screen needs it: current progress, the last
+ * 20 log lines, elapsed time and credits charged / refunded so far.
+ */
+export function instanceProgressView(instance, now = new Date()) {
+  const view = sanitizeInstanceForClient(instance);
+  const logs = instance.provisioningLogs || [];
+  const startedAt = instance.contractConfirmedAt || instance.startedAt || instance.createdAt;
+  const endedAt = instance.stoppedAt ? new Date(instance.stoppedAt) : now;
+  view.provisioningLogs = logs.slice(-20).map((l) => ({ timestamp: l.timestamp, level: l.level, message: l.message }));
+  view.progress = instance.progress
+    ? {
+        stage: instance.progress.stage,
+        message: instance.progress.message,
+        vastStatus: instance.progress.vastStatus,
+        vastStatusMessage: instance.progress.vastStatusMessage,
+        portFound: Boolean(instance.progress.portFound),
+        engineReachable: Boolean(instance.progress.engineReachable),
+        failureReason: instance.progress.failureReason || null,
+        models: instance.progress.models || [],
+        updatedAt: instance.progress.updatedAt,
+      }
+    : null;
+  view.elapsedSeconds = startedAt ? Math.max(0, Math.round((endedAt - new Date(startedAt)) / 1000)) : 0;
+  view.billing = {
+    creditsCharged: instance.creditsCharged || 0,
+    creditsRefunded: instance.creditsRefunded || 0,
+    creditsPerHour: instance.pricing?.totalCreditsPerHour ?? null,
+    stopReason: instance.stopReason || null,
+  };
+  // Internal fields the app has no use for.
+  delete view.pendingStopReason;
+  delete view.holdsSlot;
+  delete view.vastMissCount;
+  delete view.firstMissAt;
+  return view;
+}
+
+/**
+ * GET /api/v1/gpu/rentals/status
+ * Whether new rentals are open. The app keeps the marketplace browsable either way.
+ */
+export const getRentalsStatus = asyncHandler(async (req, res) => {
+  res.status(200).json({
+    success: true,
+    data: {
+      rentalsEnabled: env.GPU_RENTALS_ENABLED,
+      message: env.GPU_RENTALS_ENABLED ? null : env.GPU_RENTALS_PAUSED_MESSAGE,
     },
   });
 });

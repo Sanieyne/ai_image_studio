@@ -227,14 +227,14 @@ class ModelStatusManager:
                 try:
                     loaded_in_vram = self._load_model_engine(mid)
                 except Exception as load_err:
-                    log.warning("[!] Loading warning for model '%s': %s", mid, load_err)
-                    # If mock mode is enabled or local fallback exists, treat as ready
+                    log.warning("[!] Loading failed for model '%s': %s", mid, load_err)
                     if os.environ.get("AI_STUDIO_MOCK", "0") == "1":
                         loaded_in_vram = True
                     else:
-                        if not download_ok:
-                            self.update_status(mid, "failed", error=str(load_err))
-                            continue
+                        # Reported through /health, so the backend can tell the user why.
+                        reason = str(load_err) if download_ok else f"download failed; {load_err}"
+                        self.update_status(mid, "failed", error=reason)
+                        continue
 
                 # 3. READY
                 self.update_status(
@@ -295,13 +295,20 @@ class ModelStatusManager:
             return False
 
         # 5. Base Image diffusion pipeline (SDXL, FLUX, Z-Image, Qwen)
-        from generation.pipeline import get_pipeline
-        pipe = get_pipeline()
-        if can_fit:
-            if getattr(pipe, "engine", None) and pipe.engine.current_model_id != model_id:
+        if not can_fit:
+            return False
+        from generation.pipeline import get_pipeline, peek_pipeline
+        existing = peek_pipeline()
+        if existing is None:
+            # Created directly with this model: nothing else is loaded first.
+            pipe = get_pipeline(model_id)
+        else:
+            pipe = existing
+            if pipe.engine.current_model_id != model_id:
                 pipe.switch_model(model_id)
-            return True
-        return False
+        if not pipe.model_loaded and not getattr(pipe, "mock_mode", False):
+            raise RuntimeError(f"Model '{model_id}' did not load.")
+        return True
 
 
 # Singleton instance used throughout the python engine

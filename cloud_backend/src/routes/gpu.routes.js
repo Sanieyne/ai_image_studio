@@ -11,6 +11,7 @@ import {
   rent,
   getMyInstances,
   getInstanceById,
+  getRentalsStatus,
   destroyInstance,
   estimatePricing,
   getGpuSeries,
@@ -28,6 +29,9 @@ import {
 } from '../middleware/validation.middleware.js';
 
 const router = Router();
+
+// Whether rentals are open is answered even without a Vast.ai key.
+router.get('/rentals/status', publicReadLimiter, getRentalsStatus);
 
 // Without a Vast.ai key, production has no real GPU data to serve: answer 503
 // instead of empty or simulated results.

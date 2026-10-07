@@ -52,34 +52,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import router
-from generation.pipeline import get_pipeline
 
 logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Answer /health immediately; load only the models the user selected, in the background."""
     from generation.model_status import model_status_manager
 
-    # Retrieve models requested via AI_STUDIO_SELECTED_MODELS environment variable
     selected_env = os.environ.get("AI_STUDIO_SELECTED_MODELS", "").strip()
     model_ids = [m.strip() for m in selected_env.replace(",", " ").split() if m.strip()]
-    if not model_ids:
-        from config.config import settings
-        default_mid = getattr(settings, "model_id", None) or "stabilityai/stable-diffusion-xl-base-1.0"
-        model_ids = [default_mid]
-
-    # Initialize shared in-memory status store with all requested models in "queued" state
-    model_status_manager.initialize_models(model_ids)
-
-    # Start sequential background worker (queued -> downloading -> loading -> ready)
-    model_status_manager.start_lifecycle_worker(model_ids)
-
-    # Warm up base pipeline if mock mode or available
-    try:
-        get_pipeline()
-    except Exception as e:
-        logging.getLogger(__name__).warning("[!] Pipeline warmup deferred (%s). Models will load on demand.", e)
+    if model_ids:
+        # queued -> downloading -> loading -> ready, one model at a time, off the event loop.
+        model_status_manager.initialize_models(model_ids)
+        model_status_manager.start_lifecycle_worker(model_ids)
+    # Nothing selected: nothing is loaded until a request needs it.
     yield
 
 
@@ -97,6 +85,11 @@ app.include_router(router)
 
 
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        from self_test import main as self_test_main
+
+        sys.exit(self_test_main([a for a in sys.argv[1:] if a != "--self-test"]))
+
     import uvicorn
     from config.config import settings
 

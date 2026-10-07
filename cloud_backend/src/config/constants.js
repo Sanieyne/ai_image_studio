@@ -160,3 +160,9 @@ export const VASTAI_GPU_NAME_MAP = Object.freeze({
 export const MIN_INET_DOWN_FLOOR_MBPS = 400;
 
 
+
+// What the engine image (torch 2.11, CUDA 12.8) can run: GPU architectures sm_75..sm_120
+// (Turing to Blackwell; checked in the torch wheel) and hosts whose driver supports CUDA 12.8.
+// Offers outside this are never shown or rented.
+export const MIN_GPU_COMPUTE_CAP = 750; // Vast.ai compute_cap: 750 = sm_75
+export const MIN_HOST_CUDA = 12.8; // Vast.ai cuda_max_good

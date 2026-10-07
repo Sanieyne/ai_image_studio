@@ -22,9 +22,8 @@ try:
     import boto3
     import botocore.config
     import botocore.exceptions
-except ImportError:
-    print("[FATAL] boto3 is required. Install via: pip install boto3")
-    sys.exit(1)
+except ImportError:  # only needed for R2 downloads; importing this module must not exit the engine
+    boto3 = None
 
 # Catalog mappings & engine expectation rules
 MODEL_CATALOG: Dict[str, dict] = {
@@ -180,6 +179,8 @@ def resolve_canonical_id(raw_id: str) -> str:
 
 
 def get_r2_client():
+    if boto3 is None:
+        raise RuntimeError("boto3 is required for R2 downloads. Install via: pip install boto3")
     endpoint = os.environ.get("R2_ENDPOINT")
     access_key = os.environ.get("R2_ACCESS_KEY_ID")
     secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")

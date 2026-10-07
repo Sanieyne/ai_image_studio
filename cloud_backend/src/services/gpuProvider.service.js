@@ -4,7 +4,7 @@
  * calculates hardware fit scores, and manages user cloud instance deployments.
  */
 
-import { vastaiService, isConfirmedContractId } from './vastai.service.js';
+import { vastaiService, hostUnsupportedReason, isConfirmedContractId } from './vastai.service.js';
 import { billingService, ACTIVE_STATUSES, STOP_REASONS } from './billing.service.js';
 import { recommendationService } from './recommendation.service.js';
 import { creditService } from './credit.service.js';
@@ -19,10 +19,18 @@ import {
   LOG_LEVELS,
 } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { env } from '../config/env.js';
 
 /** Every Vast.ai instance we create is labelled `cosmicgen-<GpuInstance id>`. */
 export const INSTANCE_LABEL_PREFIX = 'cosmicgen-';
+
+const ONSTART_SCRIPT = fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '../scripts/onstart.sh'),
+  'utf8'
+);
 
 class GpuProviderService {
   /**
@@ -255,105 +263,11 @@ class GpuProviderService {
   }
 
   /**
-   * Generates dynamic onstart shell script for Vast.ai GPU instance.
-   * - Configures workspace and logs
-   * - Sets up python dependencies (boto3, requirements.txt)
-   * - Pulls selected models from R2 via download_model.py
-   * - Starts Python inference engine on port 8000
+   * Startup script for a rented instance: src/scripts/onstart.sh (engine package,
+   * locked packages, self-test, engine on port 8000; failures reported on /health).
    */
-  _generateOnstartScript({ selectedModelIds = [] } = {}) {
-    return [
-      '#!/bin/bash',
-      'set -e',
-      'LOG_FILE="/var/log/ai_studio_onstart.log"',
-      'mkdir -p /var/log',
-      'exec > >(tee -a "$LOG_FILE") 2>&1',
-      '',
-      'echo "=========================================================="',
-      'echo "[$(date -u +\'%Y-%m-%d %H:%M:%S UTC\')] AI Studio GPU Instance OnStart Initializing"',
-      'echo "=========================================================="',
-      '',
-      '# 1. Persist container environment variables for SSH and non-interactive subshells',
-      'env | grep -E \'^(AI_STUDIO|R2_|PATH|CUDA|DEBIAN)\' >> /etc/environment 2>/dev/null || true',
-      '',
-      'echo "[STAGE 1/4] Preparing workspace and engine source..."',
-      'mkdir -p /workspace',
-      'cd /workspace',
-      '',
-      '# Bootstrap python dependencies for R2 transport',
-      'export PIP_BREAK_SYSTEM_PACKAGES=1',
-      'python3 -m pip install --no-cache-dir --break-system-packages boto3 botocore || true',
-      '',
-      '# Fetch python_engine package from R2 if not already present',
-      'if [ ! -d "/workspace/python_engine" ] && [ ! -d "/root/projects/ai_image_studio/python_engine" ]; then',
-      '  echo "Fetching python_engine package from Cloudflare R2..."',
-      '  python3 -c "',
-      'import os, boto3',
-      's3 = boto3.client(\'s3\', endpoint_url=os.environ.get(\'R2_ENDPOINT\'),',
-      '                  aws_access_key_id=os.environ.get(\'R2_ACCESS_KEY_ID\'),',
-      '                  aws_secret_access_key=os.environ.get(\'R2_SECRET_ACCESS_KEY\'))',
-      's3.download_file(os.environ.get(\'R2_BUCKET_NAME\', \'cosmic-gen\'), \'models/engine/python_engine.tar.gz\', \'/workspace/python_engine.tar.gz\')',
-      '" 2>/dev/null || true',
-      '  if [ -f "/workspace/python_engine.tar.gz" ]; then',
-      '    mkdir -p /workspace/python_engine',
-      '    tar -xzf /workspace/python_engine.tar.gz -C /workspace/python_engine/',
-      '    rm -f /workspace/python_engine.tar.gz',
-      '    echo "[OK] python_engine extracted into /workspace/python_engine"',
-      '  fi',
-      'fi',
-      '',
-      '# Locate and enter engine directory',
-      'if [ -d "/workspace/python_engine" ]; then',
-      '  cd /workspace/python_engine',
-      'elif [ -d "/root/projects/ai_image_studio/python_engine" ]; then',
-      '  cd /root/projects/ai_image_studio/python_engine',
-      'fi',
-      'echo "Current working directory: $(pwd)"',
-      '',
-      'echo "[STAGE 2/4] Installing Python engine dependencies..."',
-      'if [ -z "$AI_STUDIO_SKIP_PIP" ] && [ -f "requirements.txt" ]; then',
-      '  echo "Installing requirements from $(pwd)/requirements.txt..."',
-      '  python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt || true',
-      'else',
-      '  echo "Skipping full pip install (AI_STUDIO_SKIP_PIP set or requirements.txt missing)."',
-      'fi',
-      '',
-      'echo "[STAGE 3/4] Starting AI Studio Python Engine on port 8000..."',
-      'export PORT=8000',
-      'export HOST=0.0.0.0',
-      'export AI_STUDIO_HOST="0.0.0.0"',
-      'export AI_STUDIO_PORT="8000"',
-      'if [ -f "app.py" ]; then',
-      '  nohup python3 app.py > /var/log/ai_engine.log 2>&1 &',
-      '  ENGINE_PID=$!',
-      '  echo "[OK] Engine started with PID $ENGINE_PID (logging to /var/log/ai_engine.log)"',
-      'elif [ -f "launcher.py" ]; then',
-      '  nohup python3 launcher.py > /var/log/ai_engine.log 2>&1 &',
-      '  ENGINE_PID=$!',
-      '  echo "[OK] Launcher started with PID $ENGINE_PID"',
-      'else',
-      '  nohup python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000 > /var/log/ai_engine.log 2>&1 &',
-      '  ENGINE_PID=$!',
-      '  echo "[OK] Engine spawned via uvicorn with PID $ENGINE_PID"',
-      'fi',
-      '',
-      '# Health check verification',
-      'echo "Verifying engine startup on http://127.0.0.1:8000/health..."',
-      'for i in $(seq 1 30); do',
-      '  if curl -s http://127.0.0.1:8000/health > /dev/null 2>&1; then',
-      '    echo "[OK] Engine is healthy and responding on port 8000!"',
-      '    break',
-      '  fi',
-      '  sleep 2',
-      'done',
-      '',
-      'echo "[STAGE 4/4] Model weights background lifecycle active..."',
-      'echo "Active AI_STUDIO_SELECTED_MODELS: ${AI_STUDIO_SELECTED_MODELS}"',
-      '',
-      'echo "=========================================================="',
-      'echo "[$(date -u +\'%Y-%m-%d %H:%M:%S UTC\')] Onstart Script Completed Successfully"',
-      'echo "=========================================================="',
-    ].join('\n');
+  _generateOnstartScript() {
+    return ONSTART_SCRIPT;
   }
 
   /**
@@ -365,6 +279,7 @@ class GpuProviderService {
     const { userId, offerId, storageGB = 100, selectedModelIds = [] } = params;
 
     if (!userId) throw ApiError.unauthorized('User must be logged in to rent a cloud GPU.');
+    if (!env.GPU_RENTALS_ENABLED) throw ApiError.serviceUnavailable(env.GPU_RENTALS_PAUSED_MESSAGE);
     if (!offerId) throw ApiError.badRequest('Vast.ai offer ID is required.');
 
     const numericStorage = Number(storageGB);
@@ -382,6 +297,9 @@ class GpuProviderService {
         `Host download speed (${hostInetDown} Mbps) does not meet the minimum required threshold of ${MIN_INET_DOWN_FLOOR_MBPS} Mbps for reliable model streaming. Please select another offer.`
       );
     }
+    // The engine image must run on this GPU and driver, and the engine port must be reachable.
+    const unsupported = hostUnsupportedReason(offer.rawOffer || {});
+    if (unsupported) throw ApiError.conflict(`${unsupported} Please choose another offer.`);
 
     // 2. Price for the chosen storage size: the same function as the offer card,
     //    the estimate and billing (which charges pricing.totalCreditsPerHour).
@@ -475,12 +393,14 @@ class GpuProviderService {
     // 4. Trigger Vast.ai instance creation
     let vastResult;
     try {
-      const onstartScript = this._generateOnstartScript({ selectedModelIds });
+      const onstartScript = this._generateOnstartScript();
       vastResult = await vastaiService.createInstance(offer.id, {
         label: `${INSTANCE_LABEL_PREFIX}${instance._id}`,
         disk: numericStorage,
         onstart: onstartScript,
+        image: env.VASTAI_ENGINE_IMAGE,
         env: {
+          AI_STUDIO_MODE: 'cloud',
           AI_STUDIO_USER_ID: String(userId),
           AI_STUDIO_INSTANCE_ID: String(instance._id),
           AI_STUDIO_SELECTED_MODELS: selectedModelIds.join(','),

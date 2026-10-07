@@ -149,6 +149,22 @@ const gpuInstanceSchema = new mongoose.Schema(
     // Whether this instance still holds one of the user's active-instance slots.
     holdsSlot: { type: Boolean, default: false },
 
+    // Latest provisioning progress, as shown to the user (see instancePoller.service.js).
+    progress: {
+      stage: { type: String, default: null },
+      message: { type: String, default: null },
+      vastStatus: { type: String, default: null },
+      vastStatusMessage: { type: String, default: null },
+      portFound: { type: Boolean, default: false },
+      engineReachable: { type: Boolean, default: false },
+      failureReason: { type: String, default: null },
+      models: {
+        type: [{ _id: false, modelId: String, status: String, progressPercent: Number, error: String }],
+        default: [],
+      },
+      updatedAt: { type: Date, default: null },
+    },
+
     startedAt: {
       type: Date,
       default: null,

@@ -34,6 +34,10 @@ export class InstancePollerService {
     // Newly confirmed contracts may take a moment to appear in Vast.ai's listing.
     this.newContractGraceMs = options.newContractGraceMs ?? 2 * 60 * 1000;
     this._lastProviderCheckAt = 0;
+    // While instances are provisioning, Vast.ai is listed at most this often for progress.
+    this.provisioningListIntervalMs = options.provisioningListIntervalMs ?? 10 * 1000;
+    this._lastListAt = 0;
+    this._progressSig = new Map();
     this._timer = null;
     this._isPolling = false;
     this._lastModelsSignature = new Map();
@@ -84,14 +88,16 @@ export class InstancePollerService {
       );
       if (due.length === 0) return;
 
-      const needsList =
-        dueForProviderCheck ||
-        due.some((i) => isConfirmedContractId(i.providerInstanceId) && !i.pythonEngineUrl);
+      const provisioningNeedsList =
+        now.getTime() - this._lastListAt >= this.provisioningListIntervalMs &&
+        due.some((i) => isConfirmedContractId(i.providerInstanceId) && !READY_STATUSES.includes(i.status));
+      const needsList = dueForProviderCheck || provisioningNeedsList;
       let vastById = null;
       if (needsList && due.some((i) => isConfirmedContractId(i.providerInstanceId))) {
         try {
           const list = await vastaiService.listInstancesStrict();
           vastById = new Map(list.map((v) => [String(v.id), v]));
+          this._lastListAt = now.getTime();
           if (dueForProviderCheck) this._lastProviderCheckAt = now.getTime();
         } catch (err) {
           // Unknown is not "gone": skip presence checks until the listing works again.
@@ -160,7 +166,10 @@ export class InstancePollerService {
           stopReason: STOP_REASONS.PROVISIONING_TIMEOUT,
           until: now,
           refundIfNeverReady: true,
-          message: `[TIMEOUT] Provisioning exceeded timeout ceiling (${Math.round(timeoutMs / 60000)} min) without reaching ready status. Instance destroyed; charges refunded.`,
+          message:
+            `The GPU did not become ready within ${Math.round(timeoutMs / 60000)} minutes` +
+            (instance.progress?.message ? ` (last step: ${instance.progress.message})` : '') +
+            '. The instance was stopped and everything charged was refunded.',
           level: LOG_LEVELS.ERROR,
           emitReason: 'PROVISIONING_TIMEOUT',
         });
@@ -235,7 +244,22 @@ export class InstancePollerService {
       }
     }
 
-    // 4. Health check query if endpoint is known
+    const vastFields = vastEntry
+      ? {
+          vastStatus: vastEntry.actual_status || vastEntry.cur_state || null,
+          vastStatusMessage: (vastEntry.status_msg || '').trim().slice(0, 300) || null,
+        }
+      : {};
+
+    // 4. Not reachable yet: report what the host is doing.
+    if (!instance.pythonEngineUrl) {
+      if (!READY_STATUSES.includes(instance.status)) {
+        await this._recordProgress(instance, this._hostProgress(instance, confirmed, vastFields), now);
+      }
+      return instance;
+    }
+
+    // 5. Health check
     if (instance.pythonEngineUrl) {
       let data;
       try {
@@ -245,12 +269,48 @@ export class InstancePollerService {
         });
         data = res.data;
       } catch (healthErr) {
-        // Connection refused / timeout / container still booting -> stay in current status
+        // Port mapped, engine not answering yet: installing packages or starting.
+        if (!READY_STATUSES.includes(instance.status)) {
+          await this._recordProgress(instance, {
+            ...vastFields,
+            stage: 'engine_starting',
+            message: 'The GPU is running. Installing and starting the engine (this can take several minutes).',
+            portFound: true,
+            engineReachable: false,
+          }, now);
+        }
         return instance;
       }
 
       const models = Array.isArray(data?.models) ? data.models : [];
       const instIdStr = String(id);
+
+      // The engine reported it cannot start (self-test failed) or a selected model failed:
+      // stop now with the reason instead of waiting for the timeout.
+      if (!READY_STATUSES.includes(instance.status)) {
+        const failedModel = models.find((m) => m.status === 'failed');
+        if (data?.status === 'failed' || failedModel) {
+          const reason =
+            data?.status === 'failed'
+              ? `The engine could not start: ${data.reason || 'unknown error'}`
+              : `Model ${failedModel.modelId} could not be loaded: ${failedModel.error || 'unknown error'}`;
+          await this._failEngine(instance, reason, now);
+          return instance;
+        }
+      }
+
+      await this._recordProgress(instance, {
+        ...vastFields,
+        portFound: true,
+        engineReachable: true,
+        models: models.map((m) => ({
+          modelId: m.modelId,
+          status: m.status,
+          progressPercent: Math.round(Number(m.progressPercent) || 0),
+          error: m.error || null,
+        })),
+        ...this._modelsProgress(models, data),
+      }, now);
 
       // Instance reaches READY only when ALL requested models are ready.
       // If models list is available, require every entry to have status === 'ready'.
@@ -320,6 +380,125 @@ export class InstancePollerService {
     }
 
     return instance;
+  }
+
+  /** Progress text before the engine port is known. */
+  _hostProgress(instance, confirmed, vastFields) {
+    if (!confirmed) {
+      return { stage: 'requesting', message: 'Requesting the GPU from Vast.ai…' };
+    }
+    const { vastStatus, vastStatusMessage } = vastFields;
+    if (!vastStatus) {
+      return { stage: 'starting', message: 'Vast.ai confirmed the rental. Waiting for the host to start it…' };
+    }
+    if (vastStatus !== 'running') {
+      return {
+        ...vastFields,
+        stage: 'starting',
+        message: `The host is starting the GPU (${vastStatus}${vastStatusMessage ? `: ${vastStatusMessage}` : ''}).`,
+      };
+    }
+    return { ...vastFields, stage: 'waiting_for_port', message: 'The GPU is running. Waiting for the engine port…' };
+  }
+
+  /** Stage and text once the engine answers. */
+  _modelsProgress(models, data) {
+    if (models.length === 0) {
+      return { stage: 'engine_online', message: 'The engine is running.' };
+    }
+    if (models.every((m) => m.status === 'ready')) {
+      return { stage: 'ready', message: 'All models are ready.' };
+    }
+    const current = models.find((m) => m.status !== 'ready') || models[0];
+    const pct = Math.round(Number(current.progressPercent) || 0);
+    const verb = { queued: 'Waiting to download', downloading: 'Downloading', loading: 'Loading' }[current.status] || 'Preparing';
+    const done = models.filter((m) => m.status === 'ready').length;
+    return {
+      stage: 'downloading_models',
+      message: `${verb} ${current.modelId}${current.status === 'downloading' ? ` (${pct}%)` : ''} — ${done} of ${models.length} models ready.`,
+    };
+  }
+
+  /**
+   * Store the latest progress (and log each new step once), then tell subscribers,
+   * with elapsed time and credits charged so far. Unchanged progress is not re-sent.
+   */
+  async _recordProgress(instance, patch, now = new Date()) {
+    const id = String(instance._id);
+    const previous = instance.progress?.toObject ? instance.progress.toObject() : instance.progress || {};
+    const progress = { ...previous, ...patch, updatedAt: now };
+    const sig = JSON.stringify([
+      progress.stage, progress.message, progress.vastStatus, progress.vastStatusMessage,
+      progress.portFound, progress.engineReachable,
+      (progress.models || []).map((m) => [m.modelId, m.status, m.progressPercent]),
+    ]);
+    const known = this._progressSig.get(id) ?? (previous.stage ? JSON.stringify([
+      previous.stage, previous.message, previous.vastStatus, previous.vastStatusMessage,
+      previous.portFound, previous.engineReachable,
+      (previous.models || []).map((m) => [m.modelId, m.status, m.progressPercent]),
+    ]) : null);
+    if (sig === known) return;
+    this._progressSig.set(id, sig);
+
+    const update = { $set: { progress } };
+    const newStep = progress.stage !== previous.stage || (progress.stage !== 'downloading_models' && progress.message !== previous.message);
+    if (newStep && progress.message) {
+      update.$push = { provisioningLogs: { message: progress.message, level: LOG_LEVELS.INFO } };
+    }
+    const saved = await GpuInstance.findOneAndUpdate(
+      { _id: instance._id, status: { $in: ACTIVE_STATUSES } },
+      update,
+      { returnDocument: 'after' }
+    );
+    if (!saved) return;
+    instance.progress = saved.progress;
+
+    const startedAt = saved.contractConfirmedAt || saved.startedAt || saved.createdAt;
+    this.emitStatusChange(saved, saved.status, {
+      progress: {
+        stage: progress.stage,
+        message: progress.message,
+        vastStatus: progress.vastStatus || null,
+        vastStatusMessage: progress.vastStatusMessage || null,
+        portFound: Boolean(progress.portFound),
+        engineReachable: Boolean(progress.engineReachable),
+        models: progress.models || [],
+      },
+      elapsedSeconds: Math.max(0, Math.round((now - new Date(startedAt)) / 1000)),
+      creditsCharged: saved.creditsCharged || 0,
+      creditsRefunded: saved.creditsRefunded || 0,
+    });
+  }
+
+  /** The engine cannot start: destroy, fail, refund, and say why. */
+  async _failEngine(instance, reason, now = new Date()) {
+    const id = instance._id;
+    console.warn(`[InstancePoller] Instance ${id} (${instance.providerInstanceId}) failed: ${reason}`);
+    if (isConfirmedContractId(instance.providerInstanceId)) {
+      try {
+        await vastaiService.destroyInstance(instance.providerInstanceId);
+      } catch (err) {
+        console.error(`[InstancePoller] Destroy after engine failure failed for #${instance.providerInstanceId}: ${err.message}`);
+        await GpuInstance.updateOne(
+          { _id: id },
+          {
+            $set: { pendingStopReason: STOP_REASONS.ENGINE_FAILED, 'progress.failureReason': reason },
+            $push: { provisioningLogs: { message: `${reason} Stopping the instance failed (${err.message}); retrying.`, level: LOG_LEVELS.WARN } },
+          }
+        );
+        return;
+      }
+    }
+    await GpuInstance.updateOne({ _id: id }, { $set: { 'progress.failureReason': reason, 'progress.stage': 'failed' } });
+    await billingService.finalizeInstance(id, {
+      status: GPU_STATUS.FAILED,
+      stopReason: STOP_REASONS.ENGINE_FAILED,
+      until: now,
+      refundIfNeverReady: true,
+      message: `${reason} The instance was stopped and everything charged was refunded.`,
+      level: LOG_LEVELS.ERROR,
+      emitReason: 'ENGINE_FAILED',
+    });
   }
 
   /**

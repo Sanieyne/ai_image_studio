@@ -8,6 +8,8 @@ import { env } from '../config/env.js';
 import {
   VASTAI_OFFERS_CACHE_TTL_MS,
   MIN_INET_DOWN_FLOOR_MBPS,
+  MIN_GPU_COMPUTE_CAP,
+  MIN_HOST_CUDA,
 } from '../config/constants.js';
 import { pricingService, DEFAULT_STORAGE_GB } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -28,6 +30,25 @@ function assertSandboxAllowed() {
 /** Contract ids we may bill or poll: real numeric Vast.ai ids only. */
 export function isConfirmedContractId(id) {
   return typeof id === 'string' && /^\d+$/.test(id);
+}
+
+/**
+ * Why the engine can't run on this raw Vast.ai offer, or null if it can.
+ * (GPU architecture, host driver, and a directly mapped port for the engine.)
+ */
+export function hostUnsupportedReason(raw = {}) {
+  const cap = Number(raw.compute_cap);
+  if (Number.isFinite(cap) && cap < MIN_GPU_COMPUTE_CAP) {
+    return `${raw.gpu_name || 'This GPU'} is too old for the engine (needs an RTX 20-series / GTX 16-series or newer).`;
+  }
+  const cuda = Number(raw.cuda_max_good);
+  if (Number.isFinite(cuda) && cuda < MIN_HOST_CUDA) {
+    return `This host's GPU driver supports CUDA ${cuda}; the engine needs CUDA ${MIN_HOST_CUDA} or newer.`;
+  }
+  if (raw.direct_port_count !== undefined && !(Number(raw.direct_port_count) >= 1)) {
+    return 'This host cannot expose the engine port.';
+  }
+  return null;
 }
 
 class VastaiService {
@@ -170,6 +191,10 @@ class VastaiService {
     if (minInetUp && minInetUp > 0) body.inet_up = { gte: minInetUp };
     if (minReliability && minReliability > 0) body.reliability2 = { gte: minReliability };
     if (gpuName) body.gpu_name = { eq: gpuName };
+    // Only hosts the engine image can run on, with directly mapped ports (the engine listens on 8000).
+    body.compute_cap = { gte: MIN_GPU_COMPUTE_CAP };
+    body.cuda_max_good = { gte: MIN_HOST_CUDA };
+    body.direct_port_count = { gte: 1 };
 
     try {
       const response = await this._requestWithRetry(() =>
@@ -178,7 +203,7 @@ class VastaiService {
 
       let rawOffers = response.data?.offers || [];
       // Defense in depth: strictly exclude any offer below 400 Mbps
-      rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+      rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS && !hostUnsupportedReason(o));
 
       if (rawOffers.length > 0) {
         const normalized = rawOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
@@ -275,7 +300,7 @@ class VastaiService {
   async createInstance(offerId, config = {}) {
     const payload = {
       client_id: 'me',
-      image: config.image || 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime',
+      image: config.image || env.VASTAI_ENGINE_IMAGE,
       disk: config.disk || 100,
       env: config.env || { AI_STUDIO_MODE: 'cloud' },
       onstart: config.onstart || '',

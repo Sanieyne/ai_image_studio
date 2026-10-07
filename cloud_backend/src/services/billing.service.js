@@ -45,6 +45,7 @@ export const STOP_REASONS = Object.freeze({
   PROVISIONING_TIMEOUT: 'provisioning_timeout',
   PROVISIONING_FAILED: 'provisioning_failed',
   PROVIDER_GONE: 'provider_gone',
+  ENGINE_FAILED: 'engine_failed',
   STALE_CLEANUP: 'stale_cleanup',
 });
 
@@ -402,6 +403,7 @@ export class BillingService {
     const after = await GpuInstance.findById(instanceId);
     emit(after, status, {
       reason: emitReason || stopReason?.toUpperCase(),
+      message: message || null,
       billing: { creditsCharged: after.creditsCharged, creditsRefunded: after.creditsRefunded },
     });
     return after;

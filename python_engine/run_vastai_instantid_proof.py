@@ -133,7 +133,7 @@ cd /workspace/python_engine
 
 # 5. Install requirements
 echo "[Step 2/5] Installing dependencies..."
-python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt onnxruntime-gpu || python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt onnxruntime
+python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt -r requirements-instantid.txt onnxruntime-gpu || python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt -r requirements-instantid.txt onnxruntime
 # Install deepface dependencies and deepface with --no-deps to run natively on PyTorch backend without pulling 3GB of TensorFlow wheels
 python3 -m pip install --no-cache-dir --break-system-packages lightphe lightdsa fire flask werkzeug
 python3 -m pip install --no-cache-dir --break-system-packages --no-deps deepface

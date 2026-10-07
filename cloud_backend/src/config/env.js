@@ -129,6 +129,12 @@ export const env = Object.freeze({
   RECONCILE_INTERVAL_MS: positiveInt('RECONCILE_INTERVAL_MS', 10 * 60_000),
   // Vast.ai instances carrying our label but no active record are only logged unless this is true.
   RECONCILE_DESTROY_ORPHANS: bool('RECONCILE_DESTROY_ORPHANS', false),
+  // New rentals are refused (503) unless this is true. Browsing offers always works.
+  GPU_RENTALS_ENABLED: bool('GPU_RENTALS_ENABLED', false),
+  GPU_RENTALS_PAUSED_MESSAGE:
+    process.env.GPU_RENTALS_PAUSED_MESSAGE || 'Cloud GPU rentals are paused while we upgrade them.',
+  // Container image for rented instances. Its torch must match python_engine/constraints-cloud.txt.
+  VASTAI_ENGINE_IMAGE: process.env.VASTAI_ENGINE_IMAGE || 'pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime',
 
   MEDIA_STORAGE_PATH: process.env.MEDIA_STORAGE_PATH || '/var/www/media',
   MEDIA_PUBLIC_URL: (process.env.MEDIA_PUBLIC_URL || 'https://cosmic-gen.com/media').replace(/\/+$/, ''),
