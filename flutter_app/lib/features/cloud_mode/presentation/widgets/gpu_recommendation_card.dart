@@ -132,14 +132,17 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     // Hero card shows the user's pick if any, otherwise the highlighted recommendation.
     final MarketplaceOffer? activeOffer = userSelectedOffer ?? recommendedOffer;
     final bool heroIsRecommendationOnly = userSelectedOffer == null && recommendedOffer != null;
-    final bool canLaunch = widget.hasModelSelection && userSelectedOffer != null;
+    final bool canLaunch =
+        widget.hasModelSelection && userSelectedOffer != null && userSelectedOffer.priceAvailable;
 
     final primaryFallbackGpu = widget.result?.compatibleGPUs.firstOrNull;
     final maxVram = widget.result?.requirements.maxVramGB ?? 12.0;
 
     final displayName = activeOffer?.gpuName ?? primaryFallbackGpu?.name ?? 'RTX 3090';
-    final creditsPerHour = activeOffer?.creditsPerHour ?? ((primaryFallbackGpu?.pricePerHour ?? 0.44) * kVastPriceMarkup * kCreditsPerUsd);
-    final totalCreditsPerHour = activeOffer?.totalCreditsPerHour ?? creditsPerHour;
+    // Server prices for the selected storage size; null = price unavailable.
+    final double? computeCreditsPerHour = activeOffer?.computeCreditsPerHour;
+    final double? storageCreditsPerHour = activeOffer?.storageCreditsPerHour;
+    final double? totalCreditsPerHour = activeOffer?.totalCreditsPerHour;
     final vramTotal = activeOffer?.vramGB ?? primaryFallbackGpu?.vramGB ?? 24.0;
     final headroom = activeOffer?.headroomVramGB ?? primaryFallbackGpu?.headroomVramGB ?? 0.0;
     final fit = activeOffer?.fit ?? primaryFallbackGpu?.fit ?? 'optimal';
@@ -329,17 +332,20 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                 crossAxisAlignment: CrossAxisAlignment.end,
                                 children: [
                                   Text(
-                                    '${creditsPerHour.toStringAsFixed(1)} credits/hr',
+                                    formatCreditsRate(totalCreditsPerHour, 'credits/hr'),
+                                    key: const ValueKey('gpu_card_total_rate'),
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
                                       color: LuminaColors.amber,
                                     ),
                                   ),
-                                  Text(
-                                    '(${totalCreditsPerHour.toStringAsFixed(1)} cr/hr w/ storage)',
-                                    style: TextStyle(fontSize: 10.5, color: muted),
-                                  ),
+                                  if (totalCreditsPerHour != null)
+                                    Text(
+                                      'GPU ${formatCreditsRate(computeCreditsPerHour, '')}+ '
+                                      '${activeOffer.storageGB ?? '?'} GB storage ${formatCreditsRate(storageCreditsPerHour, '')}'.trim(),
+                                      style: TextStyle(fontSize: 10.5, color: muted),
+                                    ),
                                 ],
                               ),
                             ],
@@ -403,7 +409,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         child: _buildTelemetryBadge(
                                           icon: Icons.data_usage_rounded,
                                           label: 'Bandwidth',
-                                          value: '${activeOffer.bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB',
+                                          value: _bandwidthText(activeOffer),
                                           color: LuminaColors.infoBlue,
                                         ),
                                       ),
@@ -577,7 +583,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                       ],
                                       const Spacer(),
                                       Text(
-                                        '${offer.creditsPerHour.toStringAsFixed(1)} cr/hr',
+                                        formatCreditsRate(offer.totalCreditsPerHour, 'cr/hr'),
                                         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: LuminaColors.amber),
                                       ),
                                     ],
@@ -588,7 +594,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                     runSpacing: 4,
                                     children: [
                                       _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
-                                      _buildMiniTag('${offer.bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB egress', Colors.cyanAccent.shade700),
+                                      _buildMiniTag(_bandwidthText(offer), Colors.cyanAccent.shade700),
                                       _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
                                       _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
                                       _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
@@ -647,7 +653,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                               children: [
                                 Text(gpu.name, style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600)),
                                 const Spacer(),
-                                Text('${gpu.creditsPerHour.toStringAsFixed(1)} cr/hr',
+                                Text(gpu.creditsPerHour == null ? kPriceUnavailable : '~${formatCreditsRate(gpu.creditsPerHour, 'cr/hr', decimals: 1)} typical',
                                     style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                               ],
                             ),
@@ -674,7 +680,9 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                     ? 'Select a model to continue'
                     : (userSelectedOffer == null
                         ? 'Select a GPU offer to continue'
-                        : 'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(1)} credits/hr)'),
+                        : (userSelectedOffer.priceAvailable
+                            ? 'Rent & Launch $displayName (${formatCreditsRate(userSelectedOffer.totalCreditsPerHour, 'credits/hr')})'
+                            : 'Rent unavailable: $kPriceUnavailable')),
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
@@ -947,6 +955,15 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
         ),
       ],
     );
+  }
+
+  /// "↓ 0.2441 · ↑ 0.2441 cr/GB (by usage)" from the server's per-GB prices.
+  String _bandwidthText(MarketplaceOffer offer) {
+    String v(double? x) => x == null ? '?' : x.toStringAsFixed(4);
+    if (offer.bandwidthDownCreditsPerGB == null && offer.bandwidthUpCreditsPerGB == null) {
+      return 'Bandwidth: $kPriceUnavailable';
+    }
+    return '↓ ${v(offer.bandwidthDownCreditsPerGB)} · ↑ ${v(offer.bandwidthUpCreditsPerGB)} cr/GB (by usage)';
   }
 
   Widget _buildMiniTag(String text, Color color) {

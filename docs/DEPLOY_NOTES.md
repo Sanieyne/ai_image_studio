@@ -155,3 +155,46 @@ rental). Note: 20.83 of those 28.9 credits/hr are the overpriced storage fixed i
 The e2e test account (`e2e093001@test.local`) password was rotated on 8 Oct 2026.
 Credentials: `/root/backups/test-account/credentials` (chmod 600, never in git).
 Smoke test: `python3 -I /root/diagnostics/scripts/smoke_login.py --refresh`.
+
+## R2-2: prices that match Vast.ai
+
+### Vast.ai units (checked against live offers, 8 Oct 2026)
+- `dph_base`: compute, $/hour.
+- `storage_cost`: **$/GB/month, 720-hour month**. For an offer searched with
+  `allocated_storage = G`, `dph_total − dph_base = storage_cost × G / 720` exactly.
+  The old code used it as $/GB/hour-ish and priced the host's whole free disk:
+  the 7 Oct rental showed 20.83 credits/h for 50 GB instead of 0.87.
+- `inet_down_cost` / `inet_up_cost`: $/GB into / out of the instance
+  (`internet_*_cost_per_tb` = 1024 ×).
+
+### One pricing function
+`pricingService.priceOffer(rawOffer, { storageGB })`, used by the offer list,
+recommendations, offer details, the estimate, rent, and (through the stored
+`pricing.totalCreditsPerHour`) billing:
+
+```
+credits = USD × (1 + markupPercentage/100) × creditsPerUsd      (PricingConfig)
+computeCreditsPerHour  = credits(dph_base)                       rounded to 0.01
+storageCreditsPerHour  = credits(storage_cost × storageGB / 720) rounded to 0.01
+totalCreditsPerHour    = compute + storage                       (what is charged)
+bandwidthDown/UpCreditsPerGB = credits(inet_down/up_cost)        rounded to 0.0001, billed by usage
+```
+
+Example, GTX 1660 S (0.06 $/h, 0.2 $/GB/month), 50 GB, default config (1 $ = 62.5 credits):
+3.75 + 0.87 = **4.62 credits/h**; bandwidth 0.2441 credits/GB each way.
+
+- `GET /gpu/offers`, `/gpu/recommended`, `/gpu/offers/:id` accept `storageGB`
+  (10–1000, default 50) and price every offer for it. v0.2.0 sends none and gets 50 GB.
+- `GET /gpu/pricing/estimate`: `creditsPerHour` = `totalCreditsPerHour` (same as the card);
+  `totalCredits` = per-hour total × hours; bandwidth is not in the total.
+- Missing Vast.ai fields give `priceAvailable: false` and null prices; such offers sort last
+  and cannot be rented (409). No default prices anywhere.
+- Instances store `pricing.storageGB`, `computeCreditsPerHour`, `storageCreditsPerGBMonth`,
+  `storageCreditsPerHour`, `totalCreditsPerHour`, `bandwidthDown/UpCreditsPerGB`
+  (old names `creditsPerHour`, `bandwidthCreditsPerGB` kept for v0.2.0).
+
+### Bandwidth is not billed yet
+Vast.ai charges us per GB downloaded and uploaded. Whether it reports per-instance usage
+could not be checked (no instance was running; rentals are paused). Until it is, users see
+bandwidth prices labelled "billed by usage" but are **not charged** for it; we pay it.
+Check on the approved test rental (instance fields such as `inet_down_billed`).

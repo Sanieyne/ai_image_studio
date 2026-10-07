@@ -8,6 +8,9 @@ import { vastaiService } from '../src/services/vastai.service.js';
 import { GpuInstance } from '../src/models/GpuInstance.js';
 import { User } from '../src/models/User.js';
 import { GPU_STATUS } from '../src/config/constants.js';
+import fs from 'node:fs';
+import { billingService } from '../src/services/billing.service.js';
+import { pricingService } from '../src/services/pricing.service.js';
 
 const RAW_OFFER = {
   id: 52678380,
@@ -167,5 +170,47 @@ describe('rentGPU', () => {
     assert.ok(stopped.creditsCharged > 0);
     assert.ok(Math.abs(stopped.creditsRefunded - stopped.creditsCharged) < 1e-9);
     assert.ok(Math.abs((await User.findById(user._id).lean()).credits - 500) < 1e-9);
+  });
+
+  test('rent stores the priceOffer rate for the chosen size, and billing charges exactly that', async () => {
+    // Real offer (fixture): GTX 1660 S, 0.06 $/h compute, 0.2 $/GB/month storage, 381 GB free.
+    const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/vast_offers.json', import.meta.url)))
+      .offers.find((o) => o.gpu_name === 'GTX 1660 S');
+    await pricingService.updateConfig({ markupPercentage: 25, tokenValue: 50 });
+    vast.offer = vastaiService.normalizeOffer({ ...fixture, inet_down: 800 });
+    const user = await makeUser(500);
+    const inst = await gpuProviderService.rentGPU(rentParams(user, { offerId: String(fixture.id), storageGB: 50 }));
+
+    // 3.75 compute + 0.87 storage (50 GB, not the host's 381 GB) = 4.62 credits/h
+    assert.equal(inst.pricing.storageGB, 50);
+    assert.equal(inst.pricing.computeCreditsPerHour, 3.75);
+    assert.equal(inst.pricing.storageCreditsPerHour, 0.87);
+    assert.equal(inst.pricing.totalCreditsPerHour, 4.62);
+    assert.equal(inst.pricing.bandwidthDownCreditsPerGB, 0.2441);
+
+    // The estimate for the same offer and size shows the same hourly total.
+    const estimate = gpuProviderService.estimateCost({ offer: vast.offer, storageGB: 50, hours: 1 });
+    assert.equal(estimate.creditsPerHour, 4.62);
+    assert.equal(estimate.totalCreditsPerHour, 4.62);
+    assert.equal(estimate.totalCredits, 4.62);
+
+    // One hour of billing charges 4.62.
+    const hourAgo = new Date(Date.now() - 3600_000);
+    await GpuInstance.updateOne({ _id: inst._id }, { $set: { billedUntil: hourAgo, billingStartedAt: hourAgo } });
+    vast.addInstance(inst.providerInstanceId);
+    await billingService.runCycle(new Date(hourAgo.getTime() + 3600_000));
+    const billed = await GpuInstance.findById(inst._id).lean();
+    assert.ok(Math.abs(billed.creditsCharged - 4.62) < 1e-9, String(billed.creditsCharged));
+    assert.ok(Math.abs((await User.findById(user._id).lean()).credits - (500 - 4.62)) < 1e-9);
+  });
+
+  test('an offer without a complete price cannot be rented', async () => {
+    const { storage_cost, ...noStorage } = RAW_OFFER;
+    vast.offer = vastaiService.normalizeOffer(noStorage);
+    const user = await makeUser(500);
+    await assert.rejects(gpuProviderService.rentGPU(rentParams(user)), /did not report a complete price/);
+    assert.equal(await GpuInstance.countDocuments({ user: user._id }), 0);
+    assert.equal((await User.findById(user._id).lean()).activeGpuInstances ?? 0, 0);
+    assert.equal(vast.calls.create.length, 0);
   });
 });

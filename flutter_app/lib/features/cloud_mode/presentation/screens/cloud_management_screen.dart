@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../../../services/auth_service.dart';
 import '../../../../theme/app_theme.dart';
@@ -66,7 +68,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         _cloudApi.checkHealth(),
         _cloudApi.fetchModels(),
         _cloudApi.calculateRecommendations(_selectedModelIds.toList()),
-        _cloudApi.fetchRecommendedGpuOffers(_selectedModelIds.toList()),
+        _cloudApi.fetchRecommendedGpuOffers(_selectedModelIds.toList(), storageGB: _selectedStorageGB),
       ]);
 
       if (!mounted) return;
@@ -80,7 +82,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         if (models.isNotEmpty) _models = models;
         if (rec != null) _recommendation = rec;
         if (market != null) {
-          _marketplaceResult = market;
+          _applyMarket(market);
         }
         _syncing = false;
       });
@@ -101,7 +103,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     try {
       final results = await Future.wait([
         _cloudApi.calculateRecommendations(newSelection.toList()),
-        _cloudApi.fetchRecommendedGpuOffers(newSelection.toList()),
+        _cloudApi.fetchRecommendedGpuOffers(newSelection.toList(), storageGB: _selectedStorageGB),
       ]);
 
       if (!mounted) return;
@@ -111,7 +113,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
       setState(() {
         if (rec != null) _recommendation = rec;
         if (market != null) {
-          _marketplaceResult = market;
+          _applyMarket(market);
         }
         _syncing = false;
       });
@@ -120,7 +122,43 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     }
   }
 
-  void _handleLaunchInstance([MarketplaceOffer? offer, int? storageGB]) {
+  /// Stores new offers and keeps the selected offer, now priced for the new size.
+  void _applyMarket(MarketplaceRecommendedResult market) {
+    _marketplaceResult = market;
+    final selectedId = _selectedOffer?.id;
+    if (selectedId != null) {
+      for (final o in market.allOffers) {
+        if (o.id == selectedId) {
+          _selectedOffer = o;
+          break;
+        }
+      }
+    }
+  }
+
+  Timer? _storageRepriceTimer;
+
+  /// Offers are priced by the server for one storage size; refetch when it changes.
+  void _onStorageChanged(int gb) {
+    setState(() => _selectedStorageGB = gb);
+    _storageRepriceTimer?.cancel();
+    _storageRepriceTimer = Timer(const Duration(milliseconds: 400), () async {
+      final market = await _cloudApi.fetchRecommendedGpuOffers(
+        _selectedModelIds.toList(),
+        storageGB: gb,
+      );
+      if (!mounted || market == null || gb != _selectedStorageGB) return;
+      setState(() => _applyMarket(market));
+    });
+  }
+
+  @override
+  void dispose() {
+    _storageRepriceTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _handleLaunchInstance([MarketplaceOffer? offer, int? storageGB]) async {
     final effectiveOffer = offer ?? _selectedOffer;
     if (effectiveOffer == null || _selectedModelIds.isEmpty) {
       if (_selectedModelIds.isEmpty) {
@@ -141,7 +179,22 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
 
     final effectiveStorageGB = storageGB ?? _selectedStorageGB;
     final gpuName = effectiveOffer.gpuName;
-    final creditsPerHour = effectiveOffer.totalCreditsPerHour;
+    // The rate shown here is the server's price for this offer and storage size,
+    // the same figure the offer card, the side panel and billing use.
+    final estimate = await _cloudApi.estimateStoragePricing(
+      offerId: effectiveOffer.id,
+      storageGB: effectiveStorageGB,
+    );
+    if (!mounted) return;
+    final creditsPerHour = estimate?.totalCreditsPerHour;
+    if (creditsPerHour == null) {
+      AppToast.showInfo(
+        context,
+        title: 'Price unavailable',
+        message: 'Could not get a price for this GPU right now. Try again or choose another offer.',
+      );
+      return;
+    }
 
     showDialog(
       context: context,
@@ -175,7 +228,15 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
               }).toList(),
             ),
             const SizedBox(height: 14),
-            Text('Hourly Rate: ${creditsPerHour.toStringAsFixed(1)} credits / hr'),
+            Text('Hourly Rate: ${formatCreditsRate(creditsPerHour, 'credits / hr')} (GPU + $effectiveStorageGB GB storage)'),
+            if (estimate?.bandwidthDownCreditsPerGB != null || estimate?.bandwidthUpCreditsPerGB != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Bandwidth, billed by usage: ↓ ${formatCreditsRate(estimate?.bandwidthDownCreditsPerGB, 'cr/GB', decimals: 4)}'
+                ' · ↑ ${formatCreditsRate(estimate?.bandwidthUpCreditsPerGB, 'cr/GB', decimals: 4)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
             const SizedBox(height: 4),
             Text('Allocated Storage: $effectiveStorageGB GB Volume'),
             const SizedBox(height: 14),
@@ -409,7 +470,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                     result: _recommendation,
                                     selectedOffer: _selectedOffer,
                                     initialStorageGB: _selectedStorageGB,
-                                    onStorageChanged: (gb) => setState(() => _selectedStorageGB = gb),
+                                    onStorageChanged: _onStorageChanged,
                                     isDark: widget.isDark,
                                     onEvictModel: (modelId) {
                                       final next = Set<String>.from(_selectedModelIds)..remove(modelId);
@@ -469,7 +530,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                                           result: _recommendation,
                                           selectedOffer: _selectedOffer,
                                           initialStorageGB: _selectedStorageGB,
-                                          onStorageChanged: (gb) => setState(() => _selectedStorageGB = gb),
+                                          onStorageChanged: _onStorageChanged,
                                           isDark: widget.isDark,
                                           onEvictModel: (modelId) {
                                             final next = Set<String>.from(_selectedModelIds)..remove(modelId);

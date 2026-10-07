@@ -148,10 +148,17 @@ class CloudApiService {
   }
 
   /// Query ranked GPU recommendations (cheapest, fastest, most reliable, balanced)
-  Future<MarketplaceRecommendedResult?> fetchRecommendedGpuOffers(List<String> modelIds) async {
+  /// Live offers for [modelIds], priced by the server for [storageGB] of storage.
+  Future<MarketplaceRecommendedResult?> fetchRecommendedGpuOffers(
+    List<String> modelIds, {
+    int? storageGB,
+  }) async {
     try {
       final uri = Uri.parse('$baseUrl/gpu/recommended').replace(
-        queryParameters: {'modelIds': modelIds.join(',')},
+        queryParameters: {
+          'modelIds': modelIds.join(','),
+          if (storageGB != null) 'storageGB': storageGB.toString(),
+        },
       );
       final res = await http.get(uri).timeout(const Duration(seconds: 15));
 

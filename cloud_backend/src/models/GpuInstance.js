@@ -93,9 +93,18 @@ const gpuInstanceSchema = new mongoose.Schema(
       storageCost: { type: Number, default: 0 },
       bandwidthCost: { type: Number, default: 0 },
       totalPerHour: { type: Number, default: 0 },
-      creditsPerHour: { type: Number, default: 0 },
-      totalCreditsPerHour: { type: Number, default: 0 },
+      // Credits, from pricingService.priceOffer for the rented storage size.
+      // Billing charges totalCreditsPerHour.
+      storageGB: { type: Number, default: null },
+      computeCreditsPerHour: { type: Number, default: null },
+      storageCreditsPerGBMonth: { type: Number, default: null },
       storageCreditsPerHour: { type: Number, default: 0 },
+      totalCreditsPerHour: { type: Number, default: 0 },
+      bandwidthDownCreditsPerGB: { type: Number, default: null },
+      bandwidthUpCreditsPerGB: { type: Number, default: null },
+      markupPercentage: { type: Number, default: null },
+      // Older names (= computeCreditsPerHour, bandwidthDownCreditsPerGB), read by app v0.2.0.
+      creditsPerHour: { type: Number, default: 0 },
       bandwidthCreditsPerGB: { type: Number, default: 0 },
     },
     network: {

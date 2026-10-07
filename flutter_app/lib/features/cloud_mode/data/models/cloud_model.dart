@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 
-/// Pricing Policy: 50 credits per 1 USD, 25% markup (1.25x) on raw Vast.ai prices
-const double kCreditsPerUsd = 50.0;
-const double kVastPriceMarkup = 1.25;
+/// Prices are computed by the server only (pricingService.priceOffer). The app
+/// displays them and shows [kPriceUnavailable] when one is missing; it never
+/// derives a price itself.
+const String kPriceUnavailable = 'price unavailable';
+
+/// "4.62 credits/hr", or "price unavailable" when the server sent no price.
+String formatCreditsRate(double? credits, String unit, {int decimals = 2}) =>
+    credits == null ? kPriceUnavailable : '${credits.toStringAsFixed(decimals)} $unit';
 
 /// App execution mode: running on local hardware or remote cloud GPU
 enum StudioExecutionMode {
@@ -99,8 +104,8 @@ class GpuTier {
     );
   }
 
-  /// Server-provided hourly compute cost in credits (authoritative), or fallback
-  double get creditsPerHour => customCreditsPerHour ?? (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
+  /// Server-provided typical hourly compute cost in credits; null when the server sent none.
+  double? get creditsPerHour => customCreditsPerHour;
 }
 
 /// Storage volume sizing plan
@@ -138,11 +143,11 @@ class StoragePlan {
     );
   }
 
-  /// Server-provided monthly storage plan price in credits (authoritative)
-  double get creditsPerMonth => customCreditsPerMonth ?? (pricePerMonth * kVastPriceMarkup * kCreditsPerUsd);
+  /// Server-provided monthly storage plan price in credits; null when the server sent none.
+  double? get creditsPerMonth => customCreditsPerMonth;
 
-  /// Server-provided hourly amortized storage cost in credits
-  double get creditsPerHour => customCreditsPerHour ?? (creditsPerMonth / 720.0);
+  /// Server-provided hourly storage cost in credits; null when the server sent none.
+  double? get creditsPerHour => customCreditsPerHour;
 }
 
 /// Sizing requirements calculations
@@ -234,7 +239,10 @@ class RecommendationResult {
   }
 }
 
-/// Real-time live GPU marketplace bundle from Vast.ai
+/// Real-time live GPU marketplace bundle from Vast.ai.
+///
+/// Prices are credits from the server, for [storageGB] of storage; null when the
+/// server could not price the offer. Bandwidth is billed by usage, separately.
 class MarketplaceOffer {
   final String id;
   final String provider;
@@ -242,11 +250,6 @@ class MarketplaceOffer {
   final double vramGB;
   final int numGpus;
   final double totalFlops;
-  final double pricePerHour;
-  final double dphBase;
-  final double storageCostPerHour;
-  final double bandwidthCostPerGB;
-  final double totalHourlyCost;
   final int inetUp;
   final int inetDown;
   final double reliability;
@@ -264,26 +267,20 @@ class MarketplaceOffer {
   final String fit; // 'optimal' | 'tight' | 'minimum'
   final String fitReason;
   final double estimatedDownloadTimeMinutes;
-  final double? customCreditsPerHour;
-  final double? customTotalCreditsPerHour;
-  final double? customStorageCreditsPerHour;
-  final double? customBandwidthCreditsPerGB;
 
-  /// Hourly compute cost in credits (1 USD = 50 credits, 25% markup on raw Vast.ai)
-  double get creditsPerHour =>
-      customCreditsPerHour ?? (pricePerHour * kVastPriceMarkup * kCreditsPerUsd);
+  /// Storage size (GB) the prices below are for.
+  final int? storageGB;
+  final double? computeCreditsPerHour;
+  final double? storageCreditsPerGBMonth;
+  final double? storageCreditsPerHour;
 
-  /// Total hourly cost in credits (compute + storage)
-  double get totalCreditsPerHour =>
-      customTotalCreditsPerHour ?? (totalHourlyCost * kVastPriceMarkup * kCreditsPerUsd);
+  /// Compute + storage for [storageGB]: what the Rent button, the confirmation
+  /// dialog and billing use.
+  final double? totalCreditsPerHour;
+  final double? bandwidthDownCreditsPerGB;
+  final double? bandwidthUpCreditsPerGB;
 
-  /// Storage cost in credits per hour
-  double get storageCreditsPerHour =>
-      customStorageCreditsPerHour ?? (storageCostPerHour * kVastPriceMarkup * kCreditsPerUsd);
-
-  /// Bandwidth egress cost in credits per GB
-  double get bandwidthCreditsPerGB =>
-      customBandwidthCreditsPerGB ?? (bandwidthCostPerGB * kVastPriceMarkup * kCreditsPerUsd);
+  bool get priceAvailable => totalCreditsPerHour != null;
 
   const MarketplaceOffer({
     required this.id,
@@ -292,11 +289,6 @@ class MarketplaceOffer {
     required this.vramGB,
     required this.numGpus,
     required this.totalFlops,
-    required this.pricePerHour,
-    required this.dphBase,
-    required this.storageCostPerHour,
-    required this.bandwidthCostPerGB,
-    required this.totalHourlyCost,
     required this.inetUp,
     required this.inetDown,
     required this.reliability,
@@ -314,13 +306,18 @@ class MarketplaceOffer {
     required this.fit,
     required this.fitReason,
     required this.estimatedDownloadTimeMinutes,
-    this.customCreditsPerHour,
-    this.customTotalCreditsPerHour,
-    this.customStorageCreditsPerHour,
-    this.customBandwidthCreditsPerGB,
+    this.storageGB,
+    this.computeCreditsPerHour,
+    this.storageCreditsPerGBMonth,
+    this.storageCreditsPerHour,
+    this.totalCreditsPerHour,
+    this.bandwidthDownCreditsPerGB,
+    this.bandwidthUpCreditsPerGB,
   });
 
   factory MarketplaceOffer.fromJson(Map<String, dynamic> json) {
+    double? n(String key) => (json[key] as num?)?.toDouble();
+    final priced = json['priceAvailable'] != false;
     return MarketplaceOffer(
       id: json['id']?.toString() ?? '',
       provider: json['provider']?.toString() ?? 'vastai',
@@ -328,32 +325,31 @@ class MarketplaceOffer {
       vramGB: (json['vramGB'] as num?)?.toDouble() ?? 0.0,
       numGpus: (json['numGpus'] as num?)?.toInt() ?? 1,
       totalFlops: (json['totalFlops'] as num?)?.toDouble() ?? 0.0,
-      pricePerHour: (json['pricePerHour'] as num?)?.toDouble() ?? 0.0,
-      dphBase: (json['dphBase'] as num?)?.toDouble() ?? 0.0,
-      storageCostPerHour: (json['storageCostPerHour'] as num?)?.toDouble() ?? 0.0,
-      bandwidthCostPerGB: (json['bandwidthCostPerGB'] as num?)?.toDouble() ?? 0.02,
-      totalHourlyCost: (json['totalHourlyCost'] as num?)?.toDouble() ?? 0.0,
-      inetUp: (json['inetUp'] as num?)?.toInt() ?? 100,
-      inetDown: (json['inetDown'] as num?)?.toInt() ?? 250,
-      reliability: (json['reliability'] as num?)?.toDouble() ?? 0.98,
-      cudaVersion: (json['cudaVersion'] as num?)?.toDouble() ?? 12.4,
-      driverVersion: json['driverVersion']?.toString() ?? '550.54.14',
-      geolocation: json['geolocation']?.toString() ?? 'Global',
-      directPortCount: (json['directPortCount'] as num?)?.toInt() ?? 1,
-      cpuCores: (json['cpuCores'] as num?)?.toInt() ?? 8,
-      ramGB: (json['ramGB'] as num?)?.toDouble() ?? 32.0,
-      diskGB: (json['diskGB'] as num?)?.toInt() ?? 100,
-      dlperf: (json['dlperf'] as num?)?.toDouble() ?? 30.0,
-      verified: json['verified'] as bool? ?? true,
+      inetUp: (json['inetUp'] as num?)?.toInt() ?? 0,
+      inetDown: (json['inetDown'] as num?)?.toInt() ?? 0,
+      reliability: (json['reliability'] as num?)?.toDouble() ?? 0.0,
+      cudaVersion: (json['cudaVersion'] as num?)?.toDouble() ?? 0.0,
+      driverVersion: json['driverVersion']?.toString() ?? '',
+      geolocation: json['geolocation']?.toString() ?? '',
+      directPortCount: (json['directPortCount'] as num?)?.toInt() ?? 0,
+      cpuCores: (json['cpuCores'] as num?)?.toInt() ?? 0,
+      ramGB: (json['ramGB'] as num?)?.toDouble() ?? 0.0,
+      diskGB: (json['diskGB'] as num?)?.toInt() ?? 0,
+      dlperf: (json['dlperf'] as num?)?.toDouble() ?? 0.0,
+      verified: json['verified'] as bool? ?? false,
       rentable: json['rentable'] as bool? ?? true,
       headroomVramGB: (json['headroomVramGB'] as num?)?.toDouble() ?? 0.0,
       fit: json['fit']?.toString() ?? 'optimal',
       fitReason: json['fitReason']?.toString() ?? '',
-      estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble() ?? 2.5,
-      customCreditsPerHour: (json['creditsPerHour'] as num?)?.toDouble(),
-      customTotalCreditsPerHour: (json['totalCreditsPerHour'] as num?)?.toDouble(),
-      customStorageCreditsPerHour: (json['storageCreditsPerHour'] as num?)?.toDouble(),
-      customBandwidthCreditsPerGB: (json['bandwidthCreditsPerGB'] as num?)?.toDouble(),
+      estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble() ?? 0.0,
+      storageGB: (json['storageGB'] as num?)?.toInt(),
+      // Older servers send creditsPerHour / bandwidthCreditsPerGB only.
+      computeCreditsPerHour: priced ? (n('computeCreditsPerHour') ?? n('creditsPerHour')) : null,
+      storageCreditsPerGBMonth: priced ? n('storageCreditsPerGBMonth') : null,
+      storageCreditsPerHour: priced ? n('storageCreditsPerHour') : null,
+      totalCreditsPerHour: priced ? n('totalCreditsPerHour') : null,
+      bandwidthDownCreditsPerGB: n('bandwidthDownCreditsPerGB') ?? n('bandwidthCreditsPerGB'),
+      bandwidthUpCreditsPerGB: n('bandwidthUpCreditsPerGB'),
     );
   }
 }
@@ -441,47 +437,47 @@ class PricingPolicyConfig {
   }
 }
 
-/// Dynamic live pricing estimate returned by GET /gpu/pricing/estimate
+/// Price of one offer for one storage size, from GET /gpu/pricing/estimate.
+/// [totalCreditsPerHour] is the same figure the offer card shows for that size.
 class LivePricingEstimate {
   final String offerId;
   final String gpuName;
-  final int hours;
   final int storageGB;
-  final int bandwidthGB;
-  final double computeCredits;
-  final double storageCredits;
-  final double bandwidthCredits;
-  final double totalCredits;
-  final double creditsPerHour;
+  final bool priceAvailable;
+  final double? computeCreditsPerHour;
+  final double? storageCreditsPerGBMonth;
+  final double? storageCreditsPerHour;
+  final double? totalCreditsPerHour;
+  final double? bandwidthDownCreditsPerGB;
+  final double? bandwidthUpCreditsPerGB;
 
   const LivePricingEstimate({
     required this.offerId,
     required this.gpuName,
-    required this.hours,
     required this.storageGB,
-    required this.bandwidthGB,
-    required this.computeCredits,
-    required this.storageCredits,
-    required this.bandwidthCredits,
-    required this.totalCredits,
-    required this.creditsPerHour,
+    required this.priceAvailable,
+    this.computeCreditsPerHour,
+    this.storageCreditsPerGBMonth,
+    this.storageCreditsPerHour,
+    this.totalCreditsPerHour,
+    this.bandwidthDownCreditsPerGB,
+    this.bandwidthUpCreditsPerGB,
   });
 
   factory LivePricingEstimate.fromJson(Map<String, dynamic> json) {
-    final breakdown = (json['breakdown'] as Map<String, dynamic>?) ?? {};
+    double? n(String key) => (json[key] as num?)?.toDouble();
+    final total = n('totalCreditsPerHour');
     return LivePricingEstimate(
       offerId: json['offerId']?.toString() ?? '',
       gpuName: json['gpuName']?.toString() ?? '',
-      hours: (json['hours'] as num?)?.toInt() ?? 1,
-      storageGB: (json['storageGB'] as num?)?.toInt() ?? 100,
-      bandwidthGB: (json['bandwidthGB'] as num?)?.toInt() ?? 10,
-      computeCredits: (breakdown['computeCredits'] as num?)?.toDouble() ?? 0.0,
-      storageCredits: (breakdown['storageCredits'] as num?)?.toDouble() ?? 0.0,
-      bandwidthCredits: (breakdown['bandwidthCredits'] as num?)?.toDouble() ?? 0.0,
-      totalCredits: (json['totalCredits'] as num?)?.toDouble() ?? 0.0,
-      creditsPerHour: (json['creditsPerHour'] as num?)?.toDouble() ?? 0.0,
+      storageGB: (json['storageGB'] as num?)?.toInt() ?? 0,
+      priceAvailable: json['priceAvailable'] != false && total != null,
+      computeCreditsPerHour: n('computeCreditsPerHour'),
+      storageCreditsPerGBMonth: n('storageCreditsPerGBMonth'),
+      storageCreditsPerHour: n('storageCreditsPerHour'),
+      totalCreditsPerHour: total,
+      bandwidthDownCreditsPerGB: n('bandwidthDownCreditsPerGB'),
+      bandwidthUpCreditsPerGB: n('bandwidthUpCreditsPerGB'),
     );
   }
 }
-
-

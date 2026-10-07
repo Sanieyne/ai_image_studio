@@ -14,6 +14,10 @@ class StorageInspectorWidget extends StatefulWidget {
   final Function(String modelId)? onEvictModel;
   final Function(MarketplaceOffer? offer, int storageGB)? onLaunchInstance;
 
+  /// Fetches the server's price for an offer and storage size. Defaults to
+  /// CloudApiService.estimateStoragePricing; tests pass a fake.
+  final Future<LivePricingEstimate?> Function({required String offerId, required int storageGB})? fetchEstimate;
+
   const StorageInspectorWidget({
     super.key,
     required this.result,
@@ -23,6 +27,7 @@ class StorageInspectorWidget extends StatefulWidget {
     required this.isDark,
     this.onEvictModel,
     this.onLaunchInstance,
+    this.fetchEstimate,
   });
 
   @override
@@ -84,10 +89,8 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
     if (offerId == null || offerId.isEmpty) return;
 
     setState(() => _isEstimating = true);
-    final estimate = await _cloudApi.estimateStoragePricing(
-      offerId: offerId,
-      storageGB: storageGB,
-    );
+    final fetch = widget.fetchEstimate ?? _cloudApi.estimateStoragePricing;
+    final estimate = await fetch(offerId: offerId, storageGB: storageGB);
     if (!mounted) return;
     setState(() {
       _liveEstimate = estimate;
@@ -107,15 +110,25 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
 
     final displayName = offer?.gpuName ?? primaryFallbackGpu?.name ?? 'RTX 4090';
     final fit = offer?.fit ?? primaryFallbackGpu?.fit ?? 'optimal';
-    final price = offer?.pricePerHour ?? primaryFallbackGpu?.pricePerHour ?? 0.58;
-    final creditsPerHour = offer?.creditsPerHour ?? primaryFallbackGpu?.creditsPerHour ?? (price * kVastPriceMarkup * kCreditsPerUsd);
     final currentStorageGB = _storageSliderValue.round();
-    final storageCreditsPerHour = _liveEstimate?.storageCredits ??
-        (offer?.storageCreditsPerHour != null
-            ? (offer!.storageCreditsPerHour * (currentStorageGB / 50.0))
-            : ((offer?.storageCostPerHour ?? 0.004) * kVastPriceMarkup * kCreditsPerUsd * (currentStorageGB / 50.0)));
-    final totalCreditsPerHour = _liveEstimate?.totalCredits ?? (creditsPerHour + storageCreditsPerHour);
-    final bandwidthCreditsPerGB = offer?.bandwidthCreditsPerGB ?? ((offer?.bandwidthCostPerGB ?? 0.02) * kVastPriceMarkup * kCreditsPerUsd);
+    // Only the server's price for exactly this offer and size is shown (the same
+    // figure as the offer card for that size); otherwise "updating…" / unavailable.
+    final est = _liveEstimate;
+    final priced = est != null && offer != null && est.offerId == offer.id && est.storageGB == currentStorageGB
+        ? est
+        : null;
+    final double? creditsPerHour = priced?.computeCreditsPerHour;
+    final double? storageCreditsPerHour = priced?.storageCreditsPerHour;
+    final double? totalCreditsPerHour = priced?.totalCreditsPerHour;
+    String rate(double? v, String unit) =>
+        v == null && (_isEstimating || (offer != null && priced == null && est != null))
+            ? 'updating…'
+            : formatCreditsRate(v, unit);
+    final String bandwidthText = priced == null ||
+            (priced.bandwidthDownCreditsPerGB == null && priced.bandwidthUpCreditsPerGB == null)
+        ? rate(null, '')
+        : '↓ ${formatCreditsRate(priced.bandwidthDownCreditsPerGB, '', decimals: 4)}'
+            '· ↑ ${formatCreditsRate(priced.bandwidthUpCreditsPerGB, 'cr/GB', decimals: 4)}';
     final maxVram = req?.maxVramGB ?? 12.0;
     final totalVram = offer?.vramGB ?? primaryFallbackGpu?.vramGB ?? 24.0;
     final headroom = offer?.headroomVramGB ?? primaryFallbackGpu?.headroomVramGB ?? 12.0;
@@ -220,7 +233,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  '${creditsPerHour.toStringAsFixed(1)} cr/hr',
+                                  rate(totalCreditsPerHour, 'cr/hr'),
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
@@ -312,7 +325,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                       const SizedBox(width: 6),
                                     ],
                                     Text(
-                                      '${storageCreditsPerHour.toStringAsFixed(2)} credits/hr',
+                                      rate(storageCreditsPerHour, 'credits/hr'),
                                       style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
@@ -431,7 +444,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text('GPU Hourly Compute:', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('${creditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(rate(creditsPerHour, 'cr/hr'), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                             ],
                           ),
                           const SizedBox(height: 4),
@@ -439,7 +452,8 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               Text('Storage Volume Lease (${_storageSliderValue.round()} GB):', style: TextStyle(fontSize: 12, color: muted)),
-                              Text('+${storageCreditsPerHour.toStringAsFixed(2)} cr/hr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              Text(storageCreditsPerHour == null ? rate(null, '') : '+${rate(storageCreditsPerHour, 'cr/hr')}',
+                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                             ],
                           ),
                           const Divider(height: 14),
@@ -449,7 +463,8 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                               const Text('Total Hourly Cost:', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                               Flexible(
                                 child: Text(
-                                  '${totalCreditsPerHour.toStringAsFixed(2)} credits/hr',
+                                  rate(totalCreditsPerHour, 'credits/hr'),
+                                  key: const ValueKey('storage_panel_total_rate'),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold, color: LuminaColors.amber),
@@ -525,8 +540,8 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                               Expanded(
                                 child: _buildInfoTile(
                                   icon: Icons.data_usage_rounded,
-                                  title: 'Bandwidth Egress',
-                                  value: '${bandwidthCreditsPerGB.toStringAsFixed(2)} cr/GB',
+                                  title: 'Bandwidth (by usage)',
+                                  value: bandwidthText,
                                   color: LuminaColors.infoBlue,
                                 ),
                               ),
@@ -651,10 +666,14 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
             width: double.infinity,
             height: 44,
             child: ElevatedButton.icon(
-              onPressed: () => widget.onLaunchInstance?.call(offer, _storageSliderValue.round()),
+              onPressed: totalCreditsPerHour == null
+                  ? null
+                  : () => widget.onLaunchInstance?.call(offer, _storageSliderValue.round()),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
               label: Text(
-                'Rent & Launch $displayName (${totalCreditsPerHour.toStringAsFixed(2)} credits/hr)',
+                totalCreditsPerHour == null
+                    ? 'Rent & Launch $displayName (${rate(null, '')})'
+                    : 'Rent & Launch $displayName (${rate(totalCreditsPerHour, 'credits/hr')})',
                 style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(

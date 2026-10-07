@@ -6,11 +6,10 @@
 import axios from 'axios';
 import { env } from '../config/env.js';
 import {
-  BANDWIDTH_COST_PER_GB,
   VASTAI_OFFERS_CACHE_TTL_MS,
   MIN_INET_DOWN_FLOOR_MBPS,
 } from '../config/constants.js';
-import { pricingService } from './pricing.service.js';
+import { pricingService, DEFAULT_STORAGE_GB } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
 
 export const GPU_PROVIDER_UNAVAILABLE_MESSAGE =
@@ -73,13 +72,8 @@ class VastaiService {
     const vramGB = Math.round(((raw.gpu_ram || 24000) / 1000) * 10) / 10;
     const ramGB = Math.round(((raw.cpu_ram || 32000) / 1000) * 10) / 10;
     const diskGB = Math.round(raw.disk_space || 100);
-    const pricing = pricingService.formatOfferPricing({
-      dph_total: raw.dph_total || raw.pricePerHour || 0.44,
-      dph_base: raw.dph_base,
-      storage_cost: raw.storage_cost,
-      disk_space: raw.disk_space,
-      inet_down_cost: raw.inet_down_cost || BANDWIDTH_COST_PER_GB || 0.025,
-    });
+    // Prices for the default storage size; endpoints reprice for the size the user picked.
+    const pricing = pricingService.priceOffer(raw, { storageGB: DEFAULT_STORAGE_GB });
 
     const inetDown = Math.round(raw.inet_down || 250);
     const inetUp = Math.round(raw.inet_up || 100);
@@ -96,19 +90,9 @@ class VastaiService {
       vramGB,
       numGpus: raw.num_gpus || 1,
       totalFlops: raw.total_flops || 0,
-      pricePerHour: pricing.computePricePerHour,
-      dphBase: pricing.computePricePerHour,
-      storageCostPerHour: pricing.storagePricePerHour,
-      storagePricePerGBHour: pricing.storagePricePerGBHour,
-      bandwidthCostPerGB: pricing.bandwidthCostPerGB,
-      totalHourlyCost: pricing.totalHourlyCost,
-      creditsPerHour: pricing.creditsPerHour,
-      totalCreditsPerHour: pricing.totalCreditsPerHour,
-      storageCreditsPerHour: pricing.storageCreditsPerHour,
-      storageCreditsPerGBHour: pricing.storageCreditsPerGBHour,
-      bandwidthCreditsPerGB: pricing.bandwidthCreditsPerGB,
-      creditsPerUsd: pricing.creditsPerUsd,
-      markupPercentage: pricing.markupPercentage,
+      // Raw Vast.ai compute $/hour, for server-side filters only (stripped from client responses).
+      pricePerHour: pricing._internal.dphBaseUsd,
+      ...pricing,
       inetUp,
       inetDown,
       reliability: Math.round((raw.reliability2 != null ? raw.reliability2 : (raw.reliability || 0.98)) * 100) / 100,

@@ -15,6 +15,16 @@ import {
   STORAGE_HOURS_PER_MONTH,
 } from '../config/constants.js';
 
+/** Vast.ai prices storage per 30-day month. */
+export const VAST_HOURS_PER_MONTH = 720;
+/** Storage size used for offer prices when the client doesn't send one. */
+export const DEFAULT_STORAGE_GB = 50;
+
+const round = (n, decimals) => {
+  const f = 10 ** decimals;
+  return Math.round((n + Number.EPSILON) * f) / f;
+};
+
 class PricingService {
   constructor() {
     this._cachedConfig = {
@@ -181,66 +191,88 @@ class PricingService {
   }
 
   /**
-   * Format complete pricing and credit metadata for a marketplace offer
-   * @param {Object} raw
-   * @returns {Object}
+   * The one pricing function for Vast.ai offers. Used for offer lists, the
+   * estimate, rent and (via the stored totalCreditsPerHour) billing.
+   *
+   * Vast.ai units, checked against live offers on 8 Oct 2026:
+   * - dph_base: compute $/hour.
+   * - storage_cost: $/GB/month, with a 720-hour (30-day) month; for an offer
+   *   searched with allocated_storage = G, dph_total - dph_base = storage_cost * G / 720.
+   * - inet_down_cost / inet_up_cost: $/GB downloaded into / uploaded from the
+   *   instance (internet_*_cost_per_tb = 1024 x these).
+   *
+   * credits = USD x (1 + markupPercentage / 100) x creditsPerUsd (both from PricingConfig).
+   * Storage is priced for `storageGB` only, never the host's whole free disk.
+   * Bandwidth is not part of the hourly total; it is billed by usage.
+   *
+   * @param {Object} raw - raw Vast.ai offer
+   * @param {{ storageGB?: number, config?: Object }} [options]
+   * @returns {Object} client fields (credits) plus `_internal` USD figures (never sent to clients).
+   *   When Vast.ai did not report a needed field, priceAvailable is false and prices are null.
    */
-  formatOfferPricing(raw = {}) {
-    const rawDphTotal = Number(raw.dph_total || raw.pricePerHour || 0.44);
-    const rawDphBase = Number(raw.dph_base || raw.dphBase || rawDphTotal);
-    const rawBandwidth = Number(raw.inet_down_cost || raw.bandwidthCostPerGB || 0.02);
+  priceOffer(raw = {}, { storageGB = DEFAULT_STORAGE_GB, config = this._cachedConfig } = {}) {
+    const gb = Math.round(Number(storageGB));
+    const markupPercentage = Number(config.markupPercentage);
+    const creditsPerUsd = Number(config.creditsPerUsd ?? config.tokenValue);
+    const toCredits = (usd) => usd * (1 + markupPercentage / 100) * creditsPerUsd;
+    const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
 
-    // Derive raw storage cost per GB per hour directly from the host offer
-    let rawStoragePerGBHour;
-    if (raw.storage_cost != null && !isNaN(Number(raw.storage_cost)) && Number(raw.storage_cost) > 0) {
-      rawStoragePerGBHour = Number(raw.storage_cost);
-    } else if (rawDphTotal > rawDphBase) {
-      // Vast.ai default query bundles price storage at 100GB
-      rawStoragePerGBHour = (rawDphTotal - rawDphBase) / 100;
-    } else {
-      rawStoragePerGBHour = 0.00015; // default fallback ($0.11/GB/mo)
+    const dphBase = num(raw.dph_base);
+    const storageCost = num(raw.storage_cost);
+    const downCost = num(raw.inet_down_cost);
+    const upCost = num(raw.inet_up_cost);
+
+    const hourlyKnown =
+      Number.isFinite(dphBase) && dphBase >= 0 && Number.isFinite(storageCost) && storageCost >= 0 &&
+      Number.isFinite(gb) && gb > 0 && Number.isFinite(markupPercentage) && creditsPerUsd > 0;
+
+    let compute = null;
+    let storagePerHour = null;
+    let total = null;
+    let storagePerGBMonth = null;
+    if (hourlyKnown) {
+      compute = round(toCredits(dphBase), 2);
+      storagePerGBMonth = round(toCredits(storageCost), 4);
+      storagePerHour = round(toCredits((storageCost * gb) / VAST_HOURS_PER_MONTH), 2);
+      // The components shown are the components summed: card, panel and billing agree to the cent.
+      total = round(compute + storagePerHour, 2);
     }
-
-    const mult = this._cachedConfig.markupMultiplier || 1.25;
-    const tokenVal = this._cachedConfig.tokenValue || 50;
-
-    // 1. Marked-up USD rates (kept internal for billing & logs)
-    const computePricePerHour = this.applyMarkup(rawDphBase, 4);
-    const computeCreditsPerHour = this.usdToCredits(computePricePerHour, 1);
-
-    const storagePricePerGBHour = this.applyMarkup(rawStoragePerGBHour, 6);
-    const storageCreditsPerGBHour = Number((storagePricePerGBHour * tokenVal).toFixed(6));
-
-    const defaultDiskGB = Number(raw.disk_space || 100);
-    const storagePricePerHour = Math.round(storagePricePerGBHour * defaultDiskGB * 10000) / 10000;
-    const storageCreditsPerHour = Math.round(storageCreditsPerGBHour * defaultDiskGB * 100) / 100;
-
-    const totalHourlyCost = Math.round((computePricePerHour + storagePricePerHour) * 10000) / 10000;
-    const totalCreditsPerHour = Math.round((computeCreditsPerHour + storageCreditsPerHour) * 10) / 10;
-
-    const bandwidthCostPerGB = this.applyMarkup(rawBandwidth, 4);
-    const bandwidthCreditsPerGB = this.usdToCredits(bandwidthCostPerGB, 2);
+    const perGB = (cost) => (Number.isFinite(cost) && cost >= 0 && creditsPerUsd > 0 ? round(toCredits(cost), 4) : null);
 
     return {
-      // Server internal rates
-      rawDphBase,
-      rawDphTotal,
-      rawStoragePerGBHour,
-      computePricePerHour,
-      storagePricePerGBHour,
-      storagePricePerHour,
-      bandwidthCostPerGB,
-      totalHourlyCost,
-
-      // Authoritative credits
-      creditsPerHour: computeCreditsPerHour,
-      storageCreditsPerHour,
-      storageCreditsPerGBHour,
-      totalCreditsPerHour,
-      bandwidthCreditsPerGB,
-      creditsPerUsd: tokenVal,
-      markupPercentage: this._cachedConfig.markupPercentage,
+      priceAvailable: hourlyKnown,
+      storageGB: gb,
+      computeCreditsPerHour: compute,
+      storageCreditsPerGBMonth: storagePerGBMonth,
+      storageCreditsPerHour: storagePerHour,
+      totalCreditsPerHour: total,
+      bandwidthDownCreditsPerGB: perGB(downCost),
+      bandwidthUpCreditsPerGB: perGB(upCost),
+      bandwidthBilling: 'usage',
+      // Names read by app versions up to v0.2.0.
+      creditsPerHour: compute,
+      bandwidthCreditsPerGB: perGB(downCost),
+      _internal: {
+        dphBaseUsd: Number.isFinite(dphBase) ? dphBase : null,
+        storageUsdPerGBMonth: Number.isFinite(storageCost) ? storageCost : null,
+        storageUsdPerHour: hourlyKnown ? (storageCost * gb) / VAST_HOURS_PER_MONTH : null,
+        totalUsdPerHour: hourlyKnown ? dphBase + (storageCost * gb) / VAST_HOURS_PER_MONTH : null,
+        bandwidthDownUsdPerGB: Number.isFinite(downCost) ? downCost : null,
+        bandwidthUpUsdPerGB: Number.isFinite(upCost) ? upCost : null,
+        markupPercentage,
+        creditsPerUsd,
+      },
     };
+  }
+
+  /**
+   * A normalized offer with its prices recomputed for `storageGB`.
+   * @param {Object} offer - from vastaiService.normalizeOffer (keeps rawOffer)
+   * @param {number} storageGB
+   */
+  repriceOffer(offer, storageGB = DEFAULT_STORAGE_GB, config = this._cachedConfig) {
+    if (!offer) return offer;
+    return { ...offer, ...this.priceOffer(offer.rawOffer || {}, { storageGB, config }) };
   }
 
   /**
@@ -262,9 +294,8 @@ class PricingService {
   }
 
   /**
-   * Calculate storage credits dynamically for any continuous storageGB (10GB - 1000GB)
-   * Uses the real per-offer Vast.ai rate when an offer is provided.
-   * If no offer is provided, uses the baseline fallback rate.
+   * Baseline storage credits for a storageGB (10GB - 1000GB) when no offer is
+   * chosen yet (model recommendations). Offers are priced with priceOffer().
    * @param {number|string} storageGB
    * @param {Object} [offer=null]
    * @returns {Object}
@@ -279,24 +310,7 @@ class PricingService {
     let storagePricePerGBHour;
 
     if (offer) {
-      if (offer.storageCreditsPerGBHour != null && offer.storagePricePerGBHour != null) {
-        storageCreditsPerGBHour = offer.storageCreditsPerGBHour;
-        storagePricePerGBHour = offer.storagePricePerGBHour;
-      } else {
-        const rawOffer = offer.rawOffer || offer;
-        let rawRate = Number(rawOffer.storage_cost);
-        if (isNaN(rawRate) || rawRate <= 0) {
-          const dphTotal = Number(rawOffer.dph_total || 0);
-          const dphBase = Number(rawOffer.dph_base || 0);
-          if (dphTotal > dphBase) {
-            rawRate = (dphTotal - dphBase) / 100;
-          } else {
-            rawRate = 0.00015;
-          }
-        }
-        storagePricePerGBHour = this.applyMarkup(rawRate, 6);
-        storageCreditsPerGBHour = Number((storagePricePerGBHour * tokenVal).toFixed(6));
-      }
+      throw new Error('calculateStoragePricing: price offers with priceOffer() instead.');
     } else {
       // Baseline fallback rate when no offer is specified
       const rawPricePerMonth = gb * STORAGE_RATE_PER_GB_MONTH;

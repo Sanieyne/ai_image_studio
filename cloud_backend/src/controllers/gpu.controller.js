@@ -16,6 +16,20 @@ import {
   MIN_INET_DOWN_FLOOR_MBPS,
 } from '../config/constants.js';
 import { sanitizeOfferForClient, sanitizeInstanceForClient } from '../utils/sanitize.js';
+import { pricingService, DEFAULT_STORAGE_GB } from '../services/pricing.service.js';
+
+/**
+ * Storage size (GB) offer prices are computed for. Optional; defaults to
+ * DEFAULT_STORAGE_GB, which is also what app versions up to v0.2.0 get.
+ */
+function parseStorageGB(value) {
+  if (value === undefined || value === null || value === '') return DEFAULT_STORAGE_GB;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < STORAGE_MIN_GB || n > STORAGE_MAX_GB) {
+    throw ApiError.badRequest(`storageGB must be an integer between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+  }
+  return n;
+}
 
 /**
  * GET /api/v1/gpu/offers
@@ -32,6 +46,7 @@ export const getOffers = asyncHandler(async (req, res) => {
     selectedModelIds,
     orderBy,
   } = req.query;
+  const storageGB = parseStorageGB(req.query.storageGB);
 
   const modelIdsList = selectedModelIds
     ? (Array.isArray(selectedModelIds) ? selectedModelIds : selectedModelIds.split(',').map((s) => s.trim()).filter(Boolean))
@@ -46,6 +61,7 @@ export const getOffers = asyncHandler(async (req, res) => {
     verifiedOnly: verified === 'false' ? false : true,
     limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250,
     orderBy: orderBy || 'price',
+    storageGB,
   });
 
   const sanitizedOffers = (result.offers || []).map(sanitizeOfferForClient);
@@ -66,7 +82,8 @@ export const getOffers = asyncHandler(async (req, res) => {
  */
 export const getOfferById = asyncHandler(async (req, res) => {
   const { offerId } = req.params;
-  const offer = await vastaiService.getOffer(offerId);
+  const storageGB = parseStorageGB(req.query.storageGB);
+  const offer = pricingService.repriceOffer(await vastaiService.getOffer(offerId), storageGB, await pricingService.getConfig());
 
   res.status(200).json({
     success: true,
@@ -87,7 +104,8 @@ export const getRecommended = asyncHandler(async (req, res) => {
     : [];
 
   const effectiveLimit = limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250;
-  const recommendations = await gpuProviderService.getRecommendedGPUsForSelection(modelIdsList, effectiveLimit);
+  const storageGB = parseStorageGB(req.query.storageGB);
+  const recommendations = await gpuProviderService.getRecommendedGPUsForSelection(modelIdsList, effectiveLimit, storageGB);
 
   const sanitized = {
     requirements: recommendations.requirements,
@@ -208,6 +226,7 @@ export const estimatePricing = asyncHandler(async (req, res) => {
   }
 
   const offer = await vastaiService.getOffer(offerId);
+  await pricingService.getConfig();
   const estimate = gpuProviderService.estimateCost({
     offer,
     storageGB: numericStorage,

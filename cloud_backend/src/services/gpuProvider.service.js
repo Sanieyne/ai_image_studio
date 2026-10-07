@@ -8,12 +8,11 @@ import { vastaiService, isConfirmedContractId } from './vastai.service.js';
 import { billingService, ACTIVE_STATUSES, STOP_REASONS } from './billing.service.js';
 import { recommendationService } from './recommendation.service.js';
 import { creditService } from './credit.service.js';
-import { pricingService } from './pricing.service.js';
+import { pricingService, DEFAULT_STORAGE_GB } from './pricing.service.js';
 import { GpuInstance } from '../models/GpuInstance.js';
 import {
   GPU_STATUS,
   GPU_PROVIDERS,
-  BANDWIDTH_COST_PER_GB,
   STORAGE_MIN_GB,
   STORAGE_MAX_GB,
   MIN_INET_DOWN_FLOOR_MBPS,
@@ -41,7 +40,9 @@ class GpuProviderService {
       verifiedOnly = true,
       limit = 250,
       orderBy = 'price',
+      storageGB = DEFAULT_STORAGE_GB,
     } = options;
+    const pricingConfig = await pricingService.getConfig();
 
     // Hard floor enforcement: client cannot request a speed floor below 400 Mbps
     const effectiveMinInetDown = Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown) || 0);
@@ -70,8 +71,11 @@ class GpuProviderService {
       totalModelSizeGB,
     });
 
-    // 3. Defense-in-depth: strictly exclude any offer below 400 Mbps and filter by maxPricePerHour
-    let filteredOffers = rawOffers.filter((o) => (o.inetDown ?? 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+    // 3. Defense-in-depth: strictly exclude any offer below 400 Mbps and filter by maxPricePerHour.
+    //    Prices are recomputed for the storage size the user picked.
+    let filteredOffers = rawOffers
+      .filter((o) => (o.inetDown ?? 0) >= MIN_INET_DOWN_FLOOR_MBPS)
+      .map((o) => pricingService.repriceOffer(o, storageGB, pricingConfig));
     if (maxPricePerHour != null && !isNaN(maxPricePerHour)) {
       filteredOffers = filteredOffers.filter((o) => o.pricePerHour <= Number(maxPricePerHour));
     }
@@ -91,14 +95,11 @@ class GpuProviderService {
         reason = `Balanced fit with ${headroom}GB VRAM headroom. Ideal for standard single-image generations.`;
       }
 
-      const estimatedMonthlyBandwidthCost = Math.round(100 * BANDWIDTH_COST_PER_GB * 100) / 100;
-
       return {
         ...offer,
         headroomVramGB: headroom,
         fit,
         fitReason: reason,
-        estimatedMonthlyBandwidthCost,
       };
     });
 
@@ -110,7 +111,8 @@ class GpuProviderService {
       if (orderBy === 'reliability') {
         return b.reliability - a.reliability;
       }
-      return (a.totalCreditsPerHour ?? a.creditsPerHour) - (b.totalCreditsPerHour ?? b.creditsPerHour);
+      // Offers without a price go last.
+      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     });
 
     return {
@@ -128,6 +130,7 @@ class GpuProviderService {
         minDiskGB: requiredDisk,
         maxPricePerHour,
         minInetDown: effectiveMinInetDown,
+        storageGB,
       },
     };
   }
@@ -137,10 +140,11 @@ class GpuProviderService {
    * @param {string[]} modelIds
    * @returns {Promise<Object>}
    */
-  async getRecommendedGPUsForSelection(modelIds = [], limit = 250) {
+  async getRecommendedGPUsForSelection(modelIds = [], limit = 250, storageGB = DEFAULT_STORAGE_GB) {
     const searchResult = await this.searchAvailableGPUs({
       selectedModelIds: modelIds,
       limit,
+      storageGB,
     });
 
     const { offers, requirements } = searchResult;
@@ -156,7 +160,8 @@ class GpuProviderService {
     }
 
     // 1. Cheapest offer
-    const cheapestOffer = [...offers].sort((a, b) => a.totalHourlyCost - b.totalHourlyCost)[0];
+    const byTotal = (a, b) => (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+    const cheapestOffer = [...offers].sort(byTotal)[0];
 
     // 2. Fastest offer by dlperf compute score
     const fastestOffer = [...offers].sort((a, b) => b.dlperf - a.dlperf)[0];
@@ -164,7 +169,7 @@ class GpuProviderService {
     // 3. Most reliable offer (reliability >= 0.98 priority)
     const mostReliableOffer = [...offers]
       .filter((o) => o.reliability >= 0.95)
-      .sort((a, b) => b.reliability - a.reliability || a.totalHourlyCost - b.totalHourlyCost)[0] || offers[0];
+      .sort((a, b) => b.reliability - a.reliability || byTotal(a, b))[0] || offers[0];
 
     // 4. Balanced offer (Optimal fit, competitive price, high speed)
     const balancedOffer =
@@ -204,33 +209,48 @@ class GpuProviderService {
       throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
     }
 
-    // Compute storage pricing using the host's real rate
-    const storagePricing = pricingService.calculateStoragePricing(numericStorage, offer);
+    const price = pricingService.repriceOffer(offer, numericStorage);
+    const h = Number(hours);
+    const r2 = (n) => Math.round(n * 100) / 100;
+    if (!price.priceAvailable) {
+      return {
+        offerId: String(offer.id),
+        gpuName: offer.gpuName,
+        priceAvailable: false,
+        hours: h,
+        storageGB: numericStorage,
+        bandwidthGB: Number(bandwidthGB),
+        breakdown: { computeCredits: null, storageCredits: null, bandwidthCredits: null },
+        totalCredits: null,
+        creditsPerHour: null,
+      };
+    }
 
-    const computeCreditsPerHour = offer.creditsPerHour;
-    const storageCreditsPerHour = storagePricing.creditsPerHour;
-    const computeCredits = Math.round(computeCreditsPerHour * hours * 10) / 10;
-    const storageCredits = Math.round(storageCreditsPerHour * hours * 100) / 100;
-
-    const bandwidthCost = Math.round(bandwidthGB * (offer.bandwidthCostPerGB || BANDWIDTH_COST_PER_GB) * 1000) / 1000;
-    const bandwidthCredits = pricingService.usdToCredits(bandwidthCost, 2);
-
-    const totalCreditsPerHour = Math.round((computeCreditsPerHour + storageCreditsPerHour) * 100) / 100;
-    const totalCredits = Math.round((computeCredits + storageCredits + bandwidthCredits) * 10) / 10;
-
+    // Same figures as the offer card and the Rent button: totalCreditsPerHour from priceOffer.
+    // Bandwidth is billed by usage and is not part of the total; bandwidthCredits is only an
+    // indication for `bandwidthGB` downloaded.
     return {
       offerId: String(offer.id),
       gpuName: offer.gpuName,
-      hours: Number(hours),
+      priceAvailable: true,
+      hours: h,
       storageGB: numericStorage,
       bandwidthGB: Number(bandwidthGB),
+      computeCreditsPerHour: price.computeCreditsPerHour,
+      storageCreditsPerGBMonth: price.storageCreditsPerGBMonth,
+      storageCreditsPerHour: price.storageCreditsPerHour,
+      totalCreditsPerHour: price.totalCreditsPerHour,
+      bandwidthDownCreditsPerGB: price.bandwidthDownCreditsPerGB,
+      bandwidthUpCreditsPerGB: price.bandwidthUpCreditsPerGB,
+      bandwidthBilling: 'usage',
       breakdown: {
-        computeCredits,
-        storageCredits,
-        bandwidthCredits,
+        computeCredits: r2(price.computeCreditsPerHour * h),
+        storageCredits: r2(price.storageCreditsPerHour * h),
+        bandwidthCredits:
+          price.bandwidthDownCreditsPerGB == null ? null : r2(price.bandwidthDownCreditsPerGB * Number(bandwidthGB)),
       },
-      totalCredits,
-      creditsPerHour: totalCreditsPerHour,
+      totalCredits: r2(price.totalCreditsPerHour * h),
+      creditsPerHour: price.totalCreditsPerHour,
     };
   }
 
@@ -363,11 +383,15 @@ class GpuProviderService {
       );
     }
 
-    // 2. Compute live continuous storage pricing and initial funding required in CREDITS using the offer's real rate
-    const storagePricing = pricingService.calculateStoragePricing(numericStorage, offer);
-    const storagePricePerHour = storagePricing._internal?.pricePerHour || 0;
-    const totalHourlyCost = Math.round(((offer.dphBase || offer.pricePerHour) + storagePricePerHour) * 1000) / 1000;
-    const totalCreditsPerHour = Math.round((offer.creditsPerHour + storagePricing.creditsPerHour) * 10) / 10;
+    // 2. Price for the chosen storage size: the same function as the offer card,
+    //    the estimate and billing (which charges pricing.totalCreditsPerHour).
+    const pricingConfig = await pricingService.getConfig();
+    const price = pricingService.repriceOffer(offer, numericStorage, pricingConfig);
+    if (!price.priceAvailable) {
+      throw ApiError.conflict('Vast.ai did not report a complete price for this offer. Please choose another.');
+    }
+    const totalCreditsPerHour = price.totalCreditsPerHour;
+    const totalHourlyCost = Math.round(price._internal.totalUsdPerHour * 1e6) / 1e6;
 
     const minLaunch = pricingService.getCachedConfig().minLaunchCredits || 10;
     const initialCreditsRequired = Math.max(
@@ -407,15 +431,22 @@ class GpuProviderService {
         modelsRequested: selectedModelIds,
         vastOffer: offer,
         pricing: {
-          dph_total: offer.pricePerHour,
-          storageCost: storagePricePerHour,
-          bandwidthCost: offer.bandwidthCostPerGB,
+          dph_total: price._internal.dphBaseUsd,
+          storageCost: price._internal.storageUsdPerHour,
+          bandwidthCost: price._internal.bandwidthDownUsdPerGB,
           totalPerHour: totalHourlyCost,
-          creditsPerHour: offer.creditsPerHour,
-          totalCreditsPerHour: totalCreditsPerHour,
-          storageCreditsPerHour: storagePricing.creditsPerHour,
-          bandwidthCreditsPerGB: offer.bandwidthCreditsPerGB,
-          creditsPerUsd: pricingService.getCachedConfig().tokenValue,
+          storageGB: numericStorage,
+          computeCreditsPerHour: price.computeCreditsPerHour,
+          storageCreditsPerGBMonth: price.storageCreditsPerGBMonth,
+          storageCreditsPerHour: price.storageCreditsPerHour,
+          totalCreditsPerHour,
+          bandwidthDownCreditsPerGB: price.bandwidthDownCreditsPerGB,
+          bandwidthUpCreditsPerGB: price.bandwidthUpCreditsPerGB,
+          // Older field names, still read by app versions up to v0.2.0.
+          creditsPerHour: price.computeCreditsPerHour,
+          bandwidthCreditsPerGB: price.bandwidthDownCreditsPerGB,
+          creditsPerUsd: price._internal.creditsPerUsd,
+          markupPercentage: price._internal.markupPercentage,
         },
         network: {
           inet_up: offer.inetUp,
