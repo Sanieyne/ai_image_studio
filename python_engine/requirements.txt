@@ -3,8 +3,8 @@ uvicorn[standard]>=0.29.0
 pydantic>=2.6.0
 requests>=2.31.0
 torch>=2.2.0
-diffusers>=0.32.0  # >=0.30 for FLUX FluxPipeline
-transformers>=4.44.0  # FLUX text encoders
+diffusers==0.31.0
+transformers>=4.44.0,<5.0.0
 accelerate>=0.33.0
 sentencepiece>=0.2.0  # FLUX T5 tokenizer
 protobuf>=4.25.0
@@ -14,6 +14,15 @@ imageio>=2.35.0  # export_to_video
 imageio-ffmpeg>=0.5.1  # mp4 muxing
 torchaudio>=2.2.0  # audio processing
 soundfile>=0.12.1  # wav I/O
-# chatterbox-tts>=0.1.0  # Optional (conflicts with diffusers>=0.32.0)
-# Virtual Try-On (FASHN VTON 1.5):
-# git+https://github.com/fashn-AI/fashn-vton-1.5.git
+# InstantID & Face Verification (DeepFace - PyTorch backend)
+insightface>=0.7.3
+onnxruntime>=1.17.0
+opencv-python-headless>=4.9.0
+gdown>=3.10.1
+pandas>=0.23.4
+lightphe>=0.0.15
+lightdsa>=0.0.3
+fire>=0.4.0
+flask>=2.0.0
+werkzeug>=2.0.0
+# Note: deepface is installed via `pip install --no-deps deepface` to prevent heavy TensorFlow wheels.

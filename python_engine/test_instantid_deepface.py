@@ -12,6 +12,7 @@ timing, and VRAM utilization.
 """
 
 import os
+os.environ["DEEPFACE_BACKEND_ENGINE"] = "pytorch"
 import sys
 import time
 import json
@@ -112,11 +113,22 @@ def run_standalone_test(output_dir: Path):
         torch_dtype=torch_dtype
     )
 
-    pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-        sdxl_path,
-        controlnet=controlnet,
-        torch_dtype=torch_dtype,
-    )
+    has_fp16 = (Path(sdxl_path) / "text_encoder_2" / "model.fp16.safetensors").exists()
+    try:
+        pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+            sdxl_path,
+            controlnet=controlnet,
+            torch_dtype=torch_dtype,
+            variant="fp16" if has_fp16 else None,
+        )
+    except Exception as e_var:
+        print(f"  [Notice] Initial pipeline load error ({e_var}), retrying with explicit variant switch...", flush=True)
+        pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+            sdxl_path,
+            controlnet=controlnet,
+            torch_dtype=torch_dtype,
+            variant=None if has_fp16 else "fp16",
+        )
     if device == 'cuda':
         pipe.to("cuda")
     pipe.load_ip_adapter_instantid(str(face_adapter_path))
@@ -214,85 +226,85 @@ def run_standalone_test(output_dir: Path):
 
         print(f"  Generated in {gen_time}s | Output: {out_path} | VRAM: {vram_peak} GB", flush=True)
 
-            # Measure InsightFace AntelopeV2 Cosine Similarity directly
-            insight_sim = None
+        # Measure InsightFace AntelopeV2 Cosine Similarity directly
+        insight_sim = None
+        try:
+            gen_img_cv = cv2.imread(str(out_path))
+            if gen_img_cv is not None:
+                gen_faces = app.get(gen_img_cv)
+                if len(gen_faces) > 0:
+                    gen_face = sorted(gen_faces, key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]))[-1]
+                    gen_emb = gen_face['embedding']
+                    norm_ref = np.linalg.norm(face_emb)
+                    norm_gen = np.linalg.norm(gen_emb)
+                    if norm_ref > 0 and norm_gen > 0:
+                        insight_sim = round(float(np.dot(face_emb, gen_emb) / (norm_ref * norm_gen)), 4)
+                        print(f"    [InsightFace Cosine Sim]: {insight_sim} (Threshold: ~0.40)", flush=True)
+        except Exception as e:
+            print(f"    [InsightFace Sim Warning]: {e}", flush=True)
+
+        # Verification: DeepFace
+        print("  Running DeepFace verification (True pair)...", flush=True)
+        v_start = time.time()
+        try:
+            # Try VGG-Face first; if backend unavailable, try Facenet512
+            model_to_use = "VGG-Face"
             try:
-                gen_img_cv = cv2.imread(str(out_path))
-                if gen_img_cv is not None:
-                    gen_faces = app.get(gen_img_cv)
-                    if len(gen_faces) > 0:
-                        gen_face = sorted(gen_faces, key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]))[-1]
-                        gen_emb = gen_face['embedding']
-                        norm_ref = np.linalg.norm(face_emb)
-                        norm_gen = np.linalg.norm(gen_emb)
-                        if norm_ref > 0 and norm_gen > 0:
-                            insight_sim = round(float(np.dot(face_emb, gen_emb) / (norm_ref * norm_gen)), 4)
-                            print(f"    [InsightFace Cosine Sim]: {insight_sim} (Threshold: ~0.40)", flush=True)
-            except Exception as e:
-                print(f"    [InsightFace Sim Warning]: {e}", flush=True)
+                verif_res = DeepFace.verify(
+                    img1_path=tc["ref_image"],
+                    img2_path=str(out_path),
+                    model_name="VGG-Face",
+                    detector_backend="opencv",
+                    enforce_detection=False,
+                )
+            except Exception as df_err:
+                print(f"    [DeepFace VGG-Face fallback trigger]: {df_err}. Retrying with Facenet...", flush=True)
+                model_to_use = "Facenet"
+                verif_res = DeepFace.verify(
+                    img1_path=tc["ref_image"],
+                    img2_path=str(out_path),
+                    model_name="Facenet",
+                    detector_backend="opencv",
+                    enforce_detection=False,
+                )
 
-            # Verification: DeepFace
-            print("  Running DeepFace verification (True pair)...", flush=True)
-            v_start = time.time()
-            try:
-                # Try VGG-Face first; if backend unavailable, try Facenet512
-                model_to_use = "VGG-Face"
-                try:
-                    verif_res = DeepFace.verify(
-                        img1_path=tc["ref_image"],
-                        img2_path=str(out_path),
-                        model_name="VGG-Face",
-                        detector_backend="opencv",
-                        enforce_detection=False,
-                    )
-                except Exception as df_err:
-                    print(f"    [DeepFace VGG-Face fallback trigger]: {df_err}. Retrying with Facenet...", flush=True)
-                    model_to_use = "Facenet"
-                    verif_res = DeepFace.verify(
-                        img1_path=tc["ref_image"],
-                        img2_path=str(out_path),
-                        model_name="Facenet",
-                        detector_backend="opencv",
-                        enforce_detection=False,
-                    )
+            v_time = round(time.time() - v_start, 2)
+            verified = verif_res.get("verified", False)
+            distance = round(verif_res.get("distance", 1.0), 4)
+            threshold = verif_res.get("threshold", 0.4)
+            model_used = verif_res.get("model", model_to_use)
+            metric = verif_res.get("similarity_metric", "cosine")
+            # Calculate a confidence/similarity score (1 - distance/threshold scaled)
+            similarity = round(max(0.0, 1.0 - (distance / threshold) * 0.5) if verified else max(0.0, 0.5 - (distance - threshold)), 3)
 
-                v_time = round(time.time() - v_start, 2)
-                verified = verif_res.get("verified", False)
-                distance = round(verif_res.get("distance", 1.0), 4)
-                threshold = verif_res.get("threshold", 0.4)
-                model_used = verif_res.get("model", model_to_use)
-                metric = verif_res.get("similarity_metric", "cosine")
-                # Calculate a confidence/similarity score (1 - distance/threshold scaled)
-                similarity = round(max(0.0, 1.0 - (distance / threshold) * 0.5) if verified else max(0.0, 0.5 - (distance - threshold)), 3)
+            print(f"    [DeepFace {model_used}] Match: {verified} | Distance: {distance} (Threshold: {threshold}) | Metric: {metric} | Similarity: {similarity} | Eval Time: {v_time}s", flush=True)
 
-                print(f"    [DeepFace {model_used}] Match: {verified} | Distance: {distance} (Threshold: {threshold}) | Metric: {metric} | Similarity: {similarity} | Eval Time: {v_time}s", flush=True)
-
-                log_entry = {
-                    "test_id": tc["id"],
-                    "subject": tc["ref_name"],
-                    "prompt": tc["prompt"],
-                    "ref_image": tc["ref_image"],
-                    "gen_image": str(out_path),
-                    "gen_time_sec": gen_time,
-                    "vram_gb": vram_peak,
-                    "insightface_cosine_sim": insight_sim,
-                    "deepface_match": bool(verified),
-                    "deepface_distance": float(distance),
-                    "deepface_threshold": float(threshold),
-                    "deepface_similarity_score": float(similarity),
-                    "deepface_model": model_used,
-                }
-                results_log.append(log_entry)
-            except Exception as e:
-                print(f"    [DeepFace ERROR] {e}", flush=True)
-                results_log.append({
-                    "test_id": tc["id"],
-                    "subject": tc["ref_name"],
-                    "gen_time_sec": gen_time,
-                    "vram_gb": vram_peak,
-                    "insightface_cosine_sim": insight_sim,
-                    "error": str(e),
-                })
+            log_entry = {
+                "test_id": tc["id"],
+                "subject": tc["ref_name"],
+                "prompt": tc["prompt"],
+                "ref_image": tc["ref_image"],
+                "gen_image": str(out_path),
+                "gen_time_sec": gen_time,
+                "vram_gb": vram_peak,
+                "insightface_cosine_sim": insight_sim,
+                "deepface_match": bool(verified),
+                "deepface_distance": float(distance),
+                "deepface_threshold": float(threshold),
+                "deepface_similarity_score": float(similarity),
+                "deepface_model": model_used,
+            }
+            results_log.append(log_entry)
+        except Exception as e:
+            print(f"    [DeepFace ERROR] {e}", flush=True)
+            results_log.append({
+                "test_id": tc["id"],
+                "subject": tc["ref_name"],
+                "gen_time_sec": gen_time,
+                "vram_gb": vram_peak,
+                "insightface_cosine_sim": insight_sim,
+                "error": str(e),
+            })
 
 
     # Sanity-check 2: Cross-Subject Mismatch Test (Control group)

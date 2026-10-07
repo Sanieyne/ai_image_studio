@@ -51,13 +51,14 @@ HEADERS = {"Authorization": f"Bearer {VASTAI_API_KEY}"}
 
 
 def find_best_offer():
-    print("[*] Searching for suitable Vast.ai GPU offers (24GB+ VRAM, >600 Mbps down)...")
+    print("[*] Searching for suitable Vast.ai GPU offers (24GB+ VRAM, >600 Mbps down, data cost <= $3/TB)...")
     q = {
         "verified": {"eq": True},
         "rentable": {"eq": True},
         "num_gpus": {"eq": 1},
         "gpu_ram": {"gte": 23000},
         "inet_down": {"gte": 600},
+        "inet_down_cost": {"lte": 0.003},  # Max $3 per TB data cost (protect against $40/TB gouging)
         "disk_space": {"gte": 80},
         "order": [["dph_total", "asc"]],
     }
@@ -68,17 +69,25 @@ def find_best_offer():
         timeout=15,
     )
     offers = resp.json().get("offers", [])
-    # Filter for RTX 3090, RTX 4090, RTX A5000, RTX PRO 4000
+    # Filter for RTX 3090, RTX 4090, RTX A5000, RTX PRO 4000 in fast Western regions (US, CA, EU)
     candidate_gpus = ["RTX 3090", "RTX 4090", "RTX A5000", "RTX PRO 4000", "RTX 3090 Ti"]
+    fast_regions = ["US", "CA", "ES", "DE", "FR", "GB", "NL", "RO", "BG", "PL", "NO", "SE", "DK"]
     for o in offers:
+        geo = o.get("geolocation", "")
+        if not any(r in geo for r in fast_regions):
+            continue
         gpu = o.get("gpu_name", "")
         if any(c.lower() in gpu.lower() for c in candidate_gpus):
-            print(f"[+] Selected offer {o['id']}: {gpu} ({round(o['gpu_ram']/1024, 1)}GB VRAM) @ ${round(o['dph_total'], 3)}/hr in {o.get('geolocation')} (Inet down: {round(o['inet_down'])} Mbps)")
+            tb_cost = round(o.get("inet_down_cost", 0) * 1024, 2)
+            print(f"[+] Selected cheap offer {o['id']}: {gpu} ({round(o['gpu_ram']/1024, 1)}GB VRAM) @ ${round(o['dph_total'], 3)}/hr | Data: ${tb_cost}/TB in {geo} (Inet down: {round(o['inet_down'])} Mbps)")
             return o
     if offers:
-        top = offers[0]
-        print(f"[+] Fallback to top offer {top['id']}: {top.get('gpu_name')} @ ${round(top['dph_total'], 3)}/hr")
-        return top
+        for o in offers:
+            geo = o.get("geolocation", "")
+            if any(r in geo for r in fast_regions):
+                tb_cost = round(o.get("inet_down_cost", 0) * 1024, 2)
+                print(f"[+] Fallback to top Western offer {o['id']}: {o.get('gpu_name')} @ ${round(o['dph_total'], 3)}/hr | Data: ${tb_cost}/TB in {geo}")
+                return o
     raise RuntimeError("No suitable GPU offers found on Vast.ai!")
 
 
@@ -124,11 +133,22 @@ cd /workspace/python_engine
 
 # 5. Install requirements
 echo "[Step 2/5] Installing dependencies..."
-python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt tf-keras keras onnxruntime-gpu || python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt tf-keras keras onnxruntime
+python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt onnxruntime-gpu || python3 -m pip install --no-cache-dir --break-system-packages -r requirements.txt onnxruntime
+# Install deepface dependencies and deepface with --no-deps to run natively on PyTorch backend without pulling 3GB of TensorFlow wheels
+python3 -m pip install --no-cache-dir --break-system-packages lightphe lightdsa fire flask werkzeug
+python3 -m pip install --no-cache-dir --break-system-packages --no-deps deepface
 
 # 6. Download models: sdxl-base-1.0 and instantid
 echo "[Step 3/5] Downloading models (sdxl-base-1.0, instantid) from R2..."
 python3 download_model.py sdxl-base-1.0 instantid
+
+# Ensure both variant (.fp16.safetensors) and non-variant (.safetensors) filenames exist for all components
+for f in $(find /workspace/models/sdxl-base-1.0 -name "*.fp16.safetensors"); do
+    target=$(echo "$f" | sed 's/\.fp16\.safetensors/\.safetensors/')
+    if [ ! -f "$target" ]; then
+        ln -s "$f" "$target"
+    fi
+done
 
 # 7. Run standalone test script
 echo "[Step 4/5] Executing test_instantid_deepface.py..."
@@ -277,23 +297,32 @@ def main():
                     headers=HEADERS,
                     timeout=10,
                 )
-                inst_data = inst_resp.json().get("instances", [{}])[0]
-                status = inst_data.get("actual_status") or inst_data.get("cur_state")
+                inst_raw = inst_resp.json().get("instances")
+                if isinstance(inst_raw, list) and len(inst_raw) > 0:
+                    inst_data = inst_raw[0]
+                elif isinstance(inst_raw, dict):
+                    inst_data = inst_raw
+                else:
+                    inst_data = {}
+                status = inst_data.get("actual_status") or inst_data.get("cur_state") or "unknown"
                 status_msg = inst_data.get("status_msg", "")
                 print(f"[{elapsed}s] Instance #{contract_id}: {status} ({status_msg})", flush=True)
 
                 if elapsed % 45 == 0 and elapsed > 0:
                     try:
-                        log_resp = requests.get(
-                            f"https://console.vast.ai/api/v0/instances/{contract_id}/logs/",
+                        req_log = requests.put(
+                            f"https://console.vast.ai/api/v0/instances/request_logs/{contract_id}/",
                             headers=HEADERS,
                             timeout=10,
                         )
-                        logs = log_resp.json().get("logs", "")
-                        if logs:
-                            print("  [Remote Logs Tail]:")
-                            for line in logs.strip().split("\n")[-6:]:
-                                print(f"    {line}")
+                        log_url = req_log.json().get("result_url")
+                        if log_url:
+                            time.sleep(3)
+                            logs = requests.get(log_url, timeout=10).text
+                            if logs and "AccessDenied" not in logs:
+                                print("  [Remote Logs Tail]:")
+                                for line in [l for l in logs.strip().split("\n") if l.strip()][-6:]:
+                                    print(f"    {line[:150]}")
                     except Exception:
                         pass
 
