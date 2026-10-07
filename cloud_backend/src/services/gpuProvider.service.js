@@ -4,7 +4,8 @@
  * calculates hardware fit scores, and manages user cloud instance deployments.
  */
 
-import { vastaiService } from './vastai.service.js';
+import { vastaiService, isConfirmedContractId } from './vastai.service.js';
+import { billingService, ACTIVE_STATUSES, STOP_REASONS } from './billing.service.js';
 import { recommendationService } from './recommendation.service.js';
 import { creditService } from './credit.service.js';
 import { pricingService } from './pricing.service.js';
@@ -16,9 +17,13 @@ import {
   STORAGE_MIN_GB,
   STORAGE_MAX_GB,
   MIN_INET_DOWN_FLOOR_MBPS,
+  LOG_LEVELS,
 } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
 import { env } from '../config/env.js';
+
+/** Every Vast.ai instance we create is labelled `cosmicgen-<GpuInstance id>`. */
+export const INSTANCE_LABEL_PREFIX = 'cosmicgen-';
 
 class GpuProviderService {
   /**
@@ -377,52 +382,71 @@ class GpuProviderService {
       );
     }
 
-    // 3. Create GpuInstance document in provisioning state
-    const instance = await GpuInstance.create({
-      user: userId,
-      provider: GPU_PROVIDERS.VASTAI,
-      providerInstanceId: `pending-${Date.now()}`,
-      status: GPU_STATUS.PROVISIONING,
-      gpuType: offer.gpuName,
-      vramGB: offer.vramGB,
-      costPerHour: totalHourlyCost,
-      modelsRequested: selectedModelIds,
-      vastOffer: offer,
-      pricing: {
-        dph_total: offer.pricePerHour,
-        storageCost: storagePricePerHour,
-        bandwidthCost: offer.bandwidthCostPerGB,
-        totalPerHour: totalHourlyCost,
-        creditsPerHour: offer.creditsPerHour,
-        totalCreditsPerHour: totalCreditsPerHour,
-        storageCreditsPerHour: storagePricing.creditsPerHour,
-        bandwidthCreditsPerGB: offer.bandwidthCreditsPerGB,
-        creditsPerUsd: pricingService.getCachedConfig().tokenValue,
-      },
-      network: {
-        inet_up: offer.inetUp,
-        inet_down: offer.inetDown,
-        reliability: offer.reliability,
-        geolocation: offer.geolocation,
-      },
-      specs: {
-        cudaVersion: offer.cudaVersion,
-        driver: offer.driverVersion,
-        directPortCount: offer.directPortCount,
-        cpuCores: offer.cpuCores,
-        ramGB: offer.ramGB,
-        diskGB: numericStorage,
-      },
-      provisioningLogs: [
-        { message: `Requested provisioning on Vast.ai for ${offer.gpuName} (${offer.id})` },
-      ],
-      startedAt: new Date(),
-    });
+    // 3. Reserve one of the user's active-instance slots (race-safe), then create
+    //    the GpuInstance document in provisioning state holding that slot.
+    const maxActive = env.GPU_MAX_ACTIVE_PER_USER;
+    if (!(await billingService.acquireSlot(userId, maxActive))) {
+      throw ApiError.conflict(
+        maxActive === 1
+          ? 'You already have an active cloud GPU. Stop it before renting another.'
+          : `You already have ${maxActive} active cloud GPUs. Stop one before renting another.`
+      );
+    }
+
+    let instance;
+    try {
+      instance = await GpuInstance.create({
+        holdsSlot: true,
+        user: userId,
+        provider: GPU_PROVIDERS.VASTAI,
+        providerInstanceId: `pending-${Date.now()}`,
+        status: GPU_STATUS.PROVISIONING,
+        gpuType: offer.gpuName,
+        vramGB: offer.vramGB,
+        costPerHour: totalHourlyCost,
+        modelsRequested: selectedModelIds,
+        vastOffer: offer,
+        pricing: {
+          dph_total: offer.pricePerHour,
+          storageCost: storagePricePerHour,
+          bandwidthCost: offer.bandwidthCostPerGB,
+          totalPerHour: totalHourlyCost,
+          creditsPerHour: offer.creditsPerHour,
+          totalCreditsPerHour: totalCreditsPerHour,
+          storageCreditsPerHour: storagePricing.creditsPerHour,
+          bandwidthCreditsPerGB: offer.bandwidthCreditsPerGB,
+          creditsPerUsd: pricingService.getCachedConfig().tokenValue,
+        },
+        network: {
+          inet_up: offer.inetUp,
+          inet_down: offer.inetDown,
+          reliability: offer.reliability,
+          geolocation: offer.geolocation,
+        },
+        specs: {
+          cudaVersion: offer.cudaVersion,
+          driver: offer.driverVersion,
+          directPortCount: offer.directPortCount,
+          cpuCores: offer.cpuCores,
+          ramGB: offer.ramGB,
+          diskGB: numericStorage,
+        },
+        provisioningLogs: [
+          { message: `Requested provisioning on Vast.ai for ${offer.gpuName} (${offer.id})` },
+        ],
+        startedAt: new Date(),
+      });
+    } catch (createErr) {
+      await billingService.releaseUnclaimedSlot(userId);
+      throw createErr;
+    }
 
     // 4. Trigger Vast.ai instance creation
+    let vastResult;
     try {
       const onstartScript = this._generateOnstartScript({ selectedModelIds });
-      const vastResult = await vastaiService.createInstance(offerId, {
+      vastResult = await vastaiService.createInstance(offer.id, {
+        label: `${INSTANCE_LABEL_PREFIX}${instance._id}`,
         disk: numericStorage,
         onstart: onstartScript,
         env: {
@@ -437,22 +461,46 @@ class GpuProviderService {
         },
       });
 
-      instance.providerInstanceId = String(vastResult.new_contract || vastResult.instanceId);
-      instance.provisioningLogs.push({
-        message: `Vast.ai contract established: #${instance.providerInstanceId}`,
-      });
-      await instance.save();
-
-      return instance;
     } catch (error) {
-      instance.status = GPU_STATUS.FAILED;
-      instance.provisioningLogs.push({
+      await billingService.finalizeInstance(instance._id, {
+        status: GPU_STATUS.FAILED,
+        stopReason: STOP_REASONS.PROVISIONING_FAILED,
         message: `Provisioning failed: ${error.message}`,
-        level: 'error',
+        level: LOG_LEVELS.ERROR,
+        emitReason: 'PROVISIONING_FAILED',
       });
-      await instance.save();
       throw error;
     }
+
+    // 5. Contract confirmed: billing starts now. Conditional on the instance
+    //    still provisioning: the user may have stopped it during the create call.
+    const contractId = String(vastResult.new_contract || vastResult.instanceId);
+    const confirmedAt = new Date();
+    const confirmed = await GpuInstance.findOneAndUpdate(
+      { _id: instance._id, status: GPU_STATUS.PROVISIONING },
+      {
+        $set: { providerInstanceId: contractId, contractConfirmedAt: confirmedAt, billedUntil: confirmedAt },
+        $push: { provisioningLogs: { message: `Vast.ai contract established: #${contractId}` } },
+      },
+      { returnDocument: 'after' }
+    );
+    if (confirmed) return confirmed;
+
+    // Stopped meanwhile: destroy the new contract right away. Nothing is billed.
+    await GpuInstance.updateOne(
+      { _id: instance._id },
+      {
+        $set: { providerInstanceId: contractId, contractConfirmedAt: confirmedAt },
+        $push: { provisioningLogs: { message: `Vast.ai contract #${contractId} arrived after the instance was stopped; destroying it.`, level: LOG_LEVELS.WARN } },
+      }
+    );
+    try {
+      await vastaiService.destroyInstance(contractId);
+    } catch (err) {
+      // The reconciliation job reports (and optionally destroys) labelled orphans.
+      console.error(`[GpuProvider] !!! Could not destroy late contract #${contractId} for stopped instance ${instance._id}: ${err.message}`);
+    }
+    return GpuInstance.findById(instance._id);
   }
 
   /**
@@ -463,7 +511,7 @@ class GpuProviderService {
   async getUserInstances(userId) {
     return GpuInstance.find({
       user: userId,
-      status: { $in: [GPU_STATUS.PROVISIONING, GPU_STATUS.READY, GPU_STATUS.RUNNING] },
+      status: { $in: ACTIVE_STATUSES },
     })
       .sort({ createdAt: -1 })
       .lean();
@@ -481,20 +529,23 @@ class GpuProviderService {
       throw ApiError.notFound('GPU instance not found or unauthorized.');
     }
 
-    if (instance.status === GPU_STATUS.STOPPED) {
+    if (!ACTIVE_STATUSES.includes(instance.status)) {
       return instance;
     }
 
-    if (instance.providerInstanceId && !instance.providerInstanceId.startsWith('pending-')) {
+    // Destroy first; if that fails the instance stays active (and billable) and the user can retry.
+    if (isConfirmedContractId(instance.providerInstanceId)) {
       await vastaiService.destroyInstance(instance.providerInstanceId);
     }
 
-    instance.status = GPU_STATUS.STOPPED;
-    instance.stoppedAt = new Date();
-    instance.provisioningLogs.push({ message: 'Instance manually terminated by user.' });
-    await instance.save();
-
-    return instance;
+    const stopped = await billingService.finalizeInstance(instance._id, {
+      status: GPU_STATUS.STOPPED,
+      stopReason: STOP_REASONS.USER_STOPPED,
+      until: new Date(),
+      message: 'Instance manually terminated by user.',
+      emitReason: 'USER_STOPPED',
+    });
+    return stopped || GpuInstance.findById(instance._id);
   }
 }
 

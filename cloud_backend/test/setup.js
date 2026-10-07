@@ -20,3 +20,5 @@ process.env.JWT_REFRESH_SECRET = randomSecret();
 // Placeholder only; tests that need a database use helpers/db.js, which
 // starts mongodb-memory-server and connects mongoose to it directly.
 process.env.MONGODB_URI = 'mongodb://127.0.0.1:9/never-connect';
+// Fast password hashing for test users.
+process.env.BCRYPT_SALT = '4';

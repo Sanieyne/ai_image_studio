@@ -55,4 +55,8 @@ export class ApiError extends Error {
   static badGateway(message = 'Bad Gateway') {
     return new ApiError(502, message);
   }
+
+  static serviceUnavailable(message = 'Service temporarily unavailable') {
+    return new ApiError(503, message);
+  }
 }

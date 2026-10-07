@@ -80,8 +80,28 @@ if (process.env.NODE_ENV === 'production') {
 
 validateJwtSecrets(process.env.JWT_ACCESS_SECRET, process.env.JWT_REFRESH_SECRET);
 
+function positiveInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`[Config Error] ${name} must be a positive integer (got "${raw}").`);
+  }
+  return value;
+}
+
+function bool(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new Error(`[Config Error] ${name} must be "true" or "false" (got "${raw}").`);
+}
+
 export const env = Object.freeze({
   PORT: parseInt(process.env.PORT || '5000', 10),
+  // Listen on loopback by default; nginx is the public entry point.
+  HOST: process.env.HOST || '127.0.0.1',
   NODE_ENV: process.env.NODE_ENV || 'development',
   isProduction: process.env.NODE_ENV === 'production',
   isDevelopment: process.env.NODE_ENV === 'development',
@@ -99,6 +119,13 @@ export const env = Object.freeze({
 
   VASTAI_API_KEY: process.env.VASTAI_API_KEY || '',
   VASTAI_API_BASE: process.env.VASTAI_API_BASE || 'https://console.vast.ai/api/v0',
+
+  // GPU rental and billing
+  GPU_MAX_ACTIVE_PER_USER: positiveInt('GPU_MAX_ACTIVE_PER_USER', 1),
+  BILLING_INTERVAL_MS: positiveInt('BILLING_INTERVAL_MS', 60_000),
+  RECONCILE_INTERVAL_MS: positiveInt('RECONCILE_INTERVAL_MS', 10 * 60_000),
+  // Vast.ai instances carrying our label but no active record are only logged unless this is true.
+  RECONCILE_DESTROY_ORPHANS: bool('RECONCILE_DESTROY_ORPHANS', false),
 
   MEDIA_STORAGE_PATH: process.env.MEDIA_STORAGE_PATH || '/var/www/media',
   MEDIA_PUBLIC_URL: (process.env.MEDIA_PUBLIC_URL || 'https://cosmic-gen.com/media').replace(/\/+$/, ''),

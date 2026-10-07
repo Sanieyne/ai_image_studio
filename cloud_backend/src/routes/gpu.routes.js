@@ -16,6 +16,9 @@ import {
   getGpuSeries,
 } from '../controllers/gpu.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
+import { env } from '../config/env.js';
+import { ApiError } from '../utils/ApiError.js';
+import { GPU_PROVIDER_UNAVAILABLE_MESSAGE } from '../services/vastai.service.js';
 import { publicReadLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
   validate,
@@ -25,6 +28,15 @@ import {
 } from '../middleware/validation.middleware.js';
 
 const router = Router();
+
+// Without a Vast.ai key, production has no real GPU data to serve: answer 503
+// instead of empty or simulated results.
+router.use((req, res, next) => {
+  if (env.isProduction && !env.VASTAI_API_KEY) {
+    return next(ApiError.serviceUnavailable(GPU_PROVIDER_UNAVAILABLE_MESSAGE));
+  }
+  return next();
+});
 
 // Public marketplace browsing and pricing discovery (permissive browsing limiter)
 router.get('/offers', publicReadLimiter, getOffers);

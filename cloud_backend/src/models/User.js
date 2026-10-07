@@ -54,6 +54,12 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Number of GPU instances currently holding a rental slot (see GPU_MAX_ACTIVE_PER_USER).
+    activeGpuInstances: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     isActive: {
       type: Boolean,
       default: true,

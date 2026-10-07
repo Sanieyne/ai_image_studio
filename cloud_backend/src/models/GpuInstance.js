@@ -116,6 +116,27 @@ const gpuInstanceSchema = new mongoose.Schema(
       type: [logEntrySchema],
       default: [],
     },
+    // --- Billing (see services/billing.service.js) ---
+    // Vast.ai confirmed the contract; billing starts here for new rentals.
+    contractConfirmedAt: { type: Date, default: null },
+    // Charged up to this moment. Advanced with a conditional update before each
+    // charge, so a period can only be claimed once across backend processes.
+    billedUntil: { type: Date, default: null },
+    creditsCharged: { type: Number, default: 0 },
+    creditsRefunded: { type: Number, default: 0 },
+    refundIssued: { type: Boolean, default: false },
+    reachedReadyAt: { type: Date, default: null },
+    stopReason: { type: String, default: null },
+    // A stop the billing service could not complete (e.g. destroy failed); retried each cycle.
+    pendingStopReason: { type: String, default: null },
+    lowBalanceWarnedAt: { type: Date, default: null },
+    // Provider presence tracking for the poller.
+    lastSeenOnVastAt: { type: Date, default: null },
+    vastMissCount: { type: Number, default: 0 },
+    firstMissAt: { type: Date, default: null },
+    // Whether this instance still holds one of the user's active-instance slots.
+    holdsSlot: { type: Boolean, default: false },
+
     startedAt: {
       type: Date,
       default: null,
@@ -131,5 +152,6 @@ const gpuInstanceSchema = new mongoose.Schema(
 );
 
 gpuInstanceSchema.index({ user: 1, status: 1 });
+gpuInstanceSchema.index({ status: 1 });
 
 export const GpuInstance = mongoose.model('GpuInstance', gpuInstanceSchema);
