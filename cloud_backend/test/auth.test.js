@@ -220,7 +220,8 @@ describe('auth endpoints (v0.2.0 and new clients)', () => {
     const user = await makeUser(10);
     const login = await request(app)
       .post('/api/v1/auth/login')
-      .send({ email: user.email, password: PASSWORD, deviceLabel: 'Windows app' });
+      .set('X-Device-Label', 'Windows app')
+      .send({ email: user.email, password: PASSWORD });
     assert.equal(login.status, 200);
     const { refreshToken, accessToken } = login.body.data;
     assert.equal((await Session.findById(sidOf(refreshToken)).lean()).deviceLabel, 'Windows app');

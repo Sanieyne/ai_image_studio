@@ -3847,11 +3847,14 @@ class _SidebarTabTileState extends State<_SidebarTabTile> {
                         const SizedBox(height: 3),
                         AnimatedDefaultTextStyle(
                           duration: _duration,
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                            color: textColor,
-                          ),
+                          // Merge, so the label keeps the theme's font family.
+                          style: DefaultTextStyle.of(context).style.merge(
+                                TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                  color: textColor,
+                                ),
+                              ),
                           child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
                         ),
                       ],

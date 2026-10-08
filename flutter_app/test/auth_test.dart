@@ -174,11 +174,10 @@ void main() {
       // Request body matches the backend loginSchema.
       final req = backend.callsTo('/api/v1/auth/login').single
           as http.Request;
-      expect(jsonDecode(req.body), {
-        'email': 'pix@example.com',
-        'password': 'Valid123',
-        'deviceLabel': AuthService.deviceLabel,
-      });
+      // Same body as before device sessions (old backends reject unknown
+      // fields); the label travels as a header.
+      expect(jsonDecode(req.body), {'email': 'pix@example.com', 'password': 'Valid123'});
+      expect(req.headers['X-Device-Label'], AuthService.deviceLabel);
     });
 
     test('register (201) starts a session', () async {
@@ -200,9 +199,9 @@ void main() {
           'username': 'pixelartist7',
           'email': 'pix@example.com',
           'password': 'Valid123',
-          'deviceLabel': AuthService.deviceLabel,
         },
       );
+      expect(req.headers['X-Device-Label'], AuthService.deviceLabel);
     });
 
     test('signOut ends this session on the server, then clears locally',

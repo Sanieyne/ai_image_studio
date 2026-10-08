@@ -12,7 +12,7 @@ export const register = asyncHandler(async (req, res) => {
     username,
     email,
     password,
-    deviceLabel: deviceLabel || req.get('user-agent'),
+    deviceLabel: deviceLabel || req.get('x-device-label') || req.get('user-agent'),
   });
 
   res.status(201).json({
@@ -24,7 +24,12 @@ export const register = asyncHandler(async (req, res) => {
 
 export const login = asyncHandler(async (req, res) => {
   const { email, password, deviceLabel } = req.body;
-  const result = await authService.login({ email, password, deviceLabel: deviceLabel || req.get('user-agent') });
+  // Apps send the label as X-Device-Label (older backends reject unknown body fields).
+  const result = await authService.login({
+    email,
+    password,
+    deviceLabel: deviceLabel || req.get('x-device-label') || req.get('user-agent'),
+  });
 
   res.status(200).json({
     success: true,

@@ -216,11 +216,12 @@ void main() {
       ),
     );
 
-    // Profile card has 'Alex Dan'
-    expect(find.text('Alex Dan'), findsOneWidget);
+    // Profile card shows the signed-in user; nobody is signed in here.
+    // (It used to show a hard-coded demo account, "Alex Dan".)
+    expect(find.text('Guest User'), findsOneWidget);
 
     // Tap profile card to open popup menu
-    await tester.tap(find.text('Alex Dan'));
+    await tester.tap(find.text('Guest User'));
     await tester.pumpAndSettle();
 
     // Verify popup menu items
@@ -235,7 +236,8 @@ void main() {
 
     expect(find.byType(SettingsDialog), findsOneWidget);
     expect(find.text('Account Overview'), findsOneWidget);
-    expect(find.text('2,450 Credits'), findsOneWidget);
+    // The real balance (no user signed in), not the old demo "2,450 Credits".
+    expect(find.text('0 Credits'), findsOneWidget);
   });
 
   testWidgets('SettingsDialog tab navigation and reset functionality',
@@ -277,7 +279,8 @@ void main() {
     await tester.tap(find.text('Account'));
     await tester.pumpAndSettle();
     expect(find.text('Account Overview'), findsOneWidget);
-    expect(find.text('128 Images'), findsOneWidget);
+    // Real account data replaced the demo stats ("128 Images").
+    expect(find.text('Edit Profile'), findsOneWidget);
   });
 
   test('GenerationResult audio factory constructor test', () {

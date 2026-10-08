@@ -229,12 +229,12 @@ class AuthService extends ChangeNotifier {
       res = await _http
           .post(
             Uri.parse('$baseUrl/auth/register'),
-            headers: const {'Content-Type': 'application/json'},
+            // Header, not body: backends before device sessions reject unknown body fields.
+            headers: {'Content-Type': 'application/json', 'X-Device-Label': deviceLabel},
             body: jsonEncode({
               'username': username.trim(),
               'email': email.trim(),
               'password': password,
-              'deviceLabel': deviceLabel,
             }),
           )
           .timeout(requestTimeout);
@@ -256,11 +256,10 @@ class AuthService extends ChangeNotifier {
       res = await _http
           .post(
             Uri.parse('$baseUrl/auth/login'),
-            headers: const {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'X-Device-Label': deviceLabel},
             body: jsonEncode({
               'email': email.trim(),
               'password': password,
-              'deviceLabel': deviceLabel,
             }),
           )
           .timeout(requestTimeout);
