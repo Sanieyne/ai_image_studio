@@ -734,62 +734,51 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   }
 
   // ── Top Tabs Segmented Switcher ──────────────────────────────
+  /// The seven studio tabs as a two-row grid (4 + 3) of equal-width tiles with
+  /// icon and label. A grid, not icon-only tabs with an expanding pill: in the
+  /// 318 px sidebar, six icon tabs leave about 70 px for the selected pill, too
+  /// little for labels such as "Enhance"; here every label is always readable,
+  /// nothing scrolls or clips, and tiles keep a fixed size (no layout jump).
+  static const List<(SidebarTab, String, IconData)> _tabs = [
+    (SidebarTab.history, 'History', Icons.forum_rounded),
+    (SidebarTab.voice, 'Voice', Icons.mic_rounded),
+    (SidebarTab.video, 'Video', Icons.videocam_rounded),
+    (SidebarTab.image, 'Image', Icons.photo_rounded),
+    (SidebarTab.enhancer, 'Enhance', Icons.auto_fix_high_rounded),
+    (SidebarTab.cloud, 'Cloud', Icons.cloud_outlined),
+    (SidebarTab.library, 'Library', Icons.collections_bookmark_rounded),
+  ];
+
   Widget _buildTopTabsBar(bool dark, Color border) {
+    const gap = 6.0;
     return Container(
-      padding: const EdgeInsets.all(3),
+      key: const ValueKey('sidebar_tabs'),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: dark ? Colors.black.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
+        color: dark ? Colors.black.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: border),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _buildTabButton(
-              tab: SidebarTab.history,
-              label: 'History',
-              icon: Icons.forum_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.voice,
-              label: 'Voice',
-              icon: Icons.mic_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.video,
-              label: 'Video',
-              icon: Icons.videocam_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.image,
-              label: 'Image',
-              icon: Icons.photo_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.enhancer,
-              label: 'Enhance',
-              icon: Icons.auto_fix_high_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.cloud,
-              label: 'Cloud',
-              icon: Icons.cloud_outlined,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.library,
-              label: 'Library',
-              icon: Icons.collections_bookmark_rounded,
-              dark: dark,
-            ),
-          ],
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tileWidth = (constraints.maxWidth - 3 * gap) / 4;
+          Widget row(Iterable<(SidebarTab, String, IconData)> tabs) => Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final (i, t) in tabs.indexed) ...[
+                    if (i > 0) const SizedBox(width: gap),
+                    SizedBox(width: tileWidth, child: _buildTabButton(tab: t.$1, label: t.$2, icon: t.$3, dark: dark)),
+                  ],
+                ],
+              );
+          return Column(
+            children: [
+              row(_tabs.take(4)),
+              const SizedBox(height: gap),
+              row(_tabs.skip(4)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -800,69 +789,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     required IconData icon,
     required bool dark,
   }) {
-    final isSelected = _currentTab == tab;
-    // No Expanded: inside the horizontally-scrolling tab row, buttons size
-    // to their natural content width so labels never truncate. The Padding
-    // replaces the inter-button spacing flex layout used to provide.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _currentTab = tab);
-          widget.onTabChanged?.call(tab);
-          if (tab == SidebarTab.cloud) {
-            widget.onOpenCloudMode?.call();
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? (dark ? const Color(0xFF2E3642) : Colors.white)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: dark ? 0.30 : 0.08),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 13,
-                color: isSelected
-                    ? const Color(0xFFD32F2F)
-                    : (dark ? Colors.white60 : Colors.black45),
-              ),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected
-                        ? (dark ? Colors.white : const Color(0xFF14181F))
-                        : (dark ? Colors.white70 : Colors.black87),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _SidebarTabTile(
+      key: ValueKey('sidebar_tab_${tab.name}'),
+      label: label,
+      icon: icon,
+      dark: dark,
+      selected: _currentTab == tab,
+      onTap: () {
+        setState(() => _currentTab = tab);
+        widget.onTabChanged?.call(tab);
+        if (tab == SidebarTab.cloud) {
+          widget.onOpenCloudMode?.call();
+        }
+      },
     );
   }
 
@@ -3792,6 +3731,136 @@ class _ImageTemplateCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One studio tab: pointer cursor, hover tint and lift, tooltip, keyboard focus
+/// ring and pressed state; selected = brand red tint, red icon and border.
+/// Fixed height, so switching tabs never moves the layout.
+class _SidebarTabTile extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+
+  const _SidebarTabTile({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+  });
+
+  @override
+  State<_SidebarTabTile> createState() => _SidebarTabTileState();
+}
+
+class _SidebarTabTileState extends State<_SidebarTabTile> {
+  bool _hovered = false;
+  bool _focused = false;
+  bool _pressed = false;
+
+  static const _duration = Duration(milliseconds: 200);
+  static const _red = LuminaColors.primaryStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = widget.dark;
+    final selected = widget.selected;
+    final background = selected
+        ? _red.withValues(alpha: dark ? 0.20 : 0.10)
+        : _hovered
+            ? (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05))
+            : Colors.transparent;
+    final borderColor = _focused
+        ? _red
+        : selected
+            ? _red.withValues(alpha: 0.55)
+            : Colors.transparent;
+    final iconColor = selected ? _red : (dark ? Colors.white60 : Colors.black54);
+    final textColor =
+        selected ? (dark ? Colors.white : const Color(0xFF14181F)) : (dark ? Colors.white70 : Colors.black87);
+
+    return Tooltip(
+      message: widget.label,
+      waitDuration: const Duration(milliseconds: 500),
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+            widget.onTap();
+            return null;
+          }),
+        },
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: widget.label,
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTap: widget.onTap,
+              child: AnimatedScale(
+                scale: _pressed ? 0.96 : 1.0,
+                duration: const Duration(milliseconds: 100),
+                child: AnimatedSlide(
+                  offset: _hovered && !selected ? const Offset(0, -0.03) : Offset.zero,
+                  duration: _duration,
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: _duration,
+                    curve: Curves.easeOutCubic,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: borderColor, width: _focused ? 1.6 : 1.0),
+                      boxShadow: selected || _hovered
+                          ? [
+                              BoxShadow(
+                                color: (selected ? _red : Colors.black)
+                                    .withValues(alpha: selected ? 0.18 : (dark ? 0.25 : 0.06)),
+                                blurRadius: selected ? 10 : 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedSwitcher(
+                          duration: _duration,
+                          child: Icon(widget.icon, key: ValueKey(selected), size: 17, color: iconColor),
+                        ),
+                        const SizedBox(height: 3),
+                        AnimatedDefaultTextStyle(
+                          duration: _duration,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                            color: textColor,
+                          ),
+                          child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
