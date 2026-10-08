@@ -85,8 +85,11 @@ class TryOnEngine:
     def __init__(self, weights_dir: Optional[str] = None):
         self.mock_mode = os.getenv("AI_STUDIO_MOCK", "0") == "1"
         self.pipeline = None
-        self.weights_dir = weights_dir or os.getenv(
-            "FASHN_WEIGHTS_DIR", "/root/models/fashn-vton"
+        from generation.model_paths import model_dir
+
+        downloaded = model_dir("fashn-vton-1.5")
+        self.weights_dir = weights_dir or os.getenv("FASHN_WEIGHTS_DIR") or (
+            str(downloaded) if downloaded else "/root/models/fashn-vton"
         )
         if not os.path.exists(self.weights_dir):
             # Also check workspace or fallback path

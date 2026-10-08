@@ -54,6 +54,12 @@ const userSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    // Number of GPU instances currently holding a rental slot (see GPU_MAX_ACTIVE_PER_USER).
+    activeGpuInstances: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -62,9 +68,23 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Single refresh-token slot used before per-device sessions (models/Session.js).
+    // Still accepted once per user: the first refresh with it becomes a session.
     refreshTokenHash: {
       type: String,
       select: false,
+    },
+    // Set when the legacy token above became a session, so parallel refreshes
+    // with that same token within the grace period join the new session.
+    legacySession: {
+      type: {
+        sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Session' },
+        tokenSha256: String,
+        at: Date,
+      },
+      default: null,
+      select: false,
+      _id: false,
     },
     lastLoginAt: {
       type: Date,
@@ -134,6 +154,7 @@ userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
   delete obj.refreshTokenHash;
+  delete obj.legacySession;
   delete obj.__v;
   return obj;
 };

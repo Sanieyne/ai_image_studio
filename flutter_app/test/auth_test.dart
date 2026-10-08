@@ -174,8 +174,10 @@ void main() {
       // Request body matches the backend loginSchema.
       final req = backend.callsTo('/api/v1/auth/login').single
           as http.Request;
-      expect(jsonDecode(req.body),
-          {'email': 'pix@example.com', 'password': 'Valid123'});
+      // Same body as before device sessions (old backends reject unknown
+      // fields); the label travels as a header.
+      expect(jsonDecode(req.body), {'email': 'pix@example.com', 'password': 'Valid123'});
+      expect(req.headers['X-Device-Label'], AuthService.deviceLabel);
     });
 
     test('register (201) starts a session', () async {
@@ -199,6 +201,57 @@ void main() {
           'password': 'Valid123',
         },
       );
+      expect(req.headers['X-Device-Label'], AuthService.deviceLabel);
+    });
+
+    test('signOut ends this session on the server, then clears locally',
+        () async {
+      final backend = FakeBackend();
+      backend.handlers['/api/v1/auth/login'] = (_) => _sessionResponse();
+      backend.handlers['/api/v1/auth/logout'] = (_) => http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'revoked': true}
+            }),
+            200,
+          );
+      final store = InMemoryTokenStore();
+      final auth = _service(backend, store);
+      await auth.login('pix@example.com', 'Valid123');
+
+      await auth.signOut();
+
+      final req =
+          backend.callsTo('/api/v1/auth/logout').single as http.Request;
+      expect(jsonDecode(req.body), {'refreshToken': 'refresh-1'});
+      expect(auth.isAuthenticated, isFalse);
+      expect(await store.read(AuthService.accessTokenKey), isNull);
+      expect(await store.read(AuthService.refreshTokenKey), isNull);
+    });
+
+    test('signOut still clears locally when the server is unreachable',
+        () async {
+      final backend = FakeBackend();
+      backend.handlers['/api/v1/auth/login'] = (_) => _sessionResponse();
+      backend.handlers['/api/v1/auth/logout'] =
+          (_) => throw http.ClientException('offline');
+      final store = InMemoryTokenStore();
+      final auth = _service(backend, store);
+      await auth.login('pix@example.com', 'Valid123');
+
+      await auth.signOut();
+
+      expect(backend.callsTo('/api/v1/auth/logout'), hasLength(1));
+      expect(auth.isAuthenticated, isFalse);
+      expect(await store.read(AuthService.refreshTokenKey), isNull);
+    });
+
+    test('signOut with no session makes no server call', () async {
+      final backend = FakeBackend();
+      final auth = _service(backend, InMemoryTokenStore());
+      await auth.signOut();
+      expect(backend.callsTo('/api/v1/auth/logout'), isEmpty);
+      expect(auth.isAuthenticated, isFalse);
     });
 
     test('login 401 surfaces server message, stores nothing', () async {

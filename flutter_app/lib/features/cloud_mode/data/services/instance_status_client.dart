@@ -28,23 +28,35 @@ class InstanceStatusClient {
   /// Current active instance ID
   String? get currentInstanceId => _currentInstanceId;
 
-  /// Translates HTTP base URL to WebSocket base URL
-  Uri get wsBaseUri {
-    final httpUri = Uri.parse(CloudApiService.instance.baseUrl);
-    final wsScheme = httpUri.scheme == 'https' ? 'wss' : 'ws';
-    final portPart = httpUri.hasPort ? ':${httpUri.port}' : '';
-    // Strip trailing /api/v1 if present to target /ws/instance-status
-    return Uri.parse('$wsScheme://${httpUri.host}$portPart/ws/instance-status');
+  /// Whether the socket is currently open.
+  bool get isConnected => _socket != null && _socket!.readyState == WebSocket.open;
+
+  /// WebSocket URL for the REST base URL, keeping its path prefix:
+  /// https://cosmic-gen.com/ai-api/api/v1 -> wss://cosmic-gen.com/ai-api/ws/instance-status
+  static Uri wsUriFor(String httpBaseUrl) {
+    final httpUri = Uri.parse(httpBaseUrl);
+    var path = httpUri.path.replaceAll(RegExp(r'/+$'), '');
+    if (path.endsWith('/api/v1')) path = path.substring(0, path.length - '/api/v1'.length);
+    return Uri(
+      scheme: httpUri.scheme == 'https' ? 'wss' : 'ws',
+      host: httpUri.host,
+      port: httpUri.hasPort ? httpUri.port : null,
+      path: '$path/ws/instance-status',
+    );
   }
+
+  Uri get wsBaseUri => wsUriFor(CloudApiService.instance.baseUrl);
 
   /// Connect to status stream for [instanceId].
   Future<void> connect({
     required String instanceId,
     required void Function(Map<String, dynamic> statusPayload) onStatusUpdate,
     void Function(String error)? onError,
+    void Function(bool connected)? onConnectionChanged,
   }) async {
     await disconnect();
     _currentInstanceId = instanceId;
+    _onConnectionChanged = onConnectionChanged;
 
     await _connectInternal(
       instanceId: instanceId,
@@ -52,6 +64,8 @@ class InstanceStatusClient {
       onError: onError,
     );
   }
+
+  void Function(bool connected)? _onConnectionChanged;
 
   Future<void> _connectInternal({
     required String instanceId,
@@ -76,6 +90,7 @@ class InstanceStatusClient {
         const Duration(seconds: 10),
       );
       _socket = ws;
+      _onConnectionChanged?.call(true);
 
       _subscription = ws.listen(
         (data) {
@@ -110,6 +125,8 @@ class InstanceStatusClient {
         onDone: () {
           final code = ws.closeCode;
           final reason = ws.closeReason ?? '';
+          if (identical(_socket, ws)) _socket = null;
+          _onConnectionChanged?.call(false);
           debugPrint('[InstanceStatusClient] WebSocket closed (code: $code, reason: $reason)');
 
           // Code 1008 indicates policy violation / auth failure
@@ -125,6 +142,7 @@ class InstanceStatusClient {
       );
     } catch (e) {
       debugPrint('[InstanceStatusClient] Connection failed: $e');
+      _onConnectionChanged?.call(false);
       if (_isAuthError(e.toString())) {
         await _handleAuthFailure(
           instanceId: instanceId,

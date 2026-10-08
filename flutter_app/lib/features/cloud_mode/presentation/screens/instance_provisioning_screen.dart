@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../theme/app_theme.dart';
+import '../../data/services/cloud_api_service.dart';
 import '../../data/services/instance_status_client.dart';
 
 enum ProvisioningState {
@@ -109,6 +110,16 @@ class InstanceProvisioningScreen extends StatefulWidget {
   final String? initialDeviceInfo;
   final bool disableAutoConnect;
 
+  /// GET /gpu/instances/:id, used while the live socket is not connected.
+  /// Defaults to CloudApiService.fetchInstance; tests pass a fake.
+  final Future<Map<String, dynamic>?> Function(String instanceId)? fetchInstance;
+
+  /// DELETE /gpu/instances/:id. Defaults to CloudApiService.stopInstance.
+  final Future<Map<String, dynamic>?> Function(String instanceId)? stopInstance;
+
+  /// How often the instance is polled while the socket is down.
+  final Duration pollInterval;
+
   const InstanceProvisioningScreen({
     super.key,
     required this.instanceId,
@@ -120,6 +131,9 @@ class InstanceProvisioningScreen extends StatefulWidget {
     this.initialModels,
     this.initialDeviceInfo,
     this.disableAutoConnect = false,
+    this.fetchInstance,
+    this.stopInstance,
+    this.pollInterval = const Duration(seconds: 5),
   });
 
   @override
@@ -137,6 +151,20 @@ class _InstanceProvisioningScreenState
   String? _errorMessage;
   String? _deviceInfo;
   Timer? _navigationTimer;
+
+  // Live progress from the backend (socket or polling).
+  String? _stepMessage;
+  int _elapsedSeconds = 0;
+  double _creditsCharged = 0;
+  double _creditsRefunded = 0;
+  bool _socketConnected = false;
+  String? _connectionNote;
+  Timer? _pollTimer;
+  Timer? _ticker;
+  bool _stopping = false;
+  bool _stoppedByUser = false;
+
+  bool get _isTerminal => _state == ProvisioningState.failed;
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -177,10 +205,20 @@ class _InstanceProvisioningScreenState
     if (!widget.disableAutoConnect) {
       _connectToStatusStream();
     }
+    // Until the socket is open (and whenever it drops), poll the instance.
+    if (!_isTerminal && widget.initialPreviewState == null) {
+      _ensurePolling();
+    }
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _isTerminal || _state == ProvisioningState.ready) return;
+      setState(() => _elapsedSeconds += 1);
+    });
   }
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
+    _ticker?.cancel();
     _navigationTimer?.cancel();
     _pulseController.dispose();
     _statusClient.disconnect();
@@ -197,7 +235,116 @@ class _InstanceProvisioningScreenState
       instanceId: widget.instanceId,
       onStatusUpdate: _handleStatusUpdate,
       onError: _handleClientError,
+      onConnectionChanged: _handleConnectionChanged,
     );
+  }
+
+  void _handleConnectionChanged(bool connected) {
+    if (!mounted) return;
+    setState(() {
+      _socketConnected = connected;
+      if (connected) _connectionNote = null;
+    });
+    if (connected) {
+      _pollTimer?.cancel();
+      _pollTimer = null;
+    } else {
+      _ensurePolling();
+    }
+  }
+
+  void _ensurePolling() {
+    if (_pollTimer != null || _isTerminal || _state == ProvisioningState.ready) return;
+    _pollOnce();
+    _pollTimer = Timer.periodic(widget.pollInterval, (_) => _pollOnce());
+  }
+
+  Future<void> _pollOnce() async {
+    if (!mounted || _socketConnected || _isTerminal) return;
+    final fetch = widget.fetchInstance ?? CloudApiService.instance.fetchInstance;
+    final data = await fetch(widget.instanceId);
+    if (!mounted) return;
+    if (data == null) {
+      setState(() => _connectionNote = "Can't reach the server right now. Trying again every few seconds.");
+      return;
+    }
+    if (_connectionNote != null && !_connectionNote!.startsWith('Live updates')) {
+      setState(() => _connectionNote = 'Live updates are unavailable, so this page checks every few seconds.');
+    }
+    _applyInstance(data);
+  }
+
+  /// Applies GET /gpu/instances/:id as if it were a status message.
+  void _applyInstance(Map<String, dynamic> data) {
+    const toWs = {
+      'provisioning': 'PROVISIONING',
+      'downloading_model': 'DOWNLOADING_MODEL',
+      'ready': 'READY',
+      'running': 'RUNNING',
+      'failed': 'FAILED',
+      'stopped': 'STOPPED',
+    };
+    final status = toWs[(data['status'] ?? '').toString().toLowerCase()] ?? 'PROVISIONING';
+    final progress = data['progress'] is Map ? Map<String, dynamic>.from(data['progress'] as Map) : null;
+    final billing = data['billing'] is Map ? Map<String, dynamic>.from(data['billing'] as Map) : const {};
+    final logs = data['provisioningLogs'] is List ? data['provisioningLogs'] as List : const [];
+    String? lastLog;
+    if (logs.isNotEmpty && logs.last is Map) lastLog = (logs.last as Map)['message']?.toString();
+    _handleStatusUpdate({
+      'status': status,
+      'details': {
+        if (progress != null) 'progress': progress,
+        'elapsedSeconds': data['elapsedSeconds'],
+        'billing': billing,
+        if (status == 'FAILED' || status == 'STOPPED') 'message': progress?['failureReason'] ?? lastLog,
+      },
+    });
+  }
+
+  Future<void> _confirmStop() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Stop this GPU?'),
+        content: Text(
+          _state == ProvisioningState.ready
+              ? 'The GPU will be shut down and destroyed. Time used so far stays charged.'
+              : 'The GPU will be shut down and destroyed. It is not ready yet, so everything charged for it is refunded.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Keep running')),
+          ElevatedButton(
+            key: const ValueKey('confirm_stop_instance'),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Stop GPU'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _stopping = true);
+    final stop = widget.stopInstance ?? CloudApiService.instance.stopInstance;
+    final result = await stop(widget.instanceId);
+    if (!mounted) return;
+    setState(() {
+      _stopping = false;
+      if (result == null) {
+        _connectionNote = CloudApiService.instance.lastStopError ??
+            'Could not stop the GPU. Check your connection and try again.';
+        return;
+      }
+      _stoppedByUser = true;
+      _state = ProvisioningState.failed;
+      _errorMessage = 'You stopped this GPU.';
+      _creditsCharged = (result['creditsCharged'] as num?)?.toDouble() ?? _creditsCharged;
+      _creditsRefunded = (result['creditsRefunded'] as num?)?.toDouble() ?? _creditsRefunded;
+      _navigationTimer?.cancel();
+    });
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _statusClient.disconnect();
   }
 
   void _handleStatusUpdate(Map<String, dynamic> payload) {
@@ -209,6 +356,27 @@ class _InstanceProvisioningScreenState
       if (details != null && details['deviceName'] != null) {
         _deviceInfo = details['deviceName'].toString();
       }
+
+      // Progress relayed by the backend: current step, elapsed time, credits.
+      final progress = details?['progress'];
+      if (progress is Map) {
+        final msg = progress['message']?.toString();
+        if (msg != null && msg.isNotEmpty) _stepMessage = msg;
+        if (details?['models'] is! List && progress['models'] is List) {
+          final fromProgress = (progress['models'] as List)
+              .whereType<Map>()
+              .map((m) => ModelProvisioningItem.fromMap(Map<String, dynamic>.from(m)))
+              .toList();
+          if (fromProgress.isNotEmpty) _models = fromProgress;
+        }
+      }
+      final elapsed = details?['elapsedSeconds'];
+      if (elapsed is num) _elapsedSeconds = elapsed.toInt();
+      final billing = details?['billing'];
+      final charged = details?['creditsCharged'] ?? (billing is Map ? billing['creditsCharged'] : null);
+      final refunded = details?['creditsRefunded'] ?? (billing is Map ? billing['creditsRefunded'] : null);
+      if (charged is num) _creditsCharged = charged.toDouble();
+      if (refunded is num) _creditsRefunded = refunded.toDouble();
 
       // Update per-model list from incoming telemetry payload
       if (details != null && details['models'] is List) {
@@ -237,8 +405,11 @@ class _InstanceProvisioningScreenState
         case 'ERROR':
         case 'STOPPED':
           _state = ProvisioningState.failed;
-          _errorMessage = details?['reason']?.toString() ??
-              'Provisioning failed or timed out.';
+          _errorMessage = details?['message']?.toString() ??
+              _errorMessage ??
+              'The GPU stopped before it was ready.';
+          _pollTimer?.cancel();
+          _pollTimer = null;
           break;
         case 'PROVISIONING':
         default:
@@ -248,11 +419,13 @@ class _InstanceProvisioningScreenState
     });
   }
 
+  /// Socket problems are not rental failures: say so plainly and keep polling.
   void _handleClientError(String error) {
     if (!mounted) return;
     setState(() {
-      _errorMessage = error;
+      _connectionNote = 'Live updates are unavailable, so this page checks every few seconds.';
     });
+    _ensurePolling();
   }
 
   void _scheduleAutoNavigation() {
@@ -376,6 +549,7 @@ class _InstanceProvisioningScreenState
                         // Subtitle
                         Text(
                           _getSubtitleText(),
+                          key: const ValueKey('provisioning_subtitle'),
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 13,
@@ -383,6 +557,8 @@ class _InstanceProvisioningScreenState
                             height: 1.4,
                           ),
                         ),
+
+                        _buildLiveStatus(muted, text),
 
                         if (_deviceInfo != null && _state == ProvisioningState.ready) ...[
                           const SizedBox(height: 10),
@@ -514,8 +690,60 @@ class _InstanceProvisioningScreenState
       case ProvisioningState.ready:
         return 'Cosmic-Gen GPU Ready!';
       case ProvisioningState.failed:
-        return 'Launch Failed';
+        return _stoppedByUser ? 'GPU Stopped' : 'Launch Failed';
     }
+  }
+
+  /// What was charged and refunded, as the backend reports it.
+  String _billingSummary() {
+    String c(double v) => v.toStringAsFixed(2);
+    if (_creditsCharged <= 0 && _creditsRefunded <= 0) return 'Nothing was charged.';
+    if (_creditsRefunded > 0 && (_creditsRefunded - _creditsCharged).abs() < 0.005) {
+      return '${c(_creditsCharged)} credits were charged and refunded in full.';
+    }
+    if (_creditsRefunded > 0) {
+      return 'Charged ${c(_creditsCharged)} credits, refunded ${c(_creditsRefunded)}.';
+    }
+    return 'Charged ${c(_creditsCharged)} credits.';
+  }
+
+  static String _formatElapsed(int seconds) {
+    final m = seconds ~/ 60;
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return m >= 60 ? '${m ~/ 60}h ${(m % 60).toString().padLeft(2, '0')}m' : '$m:$s';
+  }
+
+  /// Current step, elapsed time, credits so far, and connection problems in plain words.
+  Widget _buildLiveStatus(Color muted, Color text) {
+    return Column(
+      children: [
+        if (!_isTerminal && _stepMessage != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _stepMessage!,
+            key: const ValueKey('provisioning_step_message'),
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, color: text),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Text(
+          'Elapsed ${_formatElapsed(_elapsedSeconds)} · Charged so far ${_creditsCharged.toStringAsFixed(2)} credits',
+          key: const ValueKey('provisioning_elapsed_credits'),
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12, color: muted),
+        ),
+        if (_connectionNote != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _connectionNote!,
+            key: const ValueKey('provisioning_connection_note'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: LuminaColors.amber),
+          ),
+        ],
+      ],
+    );
   }
 
   String _getSubtitleText() {
@@ -531,8 +759,7 @@ class _InstanceProvisioningScreenState
       case ProvisioningState.ready:
         return 'All models downloaded and ready! Redirecting to your Creative Studio...';
       case ProvisioningState.failed:
-        return _errorMessage ??
-            'We encountered an issue allocating the selected GPU contract. You have not been billed.';
+        return '${_errorMessage ?? 'The GPU stopped.'} ${_billingSummary()}';
     }
   }
 
@@ -1071,29 +1298,27 @@ class _InstanceProvisioningScreenState
   }
 
   Widget _buildBottomActions(Color muted, Color text) {
-    if (_state == ProvisioningState.failed || _errorMessage != null) {
+    final stopButton = OutlinedButton.icon(
+      key: const ValueKey('stop_instance_btn'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: const Color(0xFFEF4444),
+        side: const BorderSide(color: Color(0x66EF4444)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      icon: _stopping
+          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.stop_circle_outlined, size: 18),
+      label: Text(_stopping ? 'Stopping…' : 'Stop instance'),
+      onPressed: _stopping ? null : _confirmStop,
+    );
+
+    if (_state == ProvisioningState.failed) {
       return Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: text,
-                  side: BorderSide(
-                      color: widget.isDark
-                          ? LuminaColors.darkBorder
-                          : LuminaColors.lightBorder),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                ),
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Retry Connection'),
-                onPressed: _connectToStatusStream,
-              ),
-              const SizedBox(width: 12),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: LuminaColors.primaryEnd,
@@ -1114,7 +1339,13 @@ class _InstanceProvisioningScreenState
     }
 
     if (_state == ProvisioningState.ready) {
-      return ElevatedButton.icon(
+      return Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          stopButton,
+          ElevatedButton.icon(
         style: ElevatedButton.styleFrom(
           backgroundColor: const Color(0xFF10B981),
           foregroundColor: Colors.white,
@@ -1129,13 +1360,19 @@ class _InstanceProvisioningScreenState
           Navigator.of(context).pop(true);
           widget.onReturnToStudio?.call();
         },
+          ),
+        ],
       );
     }
 
     // Default provisioning / downloading state
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 8,
       children: [
+        stopButton,
         TextButton.icon(
           style: TextButton.styleFrom(
             foregroundColor: muted,

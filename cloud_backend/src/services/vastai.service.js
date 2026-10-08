@@ -6,12 +6,50 @@
 import axios from 'axios';
 import { env } from '../config/env.js';
 import {
-  BANDWIDTH_COST_PER_GB,
   VASTAI_OFFERS_CACHE_TTL_MS,
   MIN_INET_DOWN_FLOOR_MBPS,
+  MIN_GPU_COMPUTE_CAP,
+  MIN_HOST_CUDA,
 } from '../config/constants.js';
-import { pricingService } from './pricing.service.js';
+import { pricingService, DEFAULT_STORAGE_GB } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
+
+export const GPU_PROVIDER_UNAVAILABLE_MESSAGE =
+  'Cloud GPUs are unavailable: the GPU provider is not configured on this server.';
+
+/**
+ * Simulated Vast.ai responses exist for local development only. In production
+ * a missing API key must surface as 503, never as fake contracts or offers.
+ */
+function assertSandboxAllowed() {
+  if (env.isProduction) {
+    throw ApiError.serviceUnavailable(GPU_PROVIDER_UNAVAILABLE_MESSAGE);
+  }
+}
+
+/** Contract ids we may bill or poll: real numeric Vast.ai ids only. */
+export function isConfirmedContractId(id) {
+  return typeof id === 'string' && /^\d+$/.test(id);
+}
+
+/**
+ * Why the engine can't run on this raw Vast.ai offer, or null if it can.
+ * (GPU architecture, host driver, and a directly mapped port for the engine.)
+ */
+export function hostUnsupportedReason(raw = {}) {
+  const cap = Number(raw.compute_cap);
+  if (Number.isFinite(cap) && cap < MIN_GPU_COMPUTE_CAP) {
+    return `${raw.gpu_name || 'This GPU'} is too old for the engine (needs an RTX 20-series / GTX 16-series or newer).`;
+  }
+  const cuda = Number(raw.cuda_max_good);
+  if (Number.isFinite(cuda) && cuda < MIN_HOST_CUDA) {
+    return `This host's GPU driver supports CUDA ${cuda}; the engine needs CUDA ${MIN_HOST_CUDA} or newer.`;
+  }
+  if (raw.direct_port_count !== undefined && !(Number(raw.direct_port_count) >= 1)) {
+    return 'This host cannot expose the engine port.';
+  }
+  return null;
+}
 
 class VastaiService {
   constructor() {
@@ -55,13 +93,8 @@ class VastaiService {
     const vramGB = Math.round(((raw.gpu_ram || 24000) / 1000) * 10) / 10;
     const ramGB = Math.round(((raw.cpu_ram || 32000) / 1000) * 10) / 10;
     const diskGB = Math.round(raw.disk_space || 100);
-    const pricing = pricingService.formatOfferPricing({
-      dph_total: raw.dph_total || raw.pricePerHour || 0.44,
-      dph_base: raw.dph_base,
-      storage_cost: raw.storage_cost,
-      disk_space: raw.disk_space,
-      inet_down_cost: raw.inet_down_cost || BANDWIDTH_COST_PER_GB || 0.025,
-    });
+    // Prices for the default storage size; endpoints reprice for the size the user picked.
+    const pricing = pricingService.priceOffer(raw, { storageGB: DEFAULT_STORAGE_GB });
 
     const inetDown = Math.round(raw.inet_down || 250);
     const inetUp = Math.round(raw.inet_up || 100);
@@ -78,19 +111,9 @@ class VastaiService {
       vramGB,
       numGpus: raw.num_gpus || 1,
       totalFlops: raw.total_flops || 0,
-      pricePerHour: pricing.computePricePerHour,
-      dphBase: pricing.computePricePerHour,
-      storageCostPerHour: pricing.storagePricePerHour,
-      storagePricePerGBHour: pricing.storagePricePerGBHour,
-      bandwidthCostPerGB: pricing.bandwidthCostPerGB,
-      totalHourlyCost: pricing.totalHourlyCost,
-      creditsPerHour: pricing.creditsPerHour,
-      totalCreditsPerHour: pricing.totalCreditsPerHour,
-      storageCreditsPerHour: pricing.storageCreditsPerHour,
-      storageCreditsPerGBHour: pricing.storageCreditsPerGBHour,
-      bandwidthCreditsPerGB: pricing.bandwidthCreditsPerGB,
-      creditsPerUsd: pricing.creditsPerUsd,
-      markupPercentage: pricing.markupPercentage,
+      // Raw Vast.ai compute $/hour, for server-side filters only (stripped from client responses).
+      pricePerHour: pricing._internal.dphBaseUsd,
+      ...pricing,
       inetUp,
       inetDown,
       reliability: Math.round((raw.reliability2 != null ? raw.reliability2 : (raw.reliability || 0.98)) * 100) / 100,
@@ -168,6 +191,10 @@ class VastaiService {
     if (minInetUp && minInetUp > 0) body.inet_up = { gte: minInetUp };
     if (minReliability && minReliability > 0) body.reliability2 = { gte: minReliability };
     if (gpuName) body.gpu_name = { eq: gpuName };
+    // Only hosts the engine image can run on, with directly mapped ports (the engine listens on 8000).
+    body.compute_cap = { gte: MIN_GPU_COMPUTE_CAP };
+    body.cuda_max_good = { gte: MIN_HOST_CUDA };
+    body.direct_port_count = { gte: 1 };
 
     try {
       const response = await this._requestWithRetry(() =>
@@ -176,7 +203,7 @@ class VastaiService {
 
       let rawOffers = response.data?.offers || [];
       // Defense in depth: strictly exclude any offer below 400 Mbps
-      rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+      rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS && !hostUnsupportedReason(o));
 
       if (rawOffers.length > 0) {
         const normalized = rawOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
@@ -273,7 +300,7 @@ class VastaiService {
   async createInstance(offerId, config = {}) {
     const payload = {
       client_id: 'me',
-      image: config.image || 'pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime',
+      image: config.image || env.VASTAI_ENGINE_IMAGE,
       disk: config.disk || 100,
       env: config.env || { AI_STUDIO_MODE: 'cloud' },
       onstart: config.onstart || '',
@@ -283,6 +310,7 @@ class VastaiService {
 
     try {
       if (!env.VASTAI_API_KEY) {
+        assertSandboxAllowed();
         // Return simulated contract ID in sandbox mode
         const mockContractId = Math.floor(1000000 + Math.random() * 9000000);
         return {
@@ -305,6 +333,7 @@ class VastaiService {
         raw: response.data,
       };
     } catch (error) {
+      if (error instanceof ApiError) throw error;
       const errorMsg = error.response?.data?.msg || error.response?.data?.error || error.message || '';
       console.error('[Vast.ai createInstance error details]:', error.response?.status, error.response?.data || error.message);
       if (
@@ -327,6 +356,7 @@ class VastaiService {
   async destroyInstance(instanceId) {
     try {
       if (!env.VASTAI_API_KEY) {
+        assertSandboxAllowed();
         return { success: true, instanceId, status: 'stopped', sandbox: true };
       }
 
@@ -340,8 +370,34 @@ class VastaiService {
         data: response.data,
       };
     } catch (error) {
+      if (error instanceof ApiError) throw error;
+      // Already destroyed (by the user on Vast's dashboard, or by Vast): nothing left to stop.
+      if (error.response?.status === 404) {
+        return { success: true, instanceId, alreadyGone: true };
+      }
       throw ApiError.badGateway(`Failed to destroy Vast.ai instance: ${error.response?.data?.msg || error.message}`);
     }
+  }
+
+  /**
+   * List the account's Vast.ai instances, throwing on any API failure.
+   * Billing and presence checks must use this: an empty list from a failed
+   * call would otherwise look like every instance had disappeared.
+   * @returns {Promise<Array>}
+   */
+  async listInstancesStrict() {
+    if (!env.VASTAI_API_KEY) {
+      assertSandboxAllowed();
+      return [];
+    }
+    const response = await this._requestWithRetry(() =>
+      this.client.get('https://console.vast.ai/api/v1/instances/')
+    );
+    const instances = response.data?.instances;
+    if (!Array.isArray(instances)) {
+      throw new Error('Vast.ai instance list response had no instances array');
+    }
+    return instances;
   }
 
   /**
@@ -351,6 +407,7 @@ class VastaiService {
   async getInstances() {
     try {
       if (!env.VASTAI_API_KEY) {
+        assertSandboxAllowed();
         return [];
       }
 
@@ -373,6 +430,7 @@ class VastaiService {
   async getInstance(instanceId) {
     try {
       if (!env.VASTAI_API_KEY) {
+        assertSandboxAllowed();
         return null;
       }
 
@@ -391,6 +449,27 @@ class VastaiService {
   }
 
   /**
+   * Public IP, host port mapped to the engine's container port 8000, and SSH coordinates.
+   * @param {Object} raw - one entry of the Vast.ai instance list
+   */
+  parseEndpoint(raw) {
+    const publicIp = raw?.public_ipaddr || raw?.ssh_host || null;
+    let mappedPort = null;
+    if (raw?.ports && typeof raw.ports === 'object') {
+      const p8000 = raw.ports['8000/tcp'] || raw.ports['8000'];
+      if (Array.isArray(p8000) && p8000.length > 0 && p8000[0]?.HostPort) {
+        mappedPort = Number(p8000[0].HostPort);
+      }
+    }
+    return {
+      publicIp,
+      mappedPort,
+      sshHost: raw?.ssh_host || null,
+      sshPort: raw?.ssh_port ? Number(raw.ssh_port) : null,
+    };
+  }
+
+  /**
    * Retrieve structured connection and network details for an instance
    * Extracts public IP, port mapping for container:8000 (Python Engine), SSH coordinates, and lifecycle state.
    * @param {string|number} contractId
@@ -400,15 +479,7 @@ class VastaiService {
     const raw = await this.getInstance(contractId);
     if (!raw) return null;
 
-    let publicIp = raw.public_ipaddr || raw.ssh_host || null;
-    let mappedPort = null;
-
-    if (raw.ports && typeof raw.ports === 'object') {
-      const p8000 = raw.ports['8000/tcp'] || raw.ports['8000'];
-      if (Array.isArray(p8000) && p8000.length > 0 && p8000[0]?.HostPort) {
-        mappedPort = Number(p8000[0].HostPort);
-      }
-    }
+    const { publicIp, mappedPort } = this.parseEndpoint(raw);
 
     const actualStatus = raw.actual_status || raw.cur_state || 'provisioning';
 
@@ -434,6 +505,7 @@ class VastaiService {
   async getInstanceLogs(instanceId) {
     try {
       if (!env.VASTAI_API_KEY) {
+        assertSandboxAllowed();
         return '[Sandbox Log] Python Engine container initializing. PyTorch CUDA initialized.';
       }
 

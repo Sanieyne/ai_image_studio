@@ -53,6 +53,7 @@ export const registerSchema = Joi.object({
       'string.pattern.base': 'Password must contain at least one uppercase letter, one lowercase letter, and one number',
       'any.required': 'Password is required',
     }),
+  deviceLabel: Joi.string().trim().max(64).allow(''),
 });
 
 export const loginSchema = Joi.object({
@@ -70,6 +71,8 @@ export const loginSchema = Joi.object({
     .messages({
       'any.required': 'Password is required',
     }),
+  // Optional, shown in the user's session list (e.g. "Windows app").
+  deviceLabel: Joi.string().trim().max(64).allow(''),
 });
 
 export const refreshSchema = Joi.object({

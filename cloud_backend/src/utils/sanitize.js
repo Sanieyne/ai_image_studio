@@ -43,11 +43,19 @@ export function sanitizeInstanceForClient(instance) {
   delete doc._internal;
 
   if (doc.pricing) {
+    const p = doc.pricing;
     doc.pricing = {
-      creditsPerHour: doc.pricing.creditsPerHour,
-      totalCreditsPerHour: doc.pricing.totalCreditsPerHour,
-      storageCreditsPerHour: doc.pricing.storageCreditsPerHour,
-      bandwidthCreditsPerGB: doc.pricing.bandwidthCreditsPerGB,
+      storageGB: p.storageGB,
+      computeCreditsPerHour: p.computeCreditsPerHour ?? p.creditsPerHour,
+      storageCreditsPerGBMonth: p.storageCreditsPerGBMonth,
+      storageCreditsPerHour: p.storageCreditsPerHour,
+      totalCreditsPerHour: p.totalCreditsPerHour,
+      bandwidthDownCreditsPerGB: p.bandwidthDownCreditsPerGB ?? p.bandwidthCreditsPerGB,
+      bandwidthUpCreditsPerGB: p.bandwidthUpCreditsPerGB,
+      bandwidthBilling: 'usage',
+      // Older names, read by app versions up to v0.2.0.
+      creditsPerHour: p.creditsPerHour,
+      bandwidthCreditsPerGB: p.bandwidthCreditsPerGB,
     };
   }
 

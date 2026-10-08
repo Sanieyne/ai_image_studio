@@ -192,7 +192,7 @@ Added:
        branding, red Sign In).                      [shot_02_login_sw.png]
     2. Click "Create one" -> Register screen renders (username/email/
        password + Create Account).                  [shot_06_register.png]
-    3. Fill e2e093001 / e2e093001@test.local / Testpass123, submit ->
+    3. Fill e2e093001 / e2e093001@test.local / <password from /root/backups/test-account/credentials>, submit ->
        registered on the LIVE backend, redirected to Home; sidebar
        profile shows the real user + E2 avatar.      [shot_08_home.png]
        Tokens verified present in OS keyring (Login collection item

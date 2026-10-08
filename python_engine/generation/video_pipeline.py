@@ -116,10 +116,14 @@ def get_video_engine() -> LTXVideoEngine:
 
 
 # Local model path — set via env var or defaults to Vast.ai workspace location
-WAN_ANIMATE_MODEL_PATH = os.environ.get(
-    "WAN_ANIMATE_MODEL_PATH",
-    "/workspace/models/Wan2.2-Animate-14B"
-)
+def _default_wan_animate_path() -> str:
+    from generation.model_paths import model_dir
+
+    downloaded = model_dir("wan-2.2-animate-14b")
+    return str(downloaded) if downloaded else "/workspace/models/Wan2.2-Animate-14B"
+
+
+WAN_ANIMATE_MODEL_PATH = os.environ.get("WAN_ANIMATE_MODEL_PATH") or _default_wan_animate_path()
 
 
 class WanAnimateEngine:
@@ -565,9 +569,10 @@ class Wan2_1Engine:
         try:
             import torch
             from diffusers.schedulers.scheduling_unipc_multistep import UniPCMultistepScheduler
+            from generation.model_paths import load_source
 
             if task in ("t2v-1.3B", "t2v-1.3b", "1.3B"):
-                model_id = WAN2_1_T2V_1_3B_REPO
+                model_id = load_source(WAN2_1_T2V_1_3B_REPO)
                 from diffusers import AutoencoderKLWan, WanPipeline
                 log.info("Loading Wan2.1 T2V 1.3B from %s...", model_id)
                 vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
@@ -580,7 +585,7 @@ class Wan2_1Engine:
                 pipe = WanPipeline.from_pretrained(model_id, vae=vae, torch_dtype=torch.bfloat16)
                 pipe.scheduler = scheduler
             elif task in ("t2v-14B", "t2v-14b", "14B"):
-                model_id = WAN2_1_T2V_14B_REPO
+                model_id = load_source(WAN2_1_T2V_14B_REPO)
                 from diffusers import AutoencoderKLWan, WanPipeline
                 log.info("Loading Wan2.1 T2V 14B from %s...", model_id)
                 vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)
@@ -593,7 +598,7 @@ class Wan2_1Engine:
                 pipe = WanPipeline.from_pretrained(model_id, vae=vae, torch_dtype=torch.bfloat16)
                 pipe.scheduler = scheduler
             elif task in ("i2v-14B", "i2v-14b", "i2v"):
-                model_id = WAN2_1_I2V_14B_REPO
+                model_id = load_source(WAN2_1_I2V_14B_REPO)
                 from diffusers import AutoencoderKLWan, WanImageToVideoPipeline
                 log.info("Loading Wan2.1 I2V 14B from %s...", model_id)
                 vae = AutoencoderKLWan.from_pretrained(model_id, subfolder="vae", torch_dtype=torch.float32)

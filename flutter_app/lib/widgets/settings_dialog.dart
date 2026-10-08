@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../features/cloud_mode/data/models/saved_generation.dart';
+import '../app_version.dart';
+
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../services/auth_service.dart';
 
@@ -260,7 +261,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   Padding(
                     padding: const EdgeInsets.all(8.0),
                     child: Text(
-                      'Cosmic-Gen Studio v1.0.4',
+                      'Cosmic-Gen Studio v$kAppVersion (build $kAppBuildNumber)',
+                      key: const ValueKey('settings_app_version'),
                       style: TextStyle(
                         fontSize: 11,
                         color: isDark ? Colors.white38 : Colors.black38,
@@ -608,7 +610,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05),
                 ),
               ),
-              child: SwitchListTile(
+              // Own Material so the tile's ink and highlight show over the box colour.
+              child: Material(
+                type: MaterialType.transparency,
+                child: SwitchListTile(
                 title: const Text('Public Creator Profile', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                 subtitle: Text(
                   'Allow other creators to see your public generations and bio',
@@ -618,6 +623,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 activeColor: const Color(0xFFD32F2F),
                 onChanged: (val) => setState(() => _isPublicProfile = val),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              ),
               ),
             ),
 

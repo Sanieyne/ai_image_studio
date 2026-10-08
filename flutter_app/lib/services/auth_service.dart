@@ -229,7 +229,8 @@ class AuthService extends ChangeNotifier {
       res = await _http
           .post(
             Uri.parse('$baseUrl/auth/register'),
-            headers: const {'Content-Type': 'application/json'},
+            // Header, not body: backends before device sessions reject unknown body fields.
+            headers: {'Content-Type': 'application/json', 'X-Device-Label': deviceLabel},
             body: jsonEncode({
               'username': username.trim(),
               'email': email.trim(),
@@ -255,8 +256,11 @@ class AuthService extends ChangeNotifier {
       res = await _http
           .post(
             Uri.parse('$baseUrl/auth/login'),
-            headers: const {'Content-Type': 'application/json'},
-            body: jsonEncode({'email': email.trim(), 'password': password}),
+            headers: {'Content-Type': 'application/json', 'X-Device-Label': deviceLabel},
+            body: jsonEncode({
+              'email': email.trim(),
+              'password': password,
+            }),
           )
           .timeout(requestTimeout);
     } on TimeoutException {
@@ -383,7 +387,55 @@ class AuthService extends ChangeNotifier {
     }
   }
 
-  /// Destroys the session: clears secure storage and in-memory state.
+  /// Label for this device in the user's session list, e.g. "Windows app".
+  static String get deviceLabel {
+    if (kIsWeb) return 'Web app';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.windows:
+        return 'Windows app';
+      case TargetPlatform.macOS:
+        return 'macOS app';
+      case TargetPlatform.linux:
+        return 'Linux app';
+      case TargetPlatform.android:
+        return 'Android app';
+      case TargetPlatform.iOS:
+        return 'iOS app';
+      case TargetPlatform.fuchsia:
+        return 'Fuchsia app';
+    }
+  }
+
+  /// Timeout for the best-effort server logout in [signOut].
+  static const Duration signOutTimeout = Duration(seconds: 5);
+
+  /// User-initiated sign out: ends this device's session on the server
+  /// (POST /auth/logout), then clears the local session. The local session is
+  /// always cleared, even when the server can't be reached.
+  Future<void> signOut() async {
+    await init();
+    final refreshToken = _refreshToken;
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      try {
+        final res = await _http
+            .post(
+              Uri.parse('$baseUrl/auth/logout'),
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode({'refreshToken': refreshToken}),
+            )
+            .timeout(signOutTimeout);
+        if (res.statusCode != 200) {
+          debugPrint('[AuthService] server logout: HTTP ${res.statusCode}');
+        }
+      } catch (e) {
+        debugPrint('[AuthService] server logout failed (signing out locally): $e');
+      }
+    }
+    await logout();
+  }
+
+  /// Destroys the local session: clears secure storage and in-memory state.
+  /// Used when the session is already invalid; for a user's Sign Out, use [signOut].
   Future<void> logout() async {
     _user = null;
     _accessToken = null;

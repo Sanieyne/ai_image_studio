@@ -1,7 +1,7 @@
 name: ai_image_studio
 description: AI Image Studio - Flutter desktop frontend for local SDXL generation.
 publish_to: "none"
-version: 0.2.0
+version: 0.3.0+3
 
 environment:
   sdk: ">=3.2.0 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   path_provider: ^2.1.2
   path: ^1.9.0
   file_picker: ^12.2.0
+  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

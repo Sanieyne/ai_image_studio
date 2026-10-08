@@ -24,6 +24,7 @@ class ModelDownloadButton extends StatefulWidget {
 class _ModelDownloadButtonState extends State<ModelDownloadButton> {
   bool _isDownloaded = false;
   bool _isLoading = true;
+  bool _hasUnfinished = false;
   StreamSubscription<ModelDownloadProgress>? _sub;
   ModelDownloadProgress? _progress;
 
@@ -37,8 +38,12 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
           _progress = prog;
           if (prog.status == ModelDownloadStatus.downloaded) {
             _isDownloaded = true;
+            _hasUnfinished = false;
           } else if (prog.status == ModelDownloadStatus.notDownloaded) {
             _isDownloaded = false;
+            _hasUnfinished = false;
+          } else if (prog.status == ModelDownloadStatus.paused || prog.status == ModelDownloadStatus.failed) {
+            _hasUnfinished = true;
           }
         });
       }
@@ -61,13 +66,28 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
 
   Future<void> _checkStatus() async {
     setState(() => _isLoading = true);
-    final downloaded = await ModelDownloadService.instance.isModelDownloaded(widget.modelId);
+    final service = ModelDownloadService.instance;
+    final downloaded = await service.isModelDownloaded(widget.modelId);
+    final pending = (await service.pendingDownloads()).contains(service.normalizeModelId(widget.modelId));
     if (mounted) {
       setState(() {
         _isDownloaded = downloaded;
+        _hasUnfinished = pending && !service.isActive(widget.modelId);
         _isLoading = false;
       });
     }
+  }
+
+  void _start(BuildContext context) {
+    setState(() => _hasUnfinished = false);
+    ModelDownloadService.instance.downloadModel(widget.modelId).catchError((err) {
+      if (context.mounted) {
+        setState(() => _hasUnfinished = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Download stopped: $err'), backgroundColor: Colors.redAccent),
+        );
+      }
+    });
   }
 
   Future<void> _promptDownload(BuildContext context) async {
@@ -92,9 +112,10 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
 
     if (!context.mounted) return;
 
-    final availGB = (availableBytes / 1e9).toStringAsFixed(1);
+    // Unknown free space does not block the download; it is shown as unknown.
+    final availGB = availableBytes == null ? 'unknown' : '${(availableBytes / 1e9).toStringAsFixed(1)} GB';
     final reqGB = (totalBytes / 1e9).toStringAsFixed(2);
-    final hasEnough = availableBytes >= (totalBytes + 1024 * 1024 * 1024);
+    final hasEnough = availableBytes == null || availableBytes >= (totalBytes + 512 * 1024 * 1024);
 
     showDialog(
       context: context,
@@ -148,7 +169,7 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
                       children: [
                         const Text('Available Disk:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
                         Text(
-                          '$availGB GB',
+                          availGB,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -193,16 +214,7 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
               onPressed: hasEnough
                   ? () {
                       Navigator.of(ctx).pop();
-                      ModelDownloadService.instance.downloadModel(widget.modelId).catchError((err) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Download failed: $err'),
-                              backgroundColor: Colors.redAccent,
-                            ),
-                          );
-                        }
-                      });
+                      _start(context);
                     }
                   : null,
               style: ElevatedButton.styleFrom(
@@ -250,11 +262,20 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
       );
     }
 
-    final isDownloading = _progress?.status == ModelDownloadStatus.downloading;
+    final status = _progress?.status;
+    final isDownloading = status == ModelDownloadStatus.downloading ||
+        status == ModelDownloadStatus.waitingForNetwork ||
+        status == ModelDownloadStatus.verifying ||
+        status == ModelDownloadStatus.checking;
 
     if (isDownloading) {
       final pct = _progress?.percentage ?? 0.0;
-      final label = _progress?.formattedProgress ?? 'Downloading...';
+      final label = switch (status) {
+        ModelDownloadStatus.waitingForNetwork => _progress?.errorMessage ?? 'Waiting for network…',
+        ModelDownloadStatus.verifying => 'Verifying ${_progress?.currentFile ?? ''}…',
+        ModelDownloadStatus.checking => 'Preparing…',
+        _ => _progress?.formattedProgress ?? 'Downloading...',
+      };
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -262,14 +283,39 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                label,
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: LuminaColors.primaryEnd),
+              Flexible(
+                child: Text(
+                  label,
+                  key: const ValueKey('model_download_label'),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: status == ModelDownloadStatus.waitingForNetwork ? LuminaColors.amber : LuminaColors.primaryEnd,
+                  ),
+                ),
               ),
-              const SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(strokeWidth: 1.5, color: LuminaColors.primaryStart),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    key: const ValueKey('model_download_pause'),
+                    icon: const Icon(Icons.pause_rounded, size: 14),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Pause',
+                    onPressed: () => ModelDownloadService.instance.pause(widget.modelId),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    key: const ValueKey('model_download_cancel'),
+                    icon: const Icon(Icons.close_rounded, size: 14),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Cancel and delete partial files',
+                    onPressed: () => ModelDownloadService.instance.cancel(widget.modelId),
+                  ),
+                ],
               ),
             ],
           ),
@@ -317,6 +363,40 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
             constraints: const BoxConstraints(),
             tooltip: 'Delete local weights to free space',
             onPressed: () => _confirmDelete(context),
+          ),
+        ],
+      );
+    }
+
+    // Paused, failed, or interrupted by an app restart: resume from the partial files.
+    if (_hasUnfinished) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          OutlinedButton.icon(
+            key: const ValueKey('model_download_resume'),
+            onPressed: () => _start(context),
+            icon: const Icon(Icons.play_arrow_rounded, size: 12),
+            label: Text(
+              _progress != null && _progress!.totalBytes > 0
+                  ? 'Resume (${(_progress!.percentage * 100).toStringAsFixed(0)}%)'
+                  : 'Resume download',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: LuminaColors.primaryStart,
+              side: BorderSide(color: LuminaColors.primaryStart.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 14),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+            tooltip: 'Discard the partial download',
+            onPressed: () => ModelDownloadService.instance.cancel(widget.modelId),
           ),
         ],
       );

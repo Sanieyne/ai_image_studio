@@ -1,0 +1,379 @@
+# Deploy notes: fix/security-billing (app v0.3.0)
+
+Commands assume the live checkout at `/root/projects/ai_image_studio` and the PM2
+app `ai-studio-backend`. The sections after the runbook explain each change.
+
+## App v0.3.0 and the backend
+
+The v0.3.0 app works with the backend that is live today (checked: login with the
+new request shape returns 200; logout falls back to a local sign-out; rentals stay
+paused by nginx). Deploying the backend is a separate step, below, whenever you are
+ready. Apps on v0.2.0 keep working with the new backend.
+
+## Backend deploy runbook
+
+Run as root on the server. Stop at the first failure and use the rollback section.
+
+```bash
+set -euo pipefail
+TS=$(date -u +%Y%m%dT%H%M%SZ); BK=/root/backups/deploy-$TS; mkdir -p $BK; chmod 700 $BK
+LIVE=/root/projects/ai_image_studio
+
+# 1. Backups
+mongodump --db ai_image_studio --out $BK/mongodump --quiet
+cp -p $LIVE/cloud_backend/.env $BK/.env
+cp -p /etc/nginx/sites-available/cosmic-gen.com $BK/cosmic-gen.com
+git -C $LIVE rev-parse HEAD > $BK/previous_commit
+
+# 2. Code (after the PR is merged into main)
+git -C $LIVE fetch origin
+git -C $LIVE checkout main
+git -C $LIVE merge --ff-only origin/main
+(cd $LIVE/cloud_backend && npm ci --omit=dev)
+
+# 3. Settings: add new ones, keep everything else (no secrets printed)
+cd $LIVE/cloud_backend
+grep -q '^HOST=' .env || echo 'HOST=127.0.0.1' >> .env
+grep -q '^GPU_RENTALS_ENABLED=' .env || echo 'GPU_RENTALS_ENABLED=false' >> .env
+sed -i 's/^JWT_ACCESS_EXPIRES=.*/JWT_ACCESS_EXPIRES=15m/' .env
+grep -q '^JWT_ACCESS_EXPIRES=' .env || echo 'JWT_ACCESS_EXPIRES=15m' >> .env
+# The new code refuses leaked / short / equal JWT secrets: check before restarting.
+node --input-type=module -e "await import('./src/config/env.js'); console.log('config ok')"
+
+# 4. Indexes (autoIndex is off in production)
+mongosh ai_image_studio --quiet --eval '
+  db.gpuinstances.createIndex({ status: 1 });
+  db.transactions.createIndex({ gpuInstance: 1, type: 1 },
+    { unique: true, partialFilterExpression: { gpuInstance: { $type: "objectId" } } });
+  db.sessions.createIndex({ user: 1 });
+  db.sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });'
+
+# 5. Stale GPU records: dry run, read the list, then apply
+node scripts/cleanup_stale_gpu_instances.mjs
+# node scripts/cleanup_stale_gpu_instances.mjs --apply
+
+# 6. Restart
+pm2 restart ai-studio-backend --update-env
+sleep 5; pm2 logs ai-studio-backend --nostream --lines 40
+```
+
+Smoke tests (all must pass):
+
+```bash
+curl -s -o /dev/null -w 'health %{http_code}\n'  https://cosmic-gen.com/ai-api/api/v1/health            # 200
+python3 -I /root/diagnostics/scripts/smoke_login.py --refresh                                            # 200, 200
+curl -s 'https://cosmic-gen.com/ai-api/api/v1/gpu/offers?limit=1&storageGB=50' | head -c 600; echo       # totalCreditsPerHour present
+curl -s -o /dev/null -w 'rent %{http_code}\n' -X POST https://cosmic-gen.com/ai-api/api/v1/gpu/rent      # 503 (paused)
+curl -s -o /dev/null -w 'rentals status %{http_code}\n' https://cosmic-gen.com/ai-api/api/v1/gpu/rentals/status  # 200
+curl -s -o /dev/null -w 'gallery %{http_code}\n' 'https://cosmic-gen.com/ai-api/api/v1/gallery?limit=1'  # 200
+# WebSocket route: expect "HTTP/1.1 101" (the server may close right after for a bad token)
+curl -s -i -N --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  'https://cosmic-gen.com/ai-api/ws/instance-status?token=x&instanceId=x' | head -1
+# Pricing check: compare one offer's computeCreditsPerHour with Vast's dph_base x 62.5 (default config)
+```
+
+Then remove access tokens from nginx logs (they were sent in the WebSocket URL):
+
+```bash
+for f in /var/log/nginx/access.log /var/log/nginx/error.log; do sed -i -E 's/token=[^& "]+/token=REDACTED/g' "$f"; done
+for f in /var/log/nginx/*.gz; do zcat "$f" | sed -E 's/token=[^& "]+/token=REDACTED/g' | gzip > "$f.tmp" && mv "$f.tmp" "$f"; done
+systemctl reload nginx   # reopen log files
+```
+
+## Rollback
+
+```bash
+BK=/root/backups/deploy-<timestamp>
+LIVE=/root/projects/ai_image_studio
+git -C $LIVE checkout $(cat $BK/previous_commit)
+(cd $LIVE/cloud_backend && npm ci --omit=dev)
+cp -p $BK/.env $LIVE/cloud_backend/.env
+cp -p $BK/cosmic-gen.com /etc/nginx/sites-available/cosmic-gen.com && nginx -t && systemctl reload nginx
+pm2 restart ai-studio-backend --update-env
+```
+- The new indexes and the `sessions` collection are harmless to the old code; leave them.
+- Users who signed in on the new backend get session-based refresh tokens the old code
+  cannot read: after a rollback they sign in again once.
+- Restore the database (`mongorestore --drop $BK/mongodump`) only if data is damaged.
+
+## Re-enabling rentals (later, with the approved test rental)
+
+1. Upload the engine package (R2-3 section), 2. set `GPU_RENTALS_ENABLED=true`,
+3. remove the nginx 503 rule (Step 0), `nginx -t && systemctl reload nginx`,
+4. `pm2 restart ai-studio-backend --update-env`, 5. one test rental, watching its
+progress in the app and `pm2 logs`; check bandwidth fields (R2-2).
+
+## Already done on the live server (7 Oct 2026)
+
+| Change | Rollback |
+|---|---|
+| nginx: `POST …/v1/gpu/rent` returns 503 on `/ai-api/api`, `/ai-backend/api`, `/ai/api` (rentals paused) | restore `/root/backups/nginx/20261007T190111Z/cosmic-gen.com`, `nginx -t && systemctl reload nginx` |
+| ufw: removed `5000/tcp` allow rules (v4 + v6) | `ufw allow 5000/tcp` |
+| `JWT_ACCESS_SECRET` rotated, backend restarted | restore `/root/backups/env/20261007T210256Z/.env`, `pm2 restart ai-studio-backend` |
+
+## Phase 1: secrets and configuration
+
+- The backend refuses to start if a JWT secret is a leaked example value, shorter
+  than 32 characters, or if both secrets are equal. The live secrets pass these checks.
+- `JWT_ACCESS_EXPIRES` defaults to `15m`. The live `.env` sets `60d`; change it only
+  together with Phase 1b (multiple sessions), or every 15 minutes the app refreshes
+  through the single-slot refresh logic.
+- GitHub secret `CONTABO_KNOWN_HOSTS`: added on 8 Oct 2026 from the server's own
+  `/etc/ssh/ssh_host_*_key.pub` (pattern `*`, so it matches whatever `CONTABO_IP` holds;
+  the key itself is pinned). Update it if the server's host keys ever change.
+
+## Phase 2: GPU billing
+
+### New settings (all optional)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `HOST` | `127.0.0.1` | Listen address. nginx proxies to 127.0.0.1:5000. |
+| `GPU_MAX_ACTIVE_PER_USER` | `1` | Active GPU instances per user. |
+| `BILLING_INTERVAL_MS` | `60000` | Billing cycle. Charges are per second of rental. |
+| `RECONCILE_INTERVAL_MS` | `600000` | Orphan and slot-counter check. |
+| `RECONCILE_DESTROY_ORPHANS` | `false` | Destroy our labelled Vast.ai instances with no active record (else log only). |
+
+### New fields
+
+- `GpuInstance`: `contractConfirmedAt`, `billedUntil`, `billingStartedAt`, `creditsCharged`, `creditsRefunded`,
+  `refundIssued`, `reachedReadyAt`, `stopReason`, `pendingStopReason`, `lowBalanceWarnedAt`,
+  `lastSeenOnVastAt`, `vastMissCount`, `firstMissAt`, `holdsSlot`; index `{ status: 1 }`.
+- `User`: `activeGpuInstances` (rental slots in use).
+- `Transaction`: `gpuInstance` (set only on GPU rental entries); unique partial index
+  `{ gpuInstance: 1, type: 1 }`, so each rental has one charge entry and one refund entry.
+
+Indexes are not auto-built in production (`autoIndex` is off). Build the new ones once:
+
+```bash
+mongosh ai_image_studio --quiet --eval '
+  db.gpuinstances.createIndex({ status: 1 });
+  db.transactions.createIndex(
+    { gpuInstance: 1, type: 1 },
+    { unique: true, partialFilterExpression: { gpuInstance: { $type: "objectId" } } }
+  );'
+```
+
+### How charging works
+
+- Every 60 s, one Vast.ai listing; only contracts listed and not exited are charged.
+  `test-…`, `pending-…` and other non-numeric ids are never charged.
+- New rentals: billing starts when Vast.ai confirms the contract.
+- Instances that exist before this deploy have no `billedUntil`: billing starts the
+  first time the service sees them. Nothing earlier is charged.
+- Each charge is the total owed since billing started minus what was already charged,
+  so per-cycle rounding never accumulates.
+- Stop (user, timeout, credits exhausted, instance gone from Vast.ai) settles a final
+  charge. A rental that never reached READY is refunded in full, whatever stopped it,
+  including a user stop: nothing usable is delivered before READY.
+  (TODO in code: once the app can send work before every model is ready, charge from
+  the first generation instead.)
+- Out of credits: charge what is left, destroy the instance, status `stopped`,
+  `stopReason: insufficient_credits`. A low-balance event is sent when under 15 minutes remain.
+
+### Ledger
+
+- One `deduction` entry per rental, updated every cycle: amount (total charged so far),
+  `balanceAfter`, and in `metadata` the GPU, credits/hr, billed seconds and minutes.
+  Description, e.g. `GPU rental: RTX 4060 Ti, 37 min at 28.9 credits/hr`.
+- At most one `refund` entry per rental (`Refund: RTX 4060 Ti rental stopped before it was ready`).
+- Write order per charge: (1) claim the period and add to `creditsCharged`, (2) take the
+  credits, (3) correct `creditsCharged` if the balance was short, (4) update the ledger entry.
+  A crash between steps can only under-charge the user. The reconcile job (every 10 min)
+  compares each rental's `creditsCharged`/`creditsRefunded` with its ledger entries and logs
+  `[Billing] !!! LEDGER MISMATCH …` for any difference. Grep for it after deploy:
+  `pm2 logs ai-studio-backend --nostream --lines 2000 | grep 'LEDGER MISMATCH'`
+
+### Worked example
+
+Rate stored on the instance: `pricing.totalCreditsPerHour = 28.9` (the 7 Oct RTX 4060 Ti
+rental). Note: 20.83 of those 28.9 credits/hr are the overpriced storage fixed in R2-2.
+
+| Step | Value |
+|---|---|
+| Cycle 1 (60 s) | owed round6(60 × 28.9 / 3600) = 0.481667; charged 0.481667 |
+| Cycle 2 (120 s) | owed round6(120 × 28.9 / 3600) = 0.963333; charged 0.963333 − 0.481667 = 0.481666 |
+| After 37 cycles | owed = charged = round6(2220 × 28.9 / 3600) = **17.821667** (no drift) |
+| Stopped 20 s later (2240 s) | owed round6(2240 × 28.9 / 3600) = 17.982222; final charge 0.160555 |
+| Total charged | **17.982222 credits**, one ledger row: `GPU rental: RTX 4060 Ti, 37 min at 28.9 credits/hr` |
+| If it never reached READY | 17.982222 refunded; a second row `Refund: …` (+17.982222) |
+
+### Before restarting with this code
+
+1. Rentals stay paused (nginx rule above).
+2. Close stale records, so billing never sees them:
+   ```bash
+   cd /root/projects/ai_image_studio/cloud_backend
+   node scripts/cleanup_stale_gpu_instances.mjs          # dry run: review the list
+   node scripts/cleanup_stale_gpu_instances.mjs --apply  # then apply
+   ```
+   Expected today: #54547010 (no longer on Vast.ai), `test-contract-1791101619182`,
+   `test-contract-1791101680240`, `pending-1791099211934`.
+3. Build the index above.
+
+## Phase 1b: one session per device
+
+### What changes
+- Each login or registration creates a `sessions` document (one per device). Refresh
+  tokens carry `sid` (session) and `gen` (generation); no token values are stored.
+- A refresh rotates only its own session. The previous token keeps working for
+  `REFRESH_GRACE_SECONDS` (30 s) and gets a token for the current generation, so
+  parallel refreshes from one app never look like reuse. Any older token revokes
+  that session only (`revokeReason: refresh_token_reuse`).
+- New endpoints: `POST /api/v1/auth/logout` (body `{ refreshToken }`, this device; works
+  with an expired token) and `POST /api/v1/auth/logout-all` (Bearer access token, every
+  device). Access tokens already issued stay valid until they expire (15 min).
+- Login/register accept an optional `deviceLabel` (max 64 chars); otherwise the
+  User-Agent is used. The app sends e.g. `Windows app`.
+
+### Compatibility with v0.2.0 and with sessions from before the deploy
+- Request and response shapes are unchanged; v0.2.0 keeps working without changes
+  (it just doesn't call logout on Sign Out).
+- A refresh token issued before the deploy (no `sid`) is checked against the old
+  `User.refreshTokenHash` slot and becomes a session on first use
+  (label "Signed in before device sessions"). Nobody is logged out by the deploy.
+- With sessions in place, set `JWT_ACCESS_EXPIRES=15m` in the live `.env` (it is `60d` now).
+
+### New collection, fields and indexes
+- Collection `sessions`: `user`, `familyId`, `generation`, `previousValidUntil`,
+  `deviceLabel`, `lastUsedAt`, `expiresAt`, `revokedAt`, `revokeReason`.
+- `User.legacySession` (select: false): links a migrated pre-sessions token to its session
+  for the grace period.
+- Build the indexes once (`autoIndex` is off in production). The TTL index deletes
+  sessions when their refresh token expires:
+  ```bash
+  mongosh ai_image_studio --quiet --eval '
+    db.sessions.createIndex({ user: 1 });
+    db.sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });'
+  ```
+
+### New setting
+| Variable | Default | Meaning |
+|---|---|---|
+| `REFRESH_GRACE_SECONDS` | `30` | How long the previous refresh token is accepted after a rotation. |
+
+### Test account
+The e2e test account (`e2e093001@test.local`) password was rotated on 8 Oct 2026.
+Credentials: `/root/backups/test-account/credentials` (chmod 600, never in git).
+Smoke test: `python3 -I /root/diagnostics/scripts/smoke_login.py --refresh`.
+
+## R2-2: prices that match Vast.ai
+
+### Vast.ai units (checked against live offers, 8 Oct 2026)
+- `dph_base`: compute, $/hour.
+- `storage_cost`: **$/GB/month, 720-hour month**. For an offer searched with
+  `allocated_storage = G`, `dph_total − dph_base = storage_cost × G / 720` exactly.
+  The old code used it as $/GB/hour-ish and priced the host's whole free disk:
+  the 7 Oct rental showed 20.83 credits/h for 50 GB instead of 0.87.
+- `inet_down_cost` / `inet_up_cost`: $/GB into / out of the instance
+  (`internet_*_cost_per_tb` = 1024 ×).
+
+### One pricing function
+`pricingService.priceOffer(rawOffer, { storageGB })`, used by the offer list,
+recommendations, offer details, the estimate, rent, and (through the stored
+`pricing.totalCreditsPerHour`) billing:
+
+```
+credits = USD × (1 + markupPercentage/100) × creditsPerUsd      (PricingConfig)
+computeCreditsPerHour  = credits(dph_base)                       rounded to 0.01
+storageCreditsPerHour  = credits(storage_cost × storageGB / 720) rounded to 0.01
+totalCreditsPerHour    = compute + storage                       (what is charged)
+bandwidthDown/UpCreditsPerGB = credits(inet_down/up_cost)        rounded to 0.0001, billed by usage
+```
+
+Example, GTX 1660 S (0.06 $/h, 0.2 $/GB/month), 50 GB, default config (1 $ = 62.5 credits):
+3.75 + 0.87 = **4.62 credits/h**; bandwidth 0.2441 credits/GB each way.
+
+- `GET /gpu/offers`, `/gpu/recommended`, `/gpu/offers/:id` accept `storageGB`
+  (10–1000, default 50) and price every offer for it. v0.2.0 sends none and gets 50 GB.
+- `GET /gpu/pricing/estimate`: `creditsPerHour` = `totalCreditsPerHour` (same as the card);
+  `totalCredits` = per-hour total × hours; bandwidth is not in the total.
+- Missing Vast.ai fields give `priceAvailable: false` and null prices; such offers sort last
+  and cannot be rented (409). No default prices anywhere.
+- Instances store `pricing.storageGB`, `computeCreditsPerHour`, `storageCreditsPerGBMonth`,
+  `storageCreditsPerHour`, `totalCreditsPerHour`, `bandwidthDown/UpCreditsPerGB`
+  (old names `creditsPerHour`, `bandwidthCreditsPerGB` kept for v0.2.0).
+
+### Bandwidth is not billed yet
+Vast.ai charges us per GB downloaded and uploaded. Whether it reports per-instance usage
+could not be checked (no instance was running; rentals are paused). Until it is, users see
+bandwidth prices labelled "billed by usage" but are **not charged** for it; we pay it.
+Check on the approved test rental (instance fields such as `inet_down_billed`).
+
+## R2-3: rental progress, Stop, faster and fail-fast boot
+
+### New settings
+| Variable | Default | Meaning |
+|---|---|---|
+| `GPU_RENTALS_ENABLED` | `false` | `POST /gpu/rent` answers 503 with the message below unless `true`. Browsing and prices work either way. |
+| `GPU_RENTALS_PAUSED_MESSAGE` | `Cloud GPU rentals are paused while we upgrade them.` | Shown in the app and returned by rent. |
+| `VASTAI_ENGINE_IMAGE` | `pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime` | Image for rented instances. Its torch must match `python_engine/constraints-cloud.txt`. |
+
+Keep `GPU_RENTALS_ENABLED=false` at deploy. Re-enabling rentals = set it to `true`, remove the
+nginx 503 rule from Step 0, reload nginx, restart the backend, and only after the engine
+package below is uploaded.
+
+### WebSocket route (nginx)
+The app now connects to `wss://cosmic-gen.com/ai-api/ws/instance-status` (it used to drop
+`/ai-api` and hit the Next.js site, which answered 504). The existing `/ai-api/` location
+already forwards upgrades, so **no nginx change is needed**. For reference, the block must keep:
+
+```nginx
+location /ai-api/ {
+    proxy_pass http://127.0.0.1:5000/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400s;
+    # (Host / X-Forwarded-* headers as today)
+}
+```
+Check after deploy: a handshake to `/ai-api/ws/instance-status?token=…&instanceId=…` returns `101`.
+While the socket is down, the app polls `GET /gpu/instances/:id` every 5 s.
+
+### Engine package (must be re-uploaded before rentals are re-enabled)
+Instances now install `requirements-cloud.lock` and run `self_test.py`. The package in R2
+(7 Oct) has neither, so an instance would stop at once with "The engine package is outdated".
+Build and upload from the deployed checkout (until FIX_PLAN Phase 3's packaging script exists):
+
+```bash
+cd /root/projects/ai_image_studio/python_engine
+tar --exclude='./examples' --exclude='./tests' --exclude='__pycache__' --exclude='*.pyc' \
+    -czf /tmp/python_engine.tar.gz .
+# upload to s3://<bucket>/models/engine/python_engine.tar.gz with your R2 credentials
+```
+
+### Which GPUs are offered
+The image's torch (2.11, CUDA 12.8) is built for sm_75–sm_120 (checked in the wheel), so offers
+are limited to `compute_cap >= 750` (RTX 20/GTX 16-series and newer, incl. RTX 50) and hosts with
+`cuda_max_good >= 12.8`, with direct ports. On 8 Oct this removed Pascal/Volta cards
+(GTX 10-series, P40, P100, V100) and 24 of 400 hosts with older drivers.
+
+### Boot time
+- Before: image pull + `pip install` of unpinned packages + SDXL (7 GB) from Hugging Face before
+  `/health` answered: 4–8 min when it worked, and it never answered on 7 Oct.
+- Now: image pull (4.3 GB, often cached by hosts) + locked install (~1–2 GB of wheels, about
+  2–4 min at the 400 Mbps floor) + self-test (seconds); `/health` answers immediately and models
+  download in the background. Failures are reported within seconds of the failing step.
+- Next step (next round, not small): a prebuilt engine image (base + locked packages + engine)
+  built by CI and pushed to a registry. Boot becomes image pull + start, saving roughly 3–5 min
+  per rental and removing PyPI from the boot path. Needs a registry account and Vast.ai
+  registry credentials.
+
+## R2-5: local voice models and the Windows engine
+
+- Voice tab: model cards with download buttons. Both Chatterbox models use the
+  `chatterbox-tts` download from R2 (13.9 GB as stored today: it holds the English
+  and multilingual weights plus duplicate .pt copies). Breeze TTS 2 needs a runtime
+  that is not on PyPI, so it is labelled "Cloud only" and has no local download.
+  Optional later saving: store only the files `from_local` reads (about 7 GB).
+- The app starts the bundled engine with `AI_STUDIO_MODELS_DIR` (its download folder)
+  and `HF_HUB_OFFLINE=1`; every pipeline loads from that folder.
+- Engine output: `%APPDATA%\<app>\logs\engine.log` (previous run: `engine.prev.log`),
+  opened from the top bar ("Open engine log"). The top bar says "Engine starting…" or
+  "Engine failed: <reason>"; a slow start is no longer killed after 30 s.
+- Windows build: Python 3.12, torch 2.11.0+cu128 (RTX 20 to RTX 50 series; older
+  Pascal/Volta cards are not supported by this torch), `requirements-windows.txt`
+  (same versions as the tested cloud lock), and `engine.exe --self-test` after
+  PyInstaller. Manual workflow runs build and test only; `v*` tags also publish.

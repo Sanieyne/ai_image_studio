@@ -21,29 +21,38 @@ try:
             return _orig_metadata_version(distribution_name)
         except (importlib.metadata.PackageNotFoundError, Exception):
             _fallbacks = {
-                "requests": "2.31.0",
-                "transformers": "4.44.0",
-                "diffusers": "0.32.0",
-                "torch": "2.2.0",
-                "torchaudio": "2.2.0",
-                "torchvision": "0.17.0",
-                "accelerate": "0.33.0",
-                "safetensors": "0.4.0",
-                "pillow": "10.2.0",
-                "timm": "0.9.16",
-                "huggingface_hub": "0.24.0",
-                "tokenizers": "0.19.1",
-                "sentencepiece": "0.2.0",
-                "filelock": "3.13.0",
-                "numpy": "1.26.4",
-                "packaging": "24.0",
-                "regex": "2024.5.15",
+                # Same versions as requirements-windows.txt (used only if a
+                # package's metadata was not bundled).
+                "requests": "2.34.2",
+                "transformers": "5.19.0",
+                "diffusers": "0.41.0",
+                "torch": "2.11.0",
+                "torchaudio": "2.11.0",
+                "torchvision": "0.26.0",
+                "accelerate": "1.15.0",
+                "safetensors": "0.8.0",
+                "pillow": "12.3.0",
+                "huggingface_hub": "1.33.0",
+                "tokenizers": "0.23.2",
+                "sentencepiece": "0.2.2",
+                "numpy": "2.5.2",
             }
-            return _fallbacks.get(distribution_name.lower(), "1.0.0")
+            key = distribution_name.lower()
+            if key in _fallbacks:
+                return _fallbacks[key]
+            # Unknown packages stay "not installed": claiming a version for an
+            # absent package (e.g. optree) makes torch/transformers import it and fail.
+            raise
 
     importlib.metadata.version = _safe_metadata_version
 except Exception:
     pass
+
+if __name__ == '__main__' and '--self-test' in sys.argv:
+    # engine.exe --self-test [--json]: import everything, exit 0/1 (run in CI after PyInstaller).
+    from self_test import main as _self_test_main
+
+    sys.exit(_self_test_main([a for a in sys.argv[1:] if a != '--self-test']))
 
 import uvicorn
 from app import app

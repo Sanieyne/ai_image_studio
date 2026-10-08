@@ -14,6 +14,8 @@ import { authenticateWebSocket, handleRecommendationWS } from './websocket/recom
 import { handleGpuMarketWS } from './websocket/gpuMarket.ws.js';
 import { handleInstanceStatusWS } from './websocket/instanceStatus.ws.js';
 import { instancePollerService } from './services/instancePoller.service.js';
+import { billingService } from './services/billing.service.js';
+import { reconcileService } from './services/reconcile.service.js';
 
 // Default AI model registry to seed on initial database setup
 const INITIAL_MODELS = [
@@ -225,14 +227,16 @@ async function startServer() {
       }
     });
 
-    // 5. Start Instance Poller Service
+    // 5. Start Instance Poller, Billing and Reconciliation Services
     instancePollerService.start();
+    billingService.start();
+    reconcileService.start();
 
     // 6. Start HTTP Listener
-    server.listen(env.PORT, '0.0.0.0', () => {
+    server.listen(env.PORT, env.HOST, () => {
       console.info('=====================================================');
       console.info(`🚀 AI Image Studio Cloud Orchestrator Started`);
-      console.info(`📡 Port:        ${env.PORT}`);
+      console.info(`📡 Listening:   ${env.HOST}:${env.PORT}`);
       console.info(`🌍 Environment: ${env.NODE_ENV}`);
       console.info(`🩺 Health Check: http://localhost:${env.PORT}/api/v1/health`);
       console.info(`⚡ WS Recs:     ws://localhost:${env.PORT}/ws/recommendations`);
@@ -245,6 +249,8 @@ async function startServer() {
     const shutdown = async (signal) => {
       console.info(`\n[Server] Received ${signal}. Commencing graceful shutdown...`);
       instancePollerService.stop();
+      billingService.stop();
+      reconcileService.stop();
       wssRecommendations.close();
       wssGpuMarket.close();
       wssInstanceStatus.close(() => {

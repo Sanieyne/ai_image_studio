@@ -80,16 +80,21 @@ class SDXLEngine:
             self.pipe = None
 
     def _load_pipeline(self, model_id: str) -> None:
-        self.family = family_for(model_id)
+        from generation.model_paths import load_source, registry_id
+
+        self.family = family_for(registry_id(model_id))
+        # The downloaded folder (or, where allowed, the hub id). Raises if the
+        # model is not downloaded and the hub may not be used.
+        source = load_source(model_id)
         hf_token = os.environ.get("HF_TOKEN") or None
         if self.family == "flux":
-            self._load_flux_pipeline(model_id, hf_token)
+            self._load_flux_pipeline(source, hf_token)
         elif self.family == "zimage":
-            self._load_zimage_pipeline(model_id, hf_token)
+            self._load_zimage_pipeline(source, hf_token)
         elif self.family == "qwen_image":
-            self._load_qwen_image_pipeline(model_id, hf_token)
+            self._load_qwen_image_pipeline(source, hf_token)
         else:
-            self._load_sdxl_pipeline(model_id, hf_token)
+            self._load_sdxl_pipeline(source, hf_token)
         self.current_model_id = model_id
 
     def _load_sdxl_pipeline(self, model_id: str, hf_token=None) -> None:
@@ -686,8 +691,8 @@ class ImagePipeline:
     SDXLEngine, and returns (base64_png, seed_used, elapsed_sec).
     """
 
-    def __init__(self) -> None:
-        self.engine = SDXLEngine()
+    def __init__(self, model_id: Optional[str] = None) -> None:
+        self.engine = SDXLEngine(model_id) if model_id else SDXLEngine()
         self.device = self.engine.device
         self.mock_mode = self.engine.mock_mode
 
@@ -771,8 +776,18 @@ class ImagePipeline:
 _singleton: ImagePipeline | None = None
 
 
-def get_pipeline() -> ImagePipeline:
+def get_pipeline(model_id: Optional[str] = None) -> ImagePipeline:
+    """The image pipeline, created on first use.
+
+    On creation it loads `model_id` (default: settings.model_id). Pass the model
+    actually requested, so nothing else is loaded first.
+    """
     global _singleton
     if _singleton is None:
-        _singleton = ImagePipeline()
+        _singleton = ImagePipeline(model_id)
+    return _singleton
+
+
+def peek_pipeline() -> Optional[ImagePipeline]:
+    """The image pipeline if it exists; never creates it (used by /health)."""
     return _singleton

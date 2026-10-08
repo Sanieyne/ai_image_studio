@@ -2,6 +2,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import '../lib/services/model_download_service.dart';
 
+// Integration test: downloads real model files through the live backend.
+// Runs only when COSMIC_TEST_TOKEN holds a valid access token, e.g.
+//   COSMIC_TEST_TOKEN=<token> flutter test test/test_model_download.dart
+final String? _testToken = Platform.environment['COSMIC_TEST_TOKEN'];
+
 void main() {
   test('Real-ESRGAN end-to-end download and engine path verification', () async {
     print('=== STARTING REAL-ESRGAN END-TO-END DOWNLOAD TEST ===');
@@ -14,7 +19,7 @@ void main() {
 
     // Check available disk space
     final availBytes = await service.getAvailableDiskSpace();
-    print('3. Available disk space: ${(availBytes / 1e9).toStringAsFixed(2)} GB');
+    print('3. Available disk space: ${availBytes == null ? 'unknown' : '${(availBytes / 1e9).toStringAsFixed(2)} GB'}');
 
     print('4. Querying download URLs and initiating download from R2...');
     final sub = service.watchProgress(modelId).listen((prog) {
@@ -24,8 +29,7 @@ void main() {
     });
 
     try {
-      const testToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjZhYjgwOGZlMGYzYmRiNDQ5MjJhMjc0ZSIsImlhdCI6MTc5MTAwNTc3MCwiZXhwIjoxNzkxMDA5MzcwfQ.hPV9VrZ-Wd8Bm7d221_oKSH3bgbHdraX5u3i4zvpZlk';
-      await service.downloadModel(modelId, authToken: testToken);
+      await service.downloadModel(modelId, authToken: _testToken!);
       print('5. Download completed successfully!');
     } finally {
       await sub.cancel();
@@ -51,5 +55,10 @@ void main() {
     expect(finalDownloaded, isTrue);
 
     print('\n[SUCCESS] Track 2 End-to-End Download Test Passed!');
-  }, timeout: const Timeout(Duration(minutes: 5)));
+  },
+      timeout: const Timeout(Duration(minutes: 5)),
+      tags: ['integration'],
+      skip: (_testToken == null || _testToken!.isEmpty)
+          ? 'Integration test: set COSMIC_TEST_TOKEN to run'
+          : false);
 }

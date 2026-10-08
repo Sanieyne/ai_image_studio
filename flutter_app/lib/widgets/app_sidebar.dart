@@ -205,21 +205,31 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     ),
   ];
 
+  /// Voice models. `downloadId` is the R2 / engine folder ('' = no local
+  /// download): both Chatterbox models use the same chatterbox-tts download,
+  /// which holds the English and the multilingual weights. Breeze needs a
+  /// runtime that is not on PyPI, so it runs only on cloud GPUs.
   static const List<Map<String, String>> _voiceModels = [
     {
       'title': 'Chatterbox TTS',
       'desc': 'Resemble AI Voice · 500M · Ultra Low Latency',
       'icon': 'voice',
+      'downloadId': 'chatterbox-tts',
+      'tag': 'English',
     },
     {
       'title': 'Chatterbox Multilingual V3',
       'desc': 'Resemble AI · 23+ Languages · High Expressiveness',
       'icon': 'language',
+      'downloadId': 'chatterbox-tts',
+      'tag': '23 languages',
     },
     {
       'title': 'Breeze TTS 2',
       'desc': 'BreezeBlue Voice Design · 3.4B · Cinematic Tone',
       'icon': 'sound',
+      'downloadId': '',
+      'tag': 'Cloud only',
     },
   ];
 
@@ -724,62 +734,51 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
   }
 
   // ── Top Tabs Segmented Switcher ──────────────────────────────
+  /// The seven studio tabs as a two-row grid (4 + 3) of equal-width tiles with
+  /// icon and label. A grid, not icon-only tabs with an expanding pill: in the
+  /// 318 px sidebar, six icon tabs leave about 70 px for the selected pill, too
+  /// little for labels such as "Enhance"; here every label is always readable,
+  /// nothing scrolls or clips, and tiles keep a fixed size (no layout jump).
+  static const List<(SidebarTab, String, IconData)> _tabs = [
+    (SidebarTab.history, 'History', Icons.forum_rounded),
+    (SidebarTab.voice, 'Voice', Icons.mic_rounded),
+    (SidebarTab.video, 'Video', Icons.videocam_rounded),
+    (SidebarTab.image, 'Image', Icons.photo_rounded),
+    (SidebarTab.enhancer, 'Enhance', Icons.auto_fix_high_rounded),
+    (SidebarTab.cloud, 'Cloud', Icons.cloud_outlined),
+    (SidebarTab.library, 'Library', Icons.collections_bookmark_rounded),
+  ];
+
   Widget _buildTopTabsBar(bool dark, Color border) {
+    const gap = 6.0;
     return Container(
-      padding: const EdgeInsets.all(3),
+      key: const ValueKey('sidebar_tabs'),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: dark ? Colors.black.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
+        color: dark ? Colors.black.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: border),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            _buildTabButton(
-              tab: SidebarTab.history,
-              label: 'History',
-              icon: Icons.forum_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.voice,
-              label: 'Voice',
-              icon: Icons.mic_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.video,
-              label: 'Video',
-              icon: Icons.videocam_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.image,
-              label: 'Image',
-              icon: Icons.photo_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.enhancer,
-              label: 'Enhance',
-              icon: Icons.auto_fix_high_rounded,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.cloud,
-              label: 'Cloud',
-              icon: Icons.cloud_outlined,
-              dark: dark,
-            ),
-            _buildTabButton(
-              tab: SidebarTab.library,
-              label: 'Library',
-              icon: Icons.collections_bookmark_rounded,
-              dark: dark,
-            ),
-          ],
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tileWidth = (constraints.maxWidth - 3 * gap) / 4;
+          Widget row(Iterable<(SidebarTab, String, IconData)> tabs) => Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final (i, t) in tabs.indexed) ...[
+                    if (i > 0) const SizedBox(width: gap),
+                    SizedBox(width: tileWidth, child: _buildTabButton(tab: t.$1, label: t.$2, icon: t.$3, dark: dark)),
+                  ],
+                ],
+              );
+          return Column(
+            children: [
+              row(_tabs.take(4)),
+              const SizedBox(height: gap),
+              row(_tabs.skip(4)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -790,69 +789,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     required IconData icon,
     required bool dark,
   }) {
-    final isSelected = _currentTab == tab;
-    // No Expanded: inside the horizontally-scrolling tab row, buttons size
-    // to their natural content width so labels never truncate. The Padding
-    // replaces the inter-button spacing flex layout used to provide.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: GestureDetector(
-        onTap: () {
-          setState(() => _currentTab = tab);
-          widget.onTabChanged?.call(tab);
-          if (tab == SidebarTab.cloud) {
-            widget.onOpenCloudMode?.call();
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? (dark ? const Color(0xFF2E3642) : Colors.white)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: dark ? 0.30 : 0.08),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 13,
-                color: isSelected
-                    ? const Color(0xFFD32F2F)
-                    : (dark ? Colors.white60 : Colors.black45),
-              ),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected
-                        ? (dark ? Colors.white : const Color(0xFF14181F))
-                        : (dark ? Colors.white70 : Colors.black87),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _SidebarTabTile(
+      key: ValueKey('sidebar_tab_${tab.name}'),
+      label: label,
+      icon: icon,
+      dark: dark,
+      selected: _currentTab == tab,
+      onTap: () {
+        setState(() => _currentTab = tab);
+        widget.onTabChanged?.call(tab);
+        if (tab == SidebarTab.cloud) {
+          widget.onOpenCloudMode?.call();
+        }
+      },
     );
   }
 
@@ -1072,47 +1021,14 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
 
           // 1. Voice Engine / Model Selector
           _SectionHeader('1. Voice Model', muted),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: dark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: border),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedVoiceModel,
-                isExpanded: true,
-                dropdownColor: dark ? const Color(0xFF1E242E) : Colors.white,
-                icon: const Icon(Icons.arrow_drop_down, size: 20),
-                items: _voiceModels.map((m) {
-                  return DropdownMenuItem<String>(
-                    value: m['title'],
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          m['title']!,
-                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          m['desc']!,
-                          style: TextStyle(fontSize: 10, color: muted),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedVoiceModel = val);
-                },
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
+          ..._voiceModels.map((m) => _buildVoiceModelCard(
+                model: m,
+                isSelected: _selectedVoiceModel == m['title'],
+                dark: dark,
+                border: border,
+                muted: muted,
+              )),
+          const SizedBox(height: 6),
 
           // 2. Voice Options & 20-30s Audio Previews
           _SectionHeader('2. Voice Personas & Preview', muted),
@@ -1373,11 +1289,14 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       children: [
                         Row(
                           children: [
-                            Text(
-                              preset.name,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            Flexible(
+                              child: Text(
+                                preset.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -1437,12 +1356,15 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                isPlaying ? 'Playing Sample (${_previewPlaybackSeconds}s / 24s)' : '24s Audio Sample',
-                                style: TextStyle(
-                                  fontSize: 9.5,
-                                  color: isPlaying ? const Color(0xFFD32F2F) : muted,
-                                  fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                              Flexible(
+                                child: Text(
+                                  isPlaying ? 'Playing Sample (${_previewPlaybackSeconds}s / 24s)' : '24s Audio Sample',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    color: isPlaying ? const Color(0xFFD32F2F) : muted,
+                                    fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                                  ),
                                 ),
                               ),
                               Text(
@@ -1633,6 +1555,106 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           ),
           const SizedBox(height: 20),
         ],
+      ),
+    );
+  }
+
+  /// A voice model card, like the Image and Video panels: select it, and
+  /// download its weights for the local engine (or see that it is cloud-only).
+  Widget _buildVoiceModelCard({
+    required Map<String, String> model,
+    required bool isSelected,
+    required bool dark,
+    required Color border,
+    required Color muted,
+  }) {
+    final title = model['title']!;
+    final downloadId = model['downloadId'] ?? '';
+    final cloudOnly = downloadId.isEmpty;
+    return Padding(
+      key: ValueKey('voice_model_card_$title'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => setState(() => _selectedVoiceModel = title),
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (dark ? LuminaColors.primaryStart.withValues(alpha: 0.14) : LuminaColors.primaryStart.withValues(alpha: 0.08))
+                : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? LuminaColors.primaryStart : border,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                    size: 20,
+                    color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white24 : Colors.black26),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? LuminaColors.primaryEnd : null,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: cloudOnly
+                          ? Colors.cyanAccent.withValues(alpha: 0.12)
+                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      model['tag'] ?? '',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: cloudOnly ? Colors.cyan.shade700 : muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(model['desc']!, style: TextStyle(fontSize: 11, color: muted, height: 1.3)),
+                    const SizedBox(height: 6),
+                    if (cloudOnly)
+                      Text(
+                        'Runs on a cloud GPU; no local download.',
+                        style: TextStyle(fontSize: 10.5, color: muted, fontStyle: FontStyle.italic),
+                      )
+                    else
+                      ModelDownloadButton(
+                        modelId: downloadId,
+                        displayName: downloadId == 'chatterbox-tts' ? 'Chatterbox (English + Multilingual)' : title,
+                        isSelected: isSelected,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2650,7 +2672,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             } else if (value == 'preferences') {
               _openSettingsDialog(context, initialTab: 2);
             } else if (value == 'logout') {
-              await AuthService.instance.logout();
+              await AuthService.instance.signOut();
             }
           },
           itemBuilder: (ctx) => [
@@ -3709,6 +3731,139 @@ class _ImageTemplateCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One studio tab: pointer cursor, hover tint and lift, tooltip, keyboard focus
+/// ring and pressed state; selected = brand red tint, red icon and border.
+/// Fixed height, so switching tabs never moves the layout.
+class _SidebarTabTile extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final bool dark;
+  final VoidCallback onTap;
+
+  const _SidebarTabTile({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.dark,
+    required this.onTap,
+  });
+
+  @override
+  State<_SidebarTabTile> createState() => _SidebarTabTileState();
+}
+
+class _SidebarTabTileState extends State<_SidebarTabTile> {
+  bool _hovered = false;
+  bool _focused = false;
+  bool _pressed = false;
+
+  static const _duration = Duration(milliseconds: 200);
+  static const _red = LuminaColors.primaryStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = widget.dark;
+    final selected = widget.selected;
+    final background = selected
+        ? _red.withValues(alpha: dark ? 0.20 : 0.10)
+        : _hovered
+            ? (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05))
+            : Colors.transparent;
+    final borderColor = _focused
+        ? _red
+        : selected
+            ? _red.withValues(alpha: 0.55)
+            : Colors.transparent;
+    final iconColor = selected ? _red : (dark ? Colors.white60 : Colors.black54);
+    final textColor =
+        selected ? (dark ? Colors.white : const Color(0xFF14181F)) : (dark ? Colors.white70 : Colors.black87);
+
+    return Tooltip(
+      message: widget.label,
+      waitDuration: const Duration(milliseconds: 500),
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowFocusHighlight: (v) => setState(() => _focused = v),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+            widget.onTap();
+            return null;
+          }),
+        },
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: widget.label,
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hovered = true),
+            onExit: (_) => setState(() => _hovered = false),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapDown: (_) => setState(() => _pressed = true),
+              onTapCancel: () => setState(() => _pressed = false),
+              onTapUp: (_) => setState(() => _pressed = false),
+              onTap: widget.onTap,
+              child: AnimatedScale(
+                scale: _pressed ? 0.96 : 1.0,
+                duration: const Duration(milliseconds: 100),
+                child: AnimatedSlide(
+                  offset: _hovered && !selected ? const Offset(0, -0.03) : Offset.zero,
+                  duration: _duration,
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedContainer(
+                    duration: _duration,
+                    curve: Curves.easeOutCubic,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: background,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: borderColor, width: _focused ? 1.6 : 1.0),
+                      boxShadow: selected || _hovered
+                          ? [
+                              BoxShadow(
+                                color: (selected ? _red : Colors.black)
+                                    .withValues(alpha: selected ? 0.18 : (dark ? 0.25 : 0.06)),
+                                blurRadius: selected ? 10 : 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        AnimatedSwitcher(
+                          duration: _duration,
+                          child: Icon(widget.icon, key: ValueKey(selected), size: 17, color: iconColor),
+                        ),
+                        const SizedBox(height: 3),
+                        AnimatedDefaultTextStyle(
+                          duration: _duration,
+                          // Merge, so the label keeps the theme's font family.
+                          style: DefaultTextStyle.of(context).style.merge(
+                                TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                  color: textColor,
+                                ),
+                              ),
+                          child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

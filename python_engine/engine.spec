@@ -30,16 +30,44 @@ hiddenimports = [
     'generation.tryon_pipeline',
     'generation.video_pipeline',
     'generation.voice_pipeline',
+    'generation.enhancer_pipeline',
+    'generation.model_status',
+    'generation.model_paths',
+    'download_model',
+    'self_test',
+    'failure_server',
 ]
 
 hiddenimports += collect_submodules('uvicorn')
 hiddenimports += collect_submodules('starlette')
 hiddenimports += collect_submodules('fastapi')
 
+# diffusers, transformers and chatterbox import most classes lazily, which
+# PyInstaller cannot see; collect them so `engine.exe --self-test` passes.
+def _safe_submodules(package, exclude=()):
+    try:
+        return [m for m in collect_submodules(package) if not any(x in m for x in exclude)]
+    except Exception as e:  # package missing: the self-test will report it
+        print(f'[engine.spec] skipping {package}: {e}')
+        return []
+
+hiddenimports += _safe_submodules('diffusers', exclude=('.tests', 'commands', '.experimental'))
+hiddenimports += _safe_submodules('transformers', exclude=('.tests', '.commands', 'convert_', '_tf_', '_flax_', 'modeling_tf_', 'modeling_flax_'))
+hiddenimports += _safe_submodules('chatterbox')
+hiddenimports += _safe_submodules('perth')
+hiddenimports += _safe_submodules('s3tokenizer')
+
 datas = [
     ('api', 'api'),
     ('generation', 'generation'),
 ]
+
+# Data files read at run time (tokenizer tables, dictionaries, small model assets).
+for pkg in ('diffusers', 'transformers', 'chatterbox', 'perth', 's3tokenizer', 'pykakasi', 'spacy_pkuseg', 'librosa'):
+    try:
+        datas += collect_data_files(pkg)
+    except Exception as e:
+        print(f'[engine.spec] no data files for {pkg}: {e}')
 
 # Collect dist-info metadata for runtime dependency checks (e.g. diffusers, transformers)
 metadata_packages = [
@@ -58,6 +86,26 @@ metadata_packages = [
     'filelock',
     'numpy',
     'pillow',
+    'peft',
+    'sentencepiece',
+    'tokenizers',
+    'librosa',
+    'chatterbox-tts',
+    'resemble-perth',
+    's3tokenizer',
+    'conformer',
+    'omegaconf',
+    'regex',
+    'tqdm',
+    'imageio',
+    'imageio-ffmpeg',
+    'soundfile',
+    'pyloudnorm',
+    'pykakasi',
+    'fastapi',
+    'uvicorn',
+    'pydantic',
+    'huggingface-hub',
 ]
 
 for pkg in metadata_packages:
@@ -76,6 +124,15 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'IPython'],
+    # TorchScript (@torch.jit.script at import time, e.g. diffusers' Kolors text
+    # encoder) needs the original .py source next to the bytecode.
+    module_collection_mode={
+        'diffusers': 'pyz+py',
+        'transformers': 'pyz+py',
+        'chatterbox': 'pyz+py',
+        's3tokenizer': 'pyz+py',
+        'perth': 'pyz+py',
+    },
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

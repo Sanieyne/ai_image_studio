@@ -148,10 +148,17 @@ class CloudApiService {
   }
 
   /// Query ranked GPU recommendations (cheapest, fastest, most reliable, balanced)
-  Future<MarketplaceRecommendedResult?> fetchRecommendedGpuOffers(List<String> modelIds) async {
+  /// Live offers for [modelIds], priced by the server for [storageGB] of storage.
+  Future<MarketplaceRecommendedResult?> fetchRecommendedGpuOffers(
+    List<String> modelIds, {
+    int? storageGB,
+  }) async {
     try {
       final uri = Uri.parse('$baseUrl/gpu/recommended').replace(
-        queryParameters: {'modelIds': modelIds.join(',')},
+        queryParameters: {
+          'modelIds': modelIds.join(','),
+          if (storageGB != null) 'storageGB': storageGB.toString(),
+        },
       );
       final res = await http.get(uri).timeout(const Duration(seconds: 15));
 
@@ -216,6 +223,76 @@ class CloudApiService {
   String? get lastRentError => _lastRentError;
 
   /// Provision and rent a dedicated GPU instance with selected models
+  /// Whether new rentals are open (GET /gpu/rentals/status). Null when unknown.
+  Future<RentalsStatus?> fetchRentalsStatus() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$baseUrl/gpu/rentals/status'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return RentalsStatus.fromJson(body['data'] as Map<String, dynamic>? ?? const {});
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchRentalsStatus error: $e');
+    }
+    return null;
+  }
+
+  /// One rented instance with its progress, recent log lines, elapsed time and credits.
+  Future<Map<String, dynamic>?> fetchInstance(String instanceId) async {
+    try {
+      final res = await _api.get('/gpu/instances/$instanceId');
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return body['data'] as Map<String, dynamic>?;
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchInstance error: $e');
+    }
+    return null;
+  }
+
+  /// The signed-in user's active instances (provisioning, downloading, ready, running).
+  Future<List<Map<String, dynamic>>?> fetchMyInstances() async {
+    await initAuth();
+    if (!isAuthenticated) return const [];
+    try {
+      final res = await _api.get('/gpu/instances/me');
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (body['data'] as List<dynamic>? ?? const [])
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[CloudApiService] fetchMyInstances error: $e');
+    }
+    return null;
+  }
+
+  String? _lastStopError;
+  String? get lastStopError => _lastStopError;
+
+  /// Stops (destroys) an instance: DELETE /gpu/instances/:id. Returns the stopped
+  /// instance (with credits charged / refunded), or null with [lastStopError] set.
+  Future<Map<String, dynamic>?> stopInstance(String instanceId) async {
+    try {
+      final res = await _api.delete('/gpu/instances/$instanceId', timeout: const Duration(seconds: 30));
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      if (res.statusCode == 200) {
+        _lastStopError = null;
+        return body['data'] as Map<String, dynamic>?;
+      }
+      _lastStopError = body['message'] as String? ?? 'Could not stop the GPU (${res.statusCode}).';
+    } catch (e) {
+      _lastStopError = 'Could not reach the server to stop the GPU. Check your connection and try again.';
+      debugPrint('[CloudApiService] stopInstance error: $e');
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>?> rentGpuInstance({
     required String offerId,
     required List<String> selectedModelIds,

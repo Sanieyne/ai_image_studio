@@ -37,6 +37,7 @@ from generation.pipeline import (
     ASPECT_RATIO_BUCKETS,
     get_pipeline,
     nearest_bucket,
+    peek_pipeline,
 )
 
 log = logging.getLogger(__name__)
@@ -53,13 +54,12 @@ def health() -> HealthResponse:
     current_model = None
     pipe_loaded = False
 
-    try:
-        pipe = get_pipeline()
+    # Never create or load a pipeline here: /health must answer at once.
+    pipe = peek_pipeline()
+    if pipe is not None:
         pipe_loaded = getattr(pipe, "model_loaded", False)
         if pipe_loaded:
             current_model = pipe.current_model
-    except Exception as e:
-        log.warning("[health] Pipeline not initialized: %s", e)
 
     if not current_model and models_status:
         current_model = model_status_manager.get_first_ready_model_id()
