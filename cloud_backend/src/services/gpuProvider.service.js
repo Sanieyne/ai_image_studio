@@ -103,11 +103,21 @@ class GpuProviderService {
         reason = `Balanced fit with ${headroom}GB VRAM headroom. Ideal for standard single-image generations.`;
       }
 
+      // Download time for the models actually selected, per request (cached
+      // offers may have been normalized for another selection). No models: unknown.
+      const hasModels = Array.isArray(selectedModelIds) && selectedModelIds.length > 0;
+      const estimatedDownloadTimeMinutes =
+        hasModels && offer.inetDown > 0
+          ? Math.round(((totalModelSizeGB * 8000) / offer.inetDown / 60) * 10) / 10
+          : null;
+
       return {
         ...offer,
         headroomVramGB: headroom,
         fit,
         fitReason: reason,
+        downloadSizeGB: hasModels ? totalModelSizeGB : null,
+        estimatedDownloadTimeMinutes,
       };
     });
 

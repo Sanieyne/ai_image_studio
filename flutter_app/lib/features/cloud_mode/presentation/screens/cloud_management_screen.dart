@@ -464,7 +464,9 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            _backendOnline ? 'Cloud Cluster: Connected (EU-Central)' : 'Cloud Cluster: Connecting...',
+                            _backendOnline
+                                ? 'Cloud backend: Connected'
+                                : (_syncing ? 'Cloud backend: Connecting…' : 'Cloud backend: Unreachable'),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,

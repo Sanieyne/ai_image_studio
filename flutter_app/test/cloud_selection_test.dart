@@ -199,6 +199,9 @@ void main() {
     expect(panelTotal, cardTotal);
     // Both Rent buttons quote the same rate.
     expect(find.text('Rent & Launch RTX 4090 (28.37 credits/hr)'), findsNWidgets(2));
+    // The same download-time text on the card and in the panel.
+    expect(find.text('Download: ~2.0 min'), findsOneWidget); // card
+    expect(find.text('~2.0 min'), findsOneWidget); // panel
     // Bandwidth shows download and upload, billed by usage.
     expect(find.textContaining('↓ 0.2441'), findsWidgets);
     expect(find.textContaining('↑ 0.2441'), findsWidgets);
@@ -285,5 +288,11 @@ void main() {
     final button = tester.widget<ElevatedButton>(find.byKey(const ValueKey('gpu_card_launch_btn')));
     expect(button.onPressed, isNull);
     expect(find.text('Cloud GPU rentals are paused while we upgrade them.'), findsOneWidget);
+  });
+
+  test('download time is formatted one way everywhere; unknown is a dash, never 0', () {
+    expect(formatDownloadMinutes(null), '—');
+    expect(formatDownloadMinutes(0.4), '<1 min');
+    expect(formatDownloadMinutes(2.66), '~2.7 min');
   });
 }

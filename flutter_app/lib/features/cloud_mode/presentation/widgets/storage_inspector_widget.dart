@@ -536,7 +536,7 @@ class _StorageInspectorWidgetState extends State<StorageInspectorWidget> {
                                 child: _buildInfoTile(
                                   icon: Icons.timer_outlined,
                                   title: 'Model Weights Stream',
-                                  value: '~${offer?.estimatedDownloadTimeMinutes ?? 0.6} min',
+                                  value: formatDownloadMinutes(offer?.estimatedDownloadTimeMinutes),
                                   color: Colors.orangeAccent,
                                 ),
                               ),

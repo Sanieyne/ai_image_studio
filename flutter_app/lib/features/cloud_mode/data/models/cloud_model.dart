@@ -6,6 +6,13 @@ import 'package:flutter/material.dart';
 const String kPriceUnavailable = 'price unavailable';
 
 /// "4.62 credits/hr", or "price unavailable" when the server sent no price.
+/// "~2.7 min", "<1 min", or "—" when unknown; the card and the panel both use it.
+String formatDownloadMinutes(double? minutes) {
+  if (minutes == null) return '—';
+  if (minutes < 1) return '<1 min';
+  return '~${minutes.toStringAsFixed(1)} min';
+}
+
 String formatCreditsRate(double? credits, String unit, {int decimals = 2}) =>
     credits == null ? kPriceUnavailable : '${credits.toStringAsFixed(decimals)} $unit';
 
@@ -266,7 +273,9 @@ class MarketplaceOffer {
   final double headroomVramGB;
   final String fit; // 'optimal' | 'tight' | 'minimum'
   final String fitReason;
-  final double estimatedDownloadTimeMinutes;
+  /// Minutes to download the selected models at this host's speed; null when
+  /// no model is selected. Show it with [formatDownloadMinutes].
+  final double? estimatedDownloadTimeMinutes;
 
   /// Storage size (GB) the prices below are for.
   final int? storageGB;
@@ -341,7 +350,7 @@ class MarketplaceOffer {
       headroomVramGB: (json['headroomVramGB'] as num?)?.toDouble() ?? 0.0,
       fit: json['fit']?.toString() ?? 'optimal',
       fitReason: json['fitReason']?.toString() ?? '',
-      estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble() ?? 0.0,
+      estimatedDownloadTimeMinutes: (json['estimatedDownloadTimeMinutes'] as num?)?.toDouble(),
       storageGB: (json['storageGB'] as num?)?.toInt(),
       // Older servers send creditsPerHour / bandwidthCreditsPerGB only.
       computeCreditsPerHour: priced ? (n('computeCreditsPerHour') ?? n('creditsPerHour')) : null,

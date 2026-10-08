@@ -423,7 +423,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         child: _buildTelemetryBadge(
                                           icon: Icons.timer_outlined,
                                           label: 'Download',
-                                          value: '~${activeOffer.estimatedDownloadTimeMinutes}m',
+                                          value: formatDownloadMinutes(activeOffer.estimatedDownloadTimeMinutes),
                                           color: Colors.orangeAccent,
                                         ),
                                       ),
@@ -604,7 +604,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                       _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
                                       _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
                                       _buildMiniTag('${offer.cpuCores} vCPU · ${offer.ramGB.toInt()}GB RAM', muted),
-                                      _buildMiniTag('⏱ ~${offer.estimatedDownloadTimeMinutes}m dl', Colors.orangeAccent),
+                                      _buildMiniTag('⏱ ${formatDownloadMinutes(offer.estimatedDownloadTimeMinutes)} download', Colors.orangeAccent),
                                     ],
                                   ),
                                 ],
