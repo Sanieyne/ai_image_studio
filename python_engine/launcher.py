@@ -37,7 +37,12 @@ try:
                 "sentencepiece": "0.2.2",
                 "numpy": "2.5.2",
             }
-            return _fallbacks.get(distribution_name.lower(), "1.0.0")
+            key = distribution_name.lower()
+            if key in _fallbacks:
+                return _fallbacks[key]
+            # Unknown packages stay "not installed": claiming a version for an
+            # absent package (e.g. optree) makes torch/transformers import it and fail.
+            raise
 
     importlib.metadata.version = _safe_metadata_version
 except Exception:

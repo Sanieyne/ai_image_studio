@@ -55,13 +55,24 @@ OPTIONAL = [
 ]
 
 
+def _root_causes(e: BaseException) -> str:
+    """The chained causes (lazy importers hide the real error behind them)."""
+    parts, seen = [], set()
+    cur = e.__cause__ or e.__context__
+    while cur is not None and id(cur) not in seen and len(parts) < 4:
+        seen.add(id(cur))
+        parts.append(f"{type(cur).__name__}: {str(cur)[:300]}")
+        cur = cur.__cause__ or cur.__context__
+    return "".join(f" <- caused by {p}" for p in parts)
+
+
 def _check(module: str, names) -> str | None:
     try:
         mod = importlib.import_module(module)
         for name in names or []:
             getattr(mod, name)
     except Exception as e:  # noqa: BLE001 - report every kind of failure
-        return f"{module}: {type(e).__name__}: {e}"
+        return f"{module}: {type(e).__name__}: {e}{_root_causes(e)}"
     return None
 
 

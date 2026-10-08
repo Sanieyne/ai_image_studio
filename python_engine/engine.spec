@@ -97,6 +97,15 @@ metadata_packages = [
     'omegaconf',
     'regex',
     'tqdm',
+    'imageio',
+    'imageio-ffmpeg',
+    'soundfile',
+    'pyloudnorm',
+    'pykakasi',
+    'fastapi',
+    'uvicorn',
+    'pydantic',
+    'huggingface-hub',
 ]
 
 for pkg in metadata_packages:
@@ -115,6 +124,15 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=['tkinter', 'matplotlib', 'IPython'],
+    # TorchScript (@torch.jit.script at import time, e.g. diffusers' Kolors text
+    # encoder) needs the original .py source next to the bytecode.
+    module_collection_mode={
+        'diffusers': 'pyz+py',
+        'transformers': 'pyz+py',
+        'chatterbox': 'pyz+py',
+        's3tokenizer': 'pyz+py',
+        'perth': 'pyz+py',
+    },
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
