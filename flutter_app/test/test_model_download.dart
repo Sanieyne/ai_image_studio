@@ -19,7 +19,7 @@ void main() {
 
     // Check available disk space
     final availBytes = await service.getAvailableDiskSpace();
-    print('3. Available disk space: ${(availBytes / 1e9).toStringAsFixed(2)} GB');
+    print('3. Available disk space: ${availBytes == null ? 'unknown' : '${(availBytes / 1e9).toStringAsFixed(2)} GB'}');
 
     print('4. Querying download URLs and initiating download from R2...');
     final sub = service.watchProgress(modelId).listen((prog) {
