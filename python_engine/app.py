@@ -60,6 +60,9 @@ from api.routes import router
 
 logging.basicConfig(level=logging.INFO)
 
+# Released together with the app (flutter_app/lib/app_version.dart).
+ENGINE_VERSION = "0.3.0"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -76,7 +79,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AI Image Studio Engine", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AI Image Studio Engine", version=ENGINE_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

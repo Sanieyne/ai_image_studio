@@ -17,6 +17,8 @@ import json
 import os
 import sys
 
+ENGINE_VERSION = "0.3.0"  # same as app.py / flutter_app/lib/app_version.dart
+
 REQUIRED = [
     ("fastapi", None),
     ("uvicorn", None),
@@ -114,6 +116,7 @@ def main(argv=None) -> int:
         for u in result["optional_unavailable"]:
             print(f"[optional, unavailable] {u}")
         print("[OK] self-test passed" if result["ok"] else "[FAILED] self-test failed")
+        print(f"engine {ENGINE_VERSION}")
     return 0 if result["ok"] else 1
 
 

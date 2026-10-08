@@ -1,7 +1,108 @@
-# Deploy notes: fix/security-billing
+# Deploy notes: fix/security-billing (app v0.3.0)
 
-Work in progress; completed per phase. Commands assume the live checkout at
-`/root/projects/ai_image_studio` and the PM2 app `ai-studio-backend`.
+Commands assume the live checkout at `/root/projects/ai_image_studio` and the PM2
+app `ai-studio-backend`. The sections after the runbook explain each change.
+
+## App v0.3.0 and the backend
+
+The v0.3.0 app works with the backend that is live today (checked: login with the
+new request shape returns 200; logout falls back to a local sign-out; rentals stay
+paused by nginx). Deploying the backend is a separate step, below, whenever you are
+ready. Apps on v0.2.0 keep working with the new backend.
+
+## Backend deploy runbook
+
+Run as root on the server. Stop at the first failure and use the rollback section.
+
+```bash
+set -euo pipefail
+TS=$(date -u +%Y%m%dT%H%M%SZ); BK=/root/backups/deploy-$TS; mkdir -p $BK; chmod 700 $BK
+LIVE=/root/projects/ai_image_studio
+
+# 1. Backups
+mongodump --db ai_image_studio --out $BK/mongodump --quiet
+cp -p $LIVE/cloud_backend/.env $BK/.env
+cp -p /etc/nginx/sites-available/cosmic-gen.com $BK/cosmic-gen.com
+git -C $LIVE rev-parse HEAD > $BK/previous_commit
+
+# 2. Code (after the PR is merged into main)
+git -C $LIVE fetch origin
+git -C $LIVE checkout main
+git -C $LIVE merge --ff-only origin/main
+(cd $LIVE/cloud_backend && npm ci --omit=dev)
+
+# 3. Settings: add new ones, keep everything else (no secrets printed)
+cd $LIVE/cloud_backend
+grep -q '^HOST=' .env || echo 'HOST=127.0.0.1' >> .env
+grep -q '^GPU_RENTALS_ENABLED=' .env || echo 'GPU_RENTALS_ENABLED=false' >> .env
+sed -i 's/^JWT_ACCESS_EXPIRES=.*/JWT_ACCESS_EXPIRES=15m/' .env
+grep -q '^JWT_ACCESS_EXPIRES=' .env || echo 'JWT_ACCESS_EXPIRES=15m' >> .env
+# The new code refuses leaked / short / equal JWT secrets: check before restarting.
+node --input-type=module -e "await import('./src/config/env.js'); console.log('config ok')"
+
+# 4. Indexes (autoIndex is off in production)
+mongosh ai_image_studio --quiet --eval '
+  db.gpuinstances.createIndex({ status: 1 });
+  db.transactions.createIndex({ gpuInstance: 1, type: 1 },
+    { unique: true, partialFilterExpression: { gpuInstance: { $type: "objectId" } } });
+  db.sessions.createIndex({ user: 1 });
+  db.sessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });'
+
+# 5. Stale GPU records: dry run, read the list, then apply
+node scripts/cleanup_stale_gpu_instances.mjs
+# node scripts/cleanup_stale_gpu_instances.mjs --apply
+
+# 6. Restart
+pm2 restart ai-studio-backend --update-env
+sleep 5; pm2 logs ai-studio-backend --nostream --lines 40
+```
+
+Smoke tests (all must pass):
+
+```bash
+curl -s -o /dev/null -w 'health %{http_code}\n'  https://cosmic-gen.com/ai-api/api/v1/health            # 200
+python3 -I /root/diagnostics/scripts/smoke_login.py --refresh                                            # 200, 200
+curl -s 'https://cosmic-gen.com/ai-api/api/v1/gpu/offers?limit=1&storageGB=50' | head -c 600; echo       # totalCreditsPerHour present
+curl -s -o /dev/null -w 'rent %{http_code}\n' -X POST https://cosmic-gen.com/ai-api/api/v1/gpu/rent      # 503 (paused)
+curl -s -o /dev/null -w 'rentals status %{http_code}\n' https://cosmic-gen.com/ai-api/api/v1/gpu/rentals/status  # 200
+curl -s -o /dev/null -w 'gallery %{http_code}\n' 'https://cosmic-gen.com/ai-api/api/v1/gallery?limit=1'  # 200
+# WebSocket route: expect "HTTP/1.1 101" (the server may close right after for a bad token)
+curl -s -i -N --max-time 5 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+  -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  'https://cosmic-gen.com/ai-api/ws/instance-status?token=x&instanceId=x' | head -1
+# Pricing check: compare one offer's computeCreditsPerHour with Vast's dph_base x 62.5 (default config)
+```
+
+Then remove access tokens from nginx logs (they were sent in the WebSocket URL):
+
+```bash
+for f in /var/log/nginx/access.log /var/log/nginx/error.log; do sed -i -E 's/token=[^& "]+/token=REDACTED/g' "$f"; done
+for f in /var/log/nginx/*.gz; do zcat "$f" | sed -E 's/token=[^& "]+/token=REDACTED/g' | gzip > "$f.tmp" && mv "$f.tmp" "$f"; done
+systemctl reload nginx   # reopen log files
+```
+
+## Rollback
+
+```bash
+BK=/root/backups/deploy-<timestamp>
+LIVE=/root/projects/ai_image_studio
+git -C $LIVE checkout $(cat $BK/previous_commit)
+(cd $LIVE/cloud_backend && npm ci --omit=dev)
+cp -p $BK/.env $LIVE/cloud_backend/.env
+cp -p $BK/cosmic-gen.com /etc/nginx/sites-available/cosmic-gen.com && nginx -t && systemctl reload nginx
+pm2 restart ai-studio-backend --update-env
+```
+- The new indexes and the `sessions` collection are harmless to the old code; leave them.
+- Users who signed in on the new backend get session-based refresh tokens the old code
+  cannot read: after a rollback they sign in again once.
+- Restore the database (`mongorestore --drop $BK/mongodump`) only if data is damaged.
+
+## Re-enabling rentals (later, with the approved test rental)
+
+1. Upload the engine package (R2-3 section), 2. set `GPU_RENTALS_ENABLED=true`,
+3. remove the nginx 503 rule (Step 0), `nginx -t && systemctl reload nginx`,
+4. `pm2 restart ai-studio-backend --update-env`, 5. one test rental, watching its
+progress in the app and `pm2 logs`; check bandwidth fields (R2-2).
 
 ## Already done on the live server (7 Oct 2026)
 
@@ -18,8 +119,9 @@ Work in progress; completed per phase. Commands assume the live checkout at
 - `JWT_ACCESS_EXPIRES` defaults to `15m`. The live `.env` sets `60d`; change it only
   together with Phase 1b (multiple sessions), or every 15 minutes the app refreshes
   through the single-slot refresh logic.
-- New GitHub secret before the next tagged build: `CONTABO_KNOWN_HOSTS`
-  (output of `ssh-keyscan <server>`, checked against the server's real host key).
+- GitHub secret `CONTABO_KNOWN_HOSTS`: added on 8 Oct 2026 from the server's own
+  `/etc/ssh/ssh_host_*_key.pub` (pattern `*`, so it matches whatever `CONTABO_IP` holds;
+  the key itself is pinned). Update it if the server's host keys ever change.
 
 ## Phase 2: GPU billing
 

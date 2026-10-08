@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../app_version.dart';
+
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../services/auth_service.dart';
 
@@ -259,7 +261,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   Padding(
                     padding: const EdgeInsets.all(8.0),
                     child: Text(
-                      'Cosmic-Gen Studio v1.0.4',
+                      'Cosmic-Gen Studio v$kAppVersion (build $kAppBuildNumber)',
+                      key: const ValueKey('settings_app_version'),
                       style: TextStyle(
                         fontSize: 11,
                         color: isDark ? Colors.white38 : Colors.black38,
