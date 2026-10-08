@@ -205,21 +205,31 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     ),
   ];
 
+  /// Voice models. `downloadId` is the R2 / engine folder ('' = no local
+  /// download): both Chatterbox models use the same chatterbox-tts download,
+  /// which holds the English and the multilingual weights. Breeze needs a
+  /// runtime that is not on PyPI, so it runs only on cloud GPUs.
   static const List<Map<String, String>> _voiceModels = [
     {
       'title': 'Chatterbox TTS',
       'desc': 'Resemble AI Voice · 500M · Ultra Low Latency',
       'icon': 'voice',
+      'downloadId': 'chatterbox-tts',
+      'tag': 'English',
     },
     {
       'title': 'Chatterbox Multilingual V3',
       'desc': 'Resemble AI · 23+ Languages · High Expressiveness',
       'icon': 'language',
+      'downloadId': 'chatterbox-tts',
+      'tag': '23 languages',
     },
     {
       'title': 'Breeze TTS 2',
       'desc': 'BreezeBlue Voice Design · 3.4B · Cinematic Tone',
       'icon': 'sound',
+      'downloadId': '',
+      'tag': 'Cloud only',
     },
   ];
 
@@ -1072,47 +1082,14 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
 
           // 1. Voice Engine / Model Selector
           _SectionHeader('1. Voice Model', muted),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: dark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: border),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedVoiceModel,
-                isExpanded: true,
-                dropdownColor: dark ? const Color(0xFF1E242E) : Colors.white,
-                icon: const Icon(Icons.arrow_drop_down, size: 20),
-                items: _voiceModels.map((m) {
-                  return DropdownMenuItem<String>(
-                    value: m['title'],
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          m['title']!,
-                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          m['desc']!,
-                          style: TextStyle(fontSize: 10, color: muted),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedVoiceModel = val);
-                },
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
+          ..._voiceModels.map((m) => _buildVoiceModelCard(
+                model: m,
+                isSelected: _selectedVoiceModel == m['title'],
+                dark: dark,
+                border: border,
+                muted: muted,
+              )),
+          const SizedBox(height: 6),
 
           // 2. Voice Options & 20-30s Audio Previews
           _SectionHeader('2. Voice Personas & Preview', muted),
@@ -1373,11 +1350,14 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                       children: [
                         Row(
                           children: [
-                            Text(
-                              preset.name,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                            Flexible(
+                              child: Text(
+                                preset.name,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -1437,12 +1417,15 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(
-                                isPlaying ? 'Playing Sample (${_previewPlaybackSeconds}s / 24s)' : '24s Audio Sample',
-                                style: TextStyle(
-                                  fontSize: 9.5,
-                                  color: isPlaying ? const Color(0xFFD32F2F) : muted,
-                                  fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                              Flexible(
+                                child: Text(
+                                  isPlaying ? 'Playing Sample (${_previewPlaybackSeconds}s / 24s)' : '24s Audio Sample',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    color: isPlaying ? const Color(0xFFD32F2F) : muted,
+                                    fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                                  ),
                                 ),
                               ),
                               Text(
@@ -1633,6 +1616,106 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           ),
           const SizedBox(height: 20),
         ],
+      ),
+    );
+  }
+
+  /// A voice model card, like the Image and Video panels: select it, and
+  /// download its weights for the local engine (or see that it is cloud-only).
+  Widget _buildVoiceModelCard({
+    required Map<String, String> model,
+    required bool isSelected,
+    required bool dark,
+    required Color border,
+    required Color muted,
+  }) {
+    final title = model['title']!;
+    final downloadId = model['downloadId'] ?? '';
+    final cloudOnly = downloadId.isEmpty;
+    return Padding(
+      key: ValueKey('voice_model_card_$title'),
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: () => setState(() => _selectedVoiceModel = title),
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(11),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (dark ? LuminaColors.primaryStart.withValues(alpha: 0.14) : LuminaColors.primaryStart.withValues(alpha: 0.08))
+                : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: isSelected ? LuminaColors.primaryStart : border,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                    size: 20,
+                    color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white24 : Colors.black26),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                        color: isSelected ? LuminaColors.primaryEnd : null,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: cloudOnly
+                          ? Colors.cyanAccent.withValues(alpha: 0.12)
+                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      model['tag'] ?? '',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: cloudOnly ? Colors.cyan.shade700 : muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.only(left: 28),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(model['desc']!, style: TextStyle(fontSize: 11, color: muted, height: 1.3)),
+                    const SizedBox(height: 6),
+                    if (cloudOnly)
+                      Text(
+                        'Runs on a cloud GPU; no local download.',
+                        style: TextStyle(fontSize: 10.5, color: muted, fontStyle: FontStyle.italic),
+                      )
+                    else
+                      ModelDownloadButton(
+                        modelId: downloadId,
+                        displayName: downloadId == 'chatterbox-tts' ? 'Chatterbox (English + Multilingual)' : title,
+                        isSelected: isSelected,
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

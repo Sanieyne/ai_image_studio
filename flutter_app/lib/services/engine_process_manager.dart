@@ -9,22 +9,22 @@ import 'package:path_provider/path_provider.dart';
 import 'api_service.dart';
 import 'model_download_service.dart';
 
-enum EnginePhase { idle, starting, running, failed, external }
+enum EngineRunPhase { idle, starting, running, failed, external }
 
 /// What the top bar shows about the local engine.
 @immutable
 class EngineStatus {
-  final EnginePhase phase;
+  final EngineRunPhase phase;
 
   /// Plain-words reason when [phase] is failed.
   final String? reason;
   const EngineStatus(this.phase, [this.reason]);
 
   String get label => switch (phase) {
-        EnginePhase.starting => 'Engine starting…',
-        EnginePhase.failed => 'Engine failed: ${reason ?? 'unknown error'}',
-        EnginePhase.running || EnginePhase.external => 'Engine running',
-        EnginePhase.idle => 'Engine not started',
+        EngineRunPhase.starting => 'Engine starting…',
+        EngineRunPhase.failed => 'Engine failed: ${reason ?? 'unknown error'}',
+        EngineRunPhase.running || EngineRunPhase.external => 'Engine running',
+        EngineRunPhase.idle => 'Engine not started',
       };
 }
 
@@ -39,7 +39,7 @@ class EngineProcessManager {
   static final EngineProcessManager instance = EngineProcessManager._();
 
   /// Observable engine state for the UI.
-  final ValueNotifier<EngineStatus> status = ValueNotifier(const EngineStatus(EnginePhase.idle));
+  final ValueNotifier<EngineStatus> status = ValueNotifier(const EngineStatus(EngineRunPhase.idle));
 
   /// How long a starting engine may take to answer before it is reported as failed
   /// (it keeps running; first start can include loading large libraries).
@@ -92,10 +92,10 @@ class EngineProcessManager {
     // 1. Check if an engine is already running (e.g. manual dev server or remote).
     if (await _pingHealth()) {
       debugPrint('[EngineManager] Engine already running and healthy.');
-      status.value = const EngineStatus(EnginePhase.external);
+      status.value = const EngineStatus(EngineRunPhase.external);
       return true;
     }
-    status.value = const EngineStatus(EnginePhase.starting);
+    status.value = const EngineStatus(EngineRunPhase.starting);
     // The engine loads models only from the folder the app downloads into.
     final modelsDir = ModelDownloadService.instance.getModelsBaseDirectory().absolute.path;
 
@@ -135,7 +135,7 @@ class EngineProcessManager {
     debugPrint(
       '[EngineManager] No bundled engine or dev python_engine found. Assuming remote or external server.',
     );
-    status.value = const EngineStatus(EnginePhase.failed, 'the engine is not installed next to the app');
+    status.value = const EngineStatus(EngineRunPhase.failed, 'the engine is not installed next to the app');
     return false;
   }
 
@@ -181,9 +181,9 @@ class EngineProcessManager {
         _logSink?.writeln('=== engine exited with code $code ===');
         _process = null;
         _spawnedByUs = false;
-        if (status.value.phase != EnginePhase.idle) {
+        if (status.value.phase != EngineRunPhase.idle) {
           status.value = EngineStatus(
-            EnginePhase.failed,
+            EngineRunPhase.failed,
             _failureReasonFromOutput('the engine stopped (exit code $code)'),
           );
         }
@@ -195,21 +195,21 @@ class EngineProcessManager {
       while (DateTime.now().isBefore(deadline) && !exited) {
         if (await _pingHealth()) {
           debugPrint('[EngineManager] Engine initialized and healthy!');
-          status.value = const EngineStatus(EnginePhase.running);
+          status.value = const EngineStatus(EngineRunPhase.running);
           return true;
         }
         await Future.delayed(const Duration(seconds: 1));
       }
       if (!exited) {
         status.value = EngineStatus(
-          EnginePhase.failed,
+          EngineRunPhase.failed,
           'no answer after ${startupTimeout.inMinutes} minutes (still running; see the engine log)',
         );
       }
       return false;
     } catch (e) {
       debugPrint('[EngineManager] Failed to spawn engine: $e');
-      status.value = EngineStatus(EnginePhase.failed, 'could not start the engine ($e)');
+      status.value = EngineStatus(EngineRunPhase.failed, 'could not start the engine ($e)');
       return false;
     }
   }
@@ -226,7 +226,7 @@ class EngineProcessManager {
       _process = null;
       _spawnedByUs = false;
     }
-    status.value = const EngineStatus(EnginePhase.idle);
+    status.value = const EngineStatus(EngineRunPhase.idle);
   }
 
   /// Opens the engine log in the system's text viewer.

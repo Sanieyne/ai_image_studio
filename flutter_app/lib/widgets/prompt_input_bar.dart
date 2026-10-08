@@ -51,7 +51,13 @@ class PromptInputBar extends StatefulWidget {
   final PromptGenerateCallback? onGenerate;
   final ApiService? apiService;
 
-  const PromptInputBar({super.key, this.onGenerate, this.apiService});
+  const PromptInputBar({super.key, this.onGenerate, this.apiService, this.studioTab});
+
+  /// The sidebar tab the composer belongs to ('image', 'video', 'voice',
+  /// 'enhancer'), or null. The composer switches to that tab's mode when it is
+  /// created and whenever the tab changes, so it can never show another tab's
+  /// controls (e.g. Motion Animate under the Voice tab).
+  final String? studioTab;
 
   /// Display label -> HF repo id. Single source of truth for home_screen too.
   static const modelIds = {
@@ -395,6 +401,49 @@ class PromptInputBarState extends State<PromptInputBar> {
   void initState() {
     super.initState();
     _fetchAvailableModels();
+    if (widget.studioTab != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) applyStudioTab(widget.studioTab);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant PromptInputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.studioTab != oldWidget.studioTab) applyStudioTab(widget.studioTab);
+  }
+
+  /// The current composer mode (e.g. 'Voice Studio').
+  String get mode => _mode;
+
+  /// Whether the current mode already belongs to [tab] (e.g. a template that
+  /// was just applied); then the composer keeps it.
+  bool modeBelongsToTab(String? tab) => switch (tab) {
+        'image' => const {'Image Mode', 'Virtual Try-On', 'Text to Image'}.contains(_mode) &&
+            !_isVideoModel &&
+            !_isVoiceModel &&
+            !_isEnhancerModel,
+        'video' => const {'Video Mode', 'Motion Animate'}.contains(_mode) || _isVideoModel,
+        'voice' => _mode == 'Voice Studio' || _isVoiceModel,
+        'enhancer' => _mode == 'AI Enhancer' || _isEnhancerModel,
+        _ => true,
+      };
+
+  /// The composer mode and default model for a sidebar tab, unless the
+  /// current mode already belongs to it.
+  void applyStudioTab(String? tab) {
+    if (modeBelongsToTab(tab)) return;
+    switch (tab) {
+      case 'image':
+        setMode('Text to Image');
+      case 'video':
+        setVideoModel('Wan 2.1 T2V 1.3B');
+      case 'voice':
+        setVoiceModel('Chatterbox TTS');
+      case 'enhancer':
+        setEnhancerModel('Real-ESRGAN x4plus');
+    }
   }
 
   Future<void> _fetchAvailableModels() async {

@@ -51,6 +51,15 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSidebarCollapsed = false;
   bool _loading = true;
   bool _dismissedTemplateGallery = false;
+  /// The composer's tab name for [_currentSidebarTab] (null: keep its mode).
+  String? get _studioTabName => switch (_currentSidebarTab) {
+        SidebarTab.image => 'image',
+        SidebarTab.video => 'video',
+        SidebarTab.voice => 'voice',
+        SidebarTab.enhancer => 'enhancer',
+        _ => null,
+      };
+
   SidebarTab _currentSidebarTab = SidebarTab.history;
 
   bool get _shouldShowVideoTemplates {
@@ -872,19 +881,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 _setExecutionMode(StudioExecutionMode.cloud);
                 return;
               }
+              // The composer follows the tab through PromptInputBar.studioTab,
+              // also when it is not on screen at this moment.
               setState(() {
                 _currentSidebarTab = tab;
                 _dismissedTemplateGallery = false;
               });
-              if (tab == SidebarTab.image) {
-                _promptBarKey.currentState?.setMode('Text to Image');
-              } else if (tab == SidebarTab.video) {
-                _promptBarKey.currentState?.setVideoModel('Wan 2.1 T2V 1.3B');
-              } else if (tab == SidebarTab.voice) {
-                _promptBarKey.currentState?.setVoiceModel('Chatterbox TTS');
-              } else if (tab == SidebarTab.enhancer) {
-                _promptBarKey.currentState?.setEnhancerModel('Real-ESRGAN x4plus');
-              }
             },
             onNewProject: _handleCreateNewProject,
             onNewVoiceProject: _handleCreateNewVoiceProject,
@@ -1282,6 +1284,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         key: _promptBarKey,
                         apiService: _api,
                         onGenerate: _handlePromptSubmit,
+                        studioTab: _studioTabName,
                       ),
                     ),
                   ),

@@ -175,6 +175,8 @@ class ModelDownloadService {
     'breeze-tts-2': 'breeze-tts-2',
     'breezeblue/breeze-tts-2': 'breeze-tts-2',
     'chatterbox tts': 'chatterbox-tts',
+    'chatterbox multilingual v3': 'chatterbox-tts',
+    'chatterbox multilingual': 'chatterbox-tts',
     'chatterbox-tts': 'chatterbox-tts',
     'resembleai/chatterbox': 'chatterbox-tts',
     'sdxl base 1.0': 'sdxl-base-1.0',

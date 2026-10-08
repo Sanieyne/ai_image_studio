@@ -258,3 +258,20 @@ are limited to `compute_cap >= 750` (RTX 20/GTX 16-series and newer, incl. RTX 5
   built by CI and pushed to a registry. Boot becomes image pull + start, saving roughly 3–5 min
   per rental and removing PyPI from the boot path. Needs a registry account and Vast.ai
   registry credentials.
+
+## R2-5: local voice models and the Windows engine
+
+- Voice tab: model cards with download buttons. Both Chatterbox models use the
+  `chatterbox-tts` download from R2 (13.9 GB as stored today: it holds the English
+  and multilingual weights plus duplicate .pt copies). Breeze TTS 2 needs a runtime
+  that is not on PyPI, so it is labelled "Cloud only" and has no local download.
+  Optional later saving: store only the files `from_local` reads (about 7 GB).
+- The app starts the bundled engine with `AI_STUDIO_MODELS_DIR` (its download folder)
+  and `HF_HUB_OFFLINE=1`; every pipeline loads from that folder.
+- Engine output: `%APPDATA%\<app>\logs\engine.log` (previous run: `engine.prev.log`),
+  opened from the top bar ("Open engine log"). The top bar says "Engine starting…" or
+  "Engine failed: <reason>"; a slow start is no longer killed after 30 s.
+- Windows build: Python 3.12, torch 2.11.0+cu128 (RTX 20 to RTX 50 series; older
+  Pascal/Volta cards are not supported by this torch), `requirements-windows.txt`
+  (same versions as the tested cloud lock), and `engine.exe --self-test` after
+  PyInstaller. Manual workflow runs build and test only; `v*` tags also publish.

@@ -333,8 +333,8 @@ class _StatusChip extends StatelessWidget {
     return ValueListenableBuilder<EngineStatus>(
       valueListenable: EngineProcessManager.instance.status,
       builder: (context, engine, _) {
-        final starting = !online && engine.phase == EnginePhase.starting;
-        final failed = !online && engine.phase == EnginePhase.failed;
+        final starting = !online && engine.phase == EngineRunPhase.starting;
+        final failed = !online && engine.phase == EngineRunPhase.failed;
         final label = online
             ? (deviceName != null && deviceName!.isNotEmpty ? deviceName! : 'Online')
             : (starting || failed ? engine.label : 'Offline');
