@@ -23,25 +23,31 @@ jobs:
       # -------------------------------------------------------------
       # 1. Setup Python & Install CUDA PyTorch Dependencies
       # -------------------------------------------------------------
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: 'python_engine/requirements.txt'
+          cache-dependency-path: 'python_engine/requirements-windows.txt'
 
-      - name: Install Python dependencies (CUDA 12.1 torch)
+      - name: Install Python dependencies (CUDA 12.8 torch, tested versions)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           python -m pip install --upgrade pip
-          pip install pyinstaller requests
 
-          # Install PyTorch with CUDA 12.1 support (GPU acceleration for NVIDIA)
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+          # torch 2.11 built for CUDA 12.8: sm_75..sm_120 (RTX 20-series to RTX 50-series)
+          pip install torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+          if ($LASTEXITCODE -ne 0) { throw "torch install failed" }
 
-          # Install remaining project dependencies (skip torch from requirements.txt)
-          pip install -r python_engine/requirements.txt `
-            --extra-index-url https://download.pytorch.org/whl/cu121
+          # Engine packages: same versions as the tested cloud lock; the constraints keep torch as installed above
+          pip install -r python_engine/requirements-windows.txt -c python_engine/constraints-cloud.txt `
+            --extra-index-url https://download.pytorch.org/whl/cu128
+          if ($LASTEXITCODE -ne 0) { throw "engine requirements install failed" }
+
+          # chatterbox-tts pins torch 2.6 / diffusers 0.29; its imports work with the versions above
+          pip install --no-deps chatterbox-tts==0.1.7
+          if ($LASTEXITCODE -ne 0) { throw "chatterbox install failed" }
 
       # -------------------------------------------------------------
       # 2. Build Python Engine with PyInstaller
@@ -49,9 +55,20 @@ jobs:
       - name: Build Python Engine Executable
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           cd python_engine
           pyinstaller engine.spec
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
           cd ..
+
+      # The built engine must import every pipeline class; a missing hidden
+      # import or package fails the build here instead of on users' machines.
+      - name: Engine self-test
+        shell: pwsh
+        run: |
+          $env:AI_STUDIO_MOCK = '1'
+          & python_engine\dist\engine\engine.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "engine --self-test failed (exit $LASTEXITCODE)" }
 
       # -------------------------------------------------------------
       # 3. Setup Flutter & Build Flutter Desktop App
@@ -119,6 +136,10 @@ jobs:
     name: Deploy GPU Bundle to Contabo
     runs-on: windows-latest
     needs: build-windows
+    # Only version tags publish; manual runs just build and test.
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write # create the GitHub Release
     steps:
       - name: Download GPU bundle artifact
         uses: actions/download-artifact@v4

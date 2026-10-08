@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/engine_process_manager.dart';
+
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../theme/app_theme.dart';
 
@@ -328,23 +330,61 @@ class _StatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = LuminaTheme.isDark(context);
     final muted = dark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
-    final label = online
-        ? (deviceName != null && deviceName!.isNotEmpty
-            ? deviceName!
-            : 'Online')
-        : 'Offline';
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.circle,
-            size: 10, color: online ? Colors.green : Colors.red),
-        const SizedBox(width: 6),
-        Text(label,
-            style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-                color: muted)),
-      ],
+    return ValueListenableBuilder<EngineStatus>(
+      valueListenable: EngineProcessManager.instance.status,
+      builder: (context, engine, _) {
+        final starting = !online && engine.phase == EnginePhase.starting;
+        final failed = !online && engine.phase == EnginePhase.failed;
+        final label = online
+            ? (deviceName != null && deviceName!.isNotEmpty ? deviceName! : 'Online')
+            : (starting || failed ? engine.label : 'Offline');
+        final color = online ? Colors.green : (starting ? Colors.amber : Colors.red);
+        final chip = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (starting)
+              SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.6, color: color))
+            else
+              Icon(Icons.circle, size: 10, color: color),
+            const SizedBox(width: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260),
+              child: Text(
+                label,
+                key: const ValueKey('engine_status_label'),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: muted),
+              ),
+            ),
+          ],
+        );
+        if (online) return chip;
+        // Not answering: details and the engine log are one click away.
+        return PopupMenuButton<String>(
+          key: const ValueKey('engine_status_menu'),
+          tooltip: failed ? engine.label : 'Local engine status',
+          onSelected: (value) async {
+            if (value == 'log') {
+              final opened = await EngineProcessManager.instance.openLog();
+              if (!opened && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('No engine log yet: the engine has not been started on this computer.')),
+                );
+              }
+            } else if (value == 'restart') {
+              EngineProcessManager.instance.stopEngine();
+              await EngineProcessManager.instance.ensureEngineRunning();
+            }
+          },
+          itemBuilder: (_) => [
+            if (failed)
+              PopupMenuItem<String>(enabled: false, child: Text(engine.label, style: const TextStyle(fontSize: 12))),
+            const PopupMenuItem<String>(value: 'log', child: Text('Open engine log')),
+            const PopupMenuItem<String>(value: 'restart', child: Text('Restart engine')),
+          ],
+          child: chip,
+        );
+      },
     );
   }
 }

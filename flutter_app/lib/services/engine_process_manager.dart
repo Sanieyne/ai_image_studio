@@ -4,26 +4,100 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import 'api_service.dart';
+import 'model_download_service.dart';
+
+enum EnginePhase { idle, starting, running, failed, external }
+
+/// What the top bar shows about the local engine.
+@immutable
+class EngineStatus {
+  final EnginePhase phase;
+
+  /// Plain-words reason when [phase] is failed.
+  final String? reason;
+  const EngineStatus(this.phase, [this.reason]);
+
+  String get label => switch (phase) {
+        EnginePhase.starting => 'Engine starting…',
+        EnginePhase.failed => 'Engine failed: ${reason ?? 'unknown error'}',
+        EnginePhase.running || EnginePhase.external => 'Engine running',
+        EnginePhase.idle => 'Engine not started',
+      };
+}
 
 /// Manages the lifecycle of the bundled Python AI Engine sidecar.
+///
+/// The engine's output goes to `<app support>/logs/engine.log` (the previous
+/// run is kept as engine.prev.log). A starting engine is never killed for being
+/// slow; [status] says "starting" until it answers, and "failed: <reason>" if
+/// the process exits or does not answer within [startupTimeout].
 class EngineProcessManager {
   EngineProcessManager._();
   static final EngineProcessManager instance = EngineProcessManager._();
 
+  /// Observable engine state for the UI.
+  final ValueNotifier<EngineStatus> status = ValueNotifier(const EngineStatus(EnginePhase.idle));
+
+  /// How long a starting engine may take to answer before it is reported as failed
+  /// (it keeps running; first start can include loading large libraries).
+  Duration startupTimeout = const Duration(minutes: 10);
+
   Process? _process;
   bool _spawnedByUs = false;
+  IOSink? _logSink;
+  File? _logFile;
+  final List<String> _recentErrors = [];
 
   bool get isRunning => _process != null || _spawnedByUs;
+
+  /// Where the engine's output is written (null until the first launch).
+  File? get logFile => _logFile;
+
+  Future<File> _openLog() async {
+    final dir = Directory(p.join((await getApplicationSupportDirectory()).path, 'logs'));
+    await dir.create(recursive: true);
+    final log = File(p.join(dir.path, 'engine.log'));
+    if (log.existsSync()) {
+      try {
+        log.renameSync(p.join(dir.path, 'engine.prev.log'));
+      } catch (_) {}
+    }
+    return log;
+  }
+
+  void _logLine(String stream, String line) {
+    debugPrint('[Engine $stream] $line');
+    _logSink?.writeln('${DateTime.now().toIso8601String()} [$stream] $line');
+    if (stream == 'stderr' && line.trim().isNotEmpty) {
+      _recentErrors.add(line.trim());
+      if (_recentErrors.length > 20) _recentErrors.removeAt(0);
+    }
+  }
+
+  /// The most telling recent error line from the engine's output.
+  String _failureReasonFromOutput(String fallback) {
+    for (final line in _recentErrors.reversed) {
+      if (RegExp(r'Error|Exception|FAIL|Traceback', caseSensitive: false).hasMatch(line)) {
+        return line.length > 200 ? '${line.substring(0, 200)}…' : line;
+      }
+    }
+    return fallback;
+  }
 
   /// Returns true if the engine is reachable or was successfully started.
   Future<bool> ensureEngineRunning() async {
     // 1. Check if an engine is already running (e.g. manual dev server or remote).
     if (await _pingHealth()) {
       debugPrint('[EngineManager] Engine already running and healthy.');
+      status.value = const EngineStatus(EnginePhase.external);
       return true;
     }
+    status.value = const EngineStatus(EnginePhase.starting);
+    // The engine loads models only from the folder the app downloads into.
+    final modelsDir = ModelDownloadService.instance.getModelsBaseDirectory().absolute.path;
 
     // 2. Locate bundled engine executable relative to the Flutter app executable.
     final engineExe = _findEngineExecutable();
@@ -32,12 +106,17 @@ class EngineProcessManager {
         executable: engineExe.path,
         args: [],
         workingDir: engineExe.parent.path,
+        environment: {
+          'AI_STUDIO_MODELS_DIR': modelsDir,
+          'HF_HUB_OFFLINE': '1',
+          'PYTHONUNBUFFERED': '1',
+        },
         isDev: false,
       );
     }
 
     // 3. In development mode (flutter run), locate python_engine source in monorepo
-    final devScript = _findDevEngineScript();
+    final devScript = kDebugMode ? _findDevEngineScript() : null;
     if (devScript != null && devScript.existsSync()) {
       final pythonCmd = Platform.isWindows ? 'python' : 'python3';
       return _launchProcess(
@@ -46,6 +125,7 @@ class EngineProcessManager {
         workingDir: devScript.parent.path,
         environment: {
           'AI_STUDIO_MOCK': '1',
+          'AI_STUDIO_MODELS_DIR': modelsDir,
           'PYTHONUNBUFFERED': '1',
         },
         isDev: true,
@@ -55,6 +135,7 @@ class EngineProcessManager {
     debugPrint(
       '[EngineManager] No bundled engine or dev python_engine found. Assuming remote or external server.',
     );
+    status.value = const EngineStatus(EnginePhase.failed, 'the engine is not installed next to the app');
     return false;
   }
 
@@ -67,6 +148,15 @@ class EngineProcessManager {
   }) async {
     try {
       debugPrint('[EngineManager] Launching ${isDev ? 'dev' : 'bundled'} engine: $executable ${args.join(' ')}');
+      try {
+        _logFile = await _openLog();
+        _logSink = _logFile!.openWrite(mode: FileMode.write);
+        _logSink!.writeln('=== ${DateTime.now().toIso8601String()} launching $executable ${args.join(' ')} ===');
+      } catch (e) {
+        debugPrint('[EngineManager] Could not open the engine log: $e');
+      }
+      _recentErrors.clear();
+
       _process = await Process.start(
         executable,
         args,
@@ -75,35 +165,51 @@ class EngineProcessManager {
       );
       _spawnedByUs = true;
 
-      // Pipe logs for diagnostics
       _process!.stdout
-          .transform(utf8.decoder)
+          .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
-          .listen((line) => debugPrint('[Engine stdout] $line'));
-
+          .listen((line) => _logLine('stdout', line));
       _process!.stderr
-          .transform(utf8.decoder)
+          .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
-          .listen((line) => debugPrint('[Engine stderr] $line'));
+          .listen((line) => _logLine('stderr', line));
 
+      var exited = false;
       _process!.exitCode.then((code) {
+        exited = true;
         debugPrint('[EngineManager] Engine process exited with code $code');
+        _logSink?.writeln('=== engine exited with code $code ===');
         _process = null;
         _spawnedByUs = false;
+        if (status.value.phase != EnginePhase.idle) {
+          status.value = EngineStatus(
+            EnginePhase.failed,
+            _failureReasonFromOutput('the engine stopped (exit code $code)'),
+          );
+        }
       });
 
-      // 4. Poll health endpoint until engine is ready (up to 30 seconds).
-      final ready = await _pollHealth(timeout: const Duration(seconds: 30));
-      if (ready) {
-        debugPrint('[EngineManager] Engine initialized and healthy!');
-        return true;
-      } else {
-        debugPrint('[EngineManager] Engine failed health check within timeout.');
-        stopEngine();
-        return false;
+      // 4. Wait for the engine to answer. A slow start is not a failure: the
+      //    process is never killed here.
+      final deadline = DateTime.now().add(startupTimeout);
+      while (DateTime.now().isBefore(deadline) && !exited) {
+        if (await _pingHealth()) {
+          debugPrint('[EngineManager] Engine initialized and healthy!');
+          status.value = const EngineStatus(EnginePhase.running);
+          return true;
+        }
+        await Future.delayed(const Duration(seconds: 1));
       }
+      if (!exited) {
+        status.value = EngineStatus(
+          EnginePhase.failed,
+          'no answer after ${startupTimeout.inMinutes} minutes (still running; see the engine log)',
+        );
+      }
+      return false;
     } catch (e) {
       debugPrint('[EngineManager] Failed to spawn engine: $e');
+      status.value = EngineStatus(EnginePhase.failed, 'could not start the engine ($e)');
       return false;
     }
   }
@@ -119,6 +225,26 @@ class EngineProcessManager {
       }
       _process = null;
       _spawnedByUs = false;
+    }
+    status.value = const EngineStatus(EnginePhase.idle);
+  }
+
+  /// Opens the engine log in the system's text viewer.
+  Future<bool> openLog() async {
+    final log = _logFile;
+    if (log == null || !log.existsSync()) return false;
+    try {
+      if (Platform.isWindows) {
+        await Process.start('notepad.exe', [log.path], mode: ProcessStartMode.detached);
+      } else if (Platform.isMacOS) {
+        await Process.start('open', [log.path], mode: ProcessStartMode.detached);
+      } else {
+        await Process.start('xdg-open', [log.path], mode: ProcessStartMode.detached);
+      }
+      return true;
+    } catch (e) {
+      debugPrint('[EngineManager] Could not open the engine log: $e');
+      return false;
     }
   }
 
@@ -189,14 +315,5 @@ class EngineProcessManager {
     } catch (_) {
       return false;
     }
-  }
-
-  Future<bool> _pollHealth({required Duration timeout}) async {
-    final deadline = DateTime.now().add(timeout);
-    while (DateTime.now().isBefore(deadline)) {
-      if (await _pingHealth()) return true;
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-    return false;
   }
 }

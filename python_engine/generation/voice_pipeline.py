@@ -133,6 +133,20 @@ def _normalize_reference_audio(raw_bytes: bytes, target_wav_path: str) -> bool:
         return False
 
 
+
+def _chatterbox_dir():
+    """The downloaded Chatterbox folder (holds the English and multilingual weights).
+
+    Raises when it is missing and the Hugging Face hub may not be used, so the
+    caller reports it instead of downloading.
+    """
+    from generation.model_paths import ModelNotDownloadedError, hub_downloads_allowed, model_dir
+
+    local = model_dir("chatterbox-tts")
+    if local is None and not hub_downloads_allowed():
+        raise ModelNotDownloadedError("Chatterbox is not downloaded. Download it from the Voice tab.")
+    return local
+
 class ChatterboxVoiceEngine:
     """Chatterbox TTS & Multilingual Voice Engine."""
 
@@ -181,8 +195,11 @@ class ChatterboxVoiceEngine:
                 )
                 from models.fast_streaming import FastBreezeStreamingRuntime, FastStreamingConfig
 
+                from generation.model_paths import model_dir as _model_dir
+
                 possible_model_dirs = [
                     Path(os.getenv("BREEZE_MODEL_DIR", "/root/models/breeze-tts-2")),
+                    *([_model_dir("breeze-tts-2")] if _model_dir("breeze-tts-2") else []),
                     Path(os.path.expanduser("~/models/breeze-tts-2")),
                     Path("/root/ai_image_studio/models/breeze-tts-2"),
                     Path("BreezeBlue/Breeze-TTS-2"),
@@ -279,7 +296,12 @@ class ChatterboxVoiceEngine:
                 log.info("[*] Loading Chatterbox English TTS on %s...", self.device)
                 try:
                     from chatterbox.tts import ChatterboxTTS
-                    self._en_model = ChatterboxTTS.from_pretrained(device=self.device)
+                    local = _chatterbox_dir()
+                    self._en_model = (
+                        ChatterboxTTS.from_local(str(local), self.device)
+                        if local
+                        else ChatterboxTTS.from_pretrained(device=self.device)
+                    )
                     log.info("[OK] Chatterbox English TTS ready.")
                 except Exception as e:
                     log.warning("[!] Could not load ChatterboxTTS (%s). Falling back to mock.", e)
@@ -291,8 +313,11 @@ class ChatterboxVoiceEngine:
                 log.info("[*] Loading Chatterbox Multilingual V3 on %s...", self.device)
                 try:
                     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-                    self._mtl_model = ChatterboxMultilingualTTS.from_pretrained(
-                        device=self.device
+                    local = _chatterbox_dir()
+                    self._mtl_model = (
+                        ChatterboxMultilingualTTS.from_local(str(local), self.device)
+                        if local
+                        else ChatterboxMultilingualTTS.from_pretrained(device=self.device)
                     )
                     log.info("[OK] Chatterbox Multilingual V3 ready.")
                 except Exception as e:

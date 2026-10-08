@@ -153,7 +153,11 @@ class EnhancerEngine:
         if "anime" in model_name.lower():
             filename = "RealESRGAN_x4plus_anime_6B.pth"
 
+        from generation.model_paths import model_dir
+
+        downloaded = model_dir("realesrgan-x4plus")
         candidates = [
+            *([os.path.join(str(downloaded), filename)] if downloaded else []),
             os.path.join(self.weights_dir, filename),
             os.path.join(os.path.expanduser("~/.cache/realesrgan"), filename),
             os.path.join("/workspace/models/realesrgan", filename),
@@ -173,6 +177,11 @@ class EnhancerEngine:
             return True
 
         weights_path = self._get_weights_path(model_name)
+        from generation.model_paths import hub_downloads_allowed
+
+        if not weights_path and not hub_downloads_allowed():
+            log.warning("Real-ESRGAN weights are not downloaded; download the model in the app.")
+            return False
         if not weights_path:
             # Attempt to download via huggingface_hub if available
             try:

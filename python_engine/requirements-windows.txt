@@ -1,0 +1,38 @@
+# Windows engine (PyInstaller build): the same tested versions as requirements-cloud.lock.
+# torch 2.11.0 / torchaudio 2.11.0 / torchvision 0.26.0 come from the CUDA 12.8 index (see
+# .github/workflows/build_windows_exe.yml); constraints-cloud.txt keeps them there.
+# chatterbox-tts==0.1.7 is installed afterwards with --no-deps (its pins conflict).
+# Transitive packages are left to pip, because the Linux lock has Linux-only ones (uvloop).
+pyinstaller==6.22.3
+fastapi==0.142.4
+uvicorn==0.54.0
+# uvicorn[standard] without uvloop (Linux only):
+httptools==0.8.0
+websockets==17.2
+python-dotenv==1.2.4
+pyyaml==6.0.3
+pydantic==2.13.5
+requests==2.34.2
+boto3==1.43.109
+diffusers==0.41.0
+transformers==5.19.0
+accelerate==1.15.0
+peft==0.21.2
+sentencepiece==0.2.2
+protobuf==7.36.2
+safetensors==0.8.0
+pillow==12.3.0
+numpy==2.5.2
+imageio==2.38.0
+imageio-ffmpeg==0.6.0
+soundfile==0.14.0
+huggingface-hub==1.33.0
+tokenizers==0.23.2
+librosa==0.11.0
+s3tokenizer==0.3.0
+resemble-perth==1.0.1
+conformer==0.3.2
+pyloudnorm==0.2.0
+omegaconf==2.3.1
+pykakasi==2.3.0
+spacy-pkuseg==1.0.1
