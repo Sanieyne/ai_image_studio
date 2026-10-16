@@ -240,11 +240,11 @@ class CameraFrameResponse(BaseModel):
 
 class CameraCaptureResponse(BaseModel):
     success: bool
-    file_path: str
-    file_name: str
-    timestamp: str
-    width: int
-    height: int
+    file_path: Optional[str] = ""
+    file_name: Optional[str] = ""
+    timestamp: Optional[str] = ""
+    width: Optional[int] = 0
+    height: Optional[int] = 0
     feedback_code: str
     feedback_text: str
     can_capture: bool

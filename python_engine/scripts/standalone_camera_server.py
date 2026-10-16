@@ -59,11 +59,11 @@ class CameraFrameResponse(BaseModel):
 
 class CameraCaptureResponse(BaseModel):
     success: bool
-    file_path: str
-    file_name: str
-    timestamp: str
-    width: int
-    height: int
+    file_path: Optional[str] = ""
+    file_name: Optional[str] = ""
+    timestamp: Optional[str] = ""
+    width: Optional[int] = 0
+    height: Optional[int] = 0
     feedback_code: str
     feedback_text: str
     can_capture: bool
@@ -104,9 +104,11 @@ class CameraService:
         self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._watchdog_thread.start()
 
-    def _resolve_antelopev2_root(self) -> Path:
+    def _resolve_antelopev2_root(self) -> Optional[Path]:
         """Find directory containing models/antelopev2."""
         candidates = [
+            Path("/root/models_staging/instantid"),
+            Path("/root/models/instantid"),
             Path("./models/instantid"),
             Path("./models"),
             Path.home() / "models" / "instantid",
@@ -121,10 +123,10 @@ class CameraService:
             if (p / "antelopev2").exists():
                 return p.parent
 
-        return candidates[0]
+        return None
 
     def _get_face_app(self):
-        """Lazy load InsightFace AntelopeV2 SCRFD."""
+        """Lazy load InsightFace AntelopeV2 SCRFD with graceful fallback."""
         if self._face_app is not None:
             return self._face_app
 
@@ -132,26 +134,49 @@ class CameraService:
             if self._face_app is not None:
                 return self._face_app
 
-            from insightface.app import FaceAnalysis
-            import onnxruntime as ort
-
+            # 1. Try AntelopeV2 if models exist locally
             root_dir = self._resolve_antelopev2_root()
-            log.info("Loading InsightFace AntelopeV2 models from %s...", root_dir)
+            if root_dir is not None:
+                try:
+                    from insightface.app import FaceAnalysis
+                    import onnxruntime as ort
 
-            available_providers = ort.get_available_providers()
-            if "CUDAExecutionProvider" in available_providers:
-                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                ctx_id = 0
-                dev = "CUDA"
-            else:
-                providers = ["CPUExecutionProvider"]
-                ctx_id = -1
-                dev = "CPU"
+                    log.info("Loading InsightFace AntelopeV2 models from %s...", root_dir)
+                    available_providers = ort.get_available_providers()
+                    if "CUDAExecutionProvider" in available_providers:
+                        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                        ctx_id = 0
+                        dev = "CUDA"
+                    else:
+                        providers = ["CPUExecutionProvider"]
+                        ctx_id = -1
+                        dev = "CPU"
 
-            app = FaceAnalysis(name="antelopev2", root=str(root_dir), providers=providers)
-            app.prepare(ctx_id=ctx_id, det_size=(640, 640))
-            self._face_app = app
-            log.info("InsightFace AntelopeV2 loaded and ready on %s", dev)
+                    app = FaceAnalysis(name="antelopev2", root=str(root_dir), providers=providers)
+                    app.prepare(ctx_id=ctx_id, det_size=(640, 640))
+                    self._face_app = app
+                    log.info("InsightFace AntelopeV2 loaded and ready on %s", dev)
+                    return self._face_app
+                except Exception as e:
+                    log.warning("Could not initialize AntelopeV2 from %s: %s", root_dir, e)
+
+            # 2. Try default InsightFace buffalo_s on CPU if installed
+            try:
+                from insightface.app import FaceAnalysis
+                app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
+                app.prepare(ctx_id=-1, det_size=(640, 640))
+                self._face_app = app
+                log.info("InsightFace buffalo_s fallback loaded and ready")
+                return self._face_app
+            except Exception as e:
+                log.warning("InsightFace default model unavailable: %s", e)
+
+            # 3. Fallback dummy detector (prevents 500 crash, keeps camera preview live)
+            class _SafeFallbackDetector:
+                def get(self, frame):
+                    return []
+
+            self._face_app = _SafeFallbackDetector()
             return self._face_app
 
     def _ensure_camera(self) -> cv2.VideoCapture:
@@ -352,8 +377,18 @@ def get_camera_status():
 
 @app.get("/api/camera/frame", response_model=CameraFrameResponse)
 def get_camera_frame():
-    data = camera_service.get_frame_and_eval()
-    return CameraFrameResponse(**data)
+    try:
+        data = camera_service.get_frame_and_eval()
+        return CameraFrameResponse(**data)
+    except Exception as e:
+        log.exception("Camera frame evaluation error: %s", e)
+        return CameraFrameResponse(
+            success=False,
+            feedback_code="camera_error",
+            feedback_text=f"Camera error: {e}",
+            can_capture=False,
+            error=str(e),
+        )
 
 
 @app.post("/api/camera/capture", response_model=CameraCaptureResponse)
@@ -362,7 +397,19 @@ def capture_frame():
         data = camera_service.capture_confirmed_frame()
         return CameraCaptureResponse(**data)
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        log.exception("Camera capture error: %s", e)
+        return CameraCaptureResponse(
+            success=False,
+            file_path="",
+            file_name="",
+            timestamp="",
+            width=0,
+            height=0,
+            feedback_code="camera_error",
+            feedback_text=f"Failed to capture frame: {e}",
+            can_capture=False,
+            error=str(e),
+        )
 
 
 @app.post("/api/camera/release", response_model=CameraReleaseResponse)
