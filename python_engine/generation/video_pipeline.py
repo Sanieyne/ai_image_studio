@@ -37,8 +37,10 @@ class LTXVideoEngine:
                 f"Download ltxv-2b-0.9.8-distilled-fp8.safetensors first.")
         import torch
         from diffusers import LTXImageToVideoPipeline, LTXVideoTransformer3DModel
+        from generation.device import get_device
 
-        dtype = (torch.bfloat16 if torch.cuda.is_available()
+        device_str, _ = get_device()
+        dtype = (torch.bfloat16 if device_str in ("cuda", "mps")
                  else torch.float32)
         print(f"[*] Loading LTX transformer from {TRANSFORMER_FILE}...")
         transformer = LTXVideoTransformer3DModel.from_single_file(
@@ -47,13 +49,15 @@ class LTXVideoEngine:
               f"{BASE_REPO} (config/tokenizer/vae/scheduler)...")
         self.pipe = LTXImageToVideoPipeline.from_pretrained(
             BASE_REPO, transformer=transformer, torch_dtype=dtype)
-        if torch.cuda.is_available():
+        if device_str == "cuda":
             self.pipe.enable_model_cpu_offload()
             try:
                 self.pipe.vae.enable_tiling()
                 self.pipe.vae.enable_slicing()
             except Exception:
                 pass
+        elif device_str == "mps":
+            self.pipe.to("mps")
         print("[OK] LTX video pipeline ready.")
 
     def generate_mp4(
@@ -77,8 +81,9 @@ class LTXVideoEngine:
         if seed == -1:
             import random
             seed = random.randint(0, 2 ** 31 - 1)
-        if torch.cuda.is_available():
-            generator = torch.Generator(device="cuda").manual_seed(seed)
+        from generation.device import get_device
+        device_str, _ = get_device()
+        generator = torch.Generator(device=device_str).manual_seed(seed)
 
         image = init_image
         if isinstance(image, (bytes, bytearray)):
@@ -149,13 +154,17 @@ class WanAnimateEngine:
                 self.model_path,
                 torch_dtype=torch.bfloat16,
             )
-            if torch.cuda.is_available():
+            from generation.device import get_device
+            device_str, _ = get_device()
+            if device_str == "cuda":
                 self.pipe.enable_model_cpu_offload()
                 try:
                     self.pipe.vae.enable_tiling()
                     self.pipe.vae.enable_slicing()
                 except Exception:
                     pass
+            elif device_str == "mps":
+                self.pipe.to("mps")
             log.info("[OK] Wan 2.2 Animate 14B ready!")
         except Exception as e:
             log.warning("[!] WanAnimatePipeline init failed: %s. Will use fallback.", e)
@@ -367,13 +376,17 @@ class MiniMaxH3Engine:
             pipe.transformer.requires_grad_(False)
             pipe.text_encoder.requires_grad_(False)
 
-            if torch.cuda.is_available():
+            from generation.device import get_device
+            device_str, _ = get_device()
+            if device_str == "cuda":
                 print("[*] Setting up block-level GPU offloading (streamed to CUDA)...")
                 offload = dict(onload_device=torch.device("cuda"), offload_device=torch.device("cpu"), use_stream=False)
                 pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
                 apply_group_offloading(pipe.text_encoder.model, offload_type="leaf_level", **offload)
                 pipe.vae.to("cuda")
                 pipe.audio_vae.to("cuda")
+            elif device_str == "mps":
+                pipe.to("mps")
 
             self.pipeline = pipe
             print("[OK] MiniMax-H3 Pipeline loaded and ready!")
@@ -469,7 +482,9 @@ class MiniMaxH3Engine:
                 else:  # "16:9"
                     h, w = 768, 1360
 
-                gen = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
+                from generation.device import get_device
+                device_str, _ = get_device()
+                gen = torch.Generator(device=device_str).manual_seed(seed)
                 kwargs = {
                     "prompt": prompt,
                     "height": h,
@@ -613,13 +628,17 @@ class Wan2_1Engine:
             else:
                 raise ValueError(f"Unsupported Wan2.1 task: {task}")
 
-            if torch.cuda.is_available():
+            from generation.device import get_device
+            device_str, _ = get_device()
+            if device_str == "cuda":
                 pipe.enable_model_cpu_offload()
                 try:
                     pipe.vae.enable_tiling()
                     pipe.vae.enable_slicing()
                 except Exception:
                     pass
+            elif device_str == "mps":
+                pipe.to("mps")
             self.pipes[task] = pipe
             log.info("Wan2.1 %s ready!", task)
             return
@@ -704,7 +723,9 @@ class Wan2_1Engine:
                 import torch
                 from diffusers.utils import export_to_video
 
-                generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
+                from generation.device import get_device
+                device_str, _ = get_device()
+                generator = torch.Generator(device=device_str).manual_seed(seed)
                 call_kwargs = {
                     "prompt": effective_prompt,
                     "negative_prompt": negative_prompt,

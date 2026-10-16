@@ -30,4 +30,5 @@ python_engine/weights/
 *.safetensors
 *.bin
 *.onnx
+staging/
 

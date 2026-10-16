@@ -6,7 +6,7 @@ import io
 import logging
 import os
 import time
-from typing import Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, status
 from PIL import Image
@@ -31,6 +31,11 @@ from api.schemas import (
     EnhanceResponse,
     AvailableModelsResponse,
     ModelItem,
+    CameraFaceMetrics,
+    CameraFrameResponse,
+    CameraCaptureResponse,
+    CameraReleaseResponse,
+    CameraStatusResponse,
 )
 
 from generation.pipeline import (
@@ -711,5 +716,63 @@ def enhance_image(req: EnhanceRequest) -> EnhanceResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Image enhancement failed: {e}",
         )
+
+
+# =========================================================================
+# Camera Capture & Live Framing Endpoints
+# =========================================================================
+
+@router.get("/api/camera/frame", response_model=CameraFrameResponse)
+def get_camera_frame(seek_frame: Optional[int] = None) -> CameraFrameResponse:
+    """Acquire the latest camera frame and return InsightFace framing evaluation."""
+    from generation.camera_service import get_camera_service
+    service = get_camera_service()
+    try:
+        data = service.get_frame_and_eval(seek_frame=seek_frame)
+        return CameraFrameResponse(**data)
+    except Exception as e:
+        log.exception("Camera frame evaluation error: %s", e)
+        return CameraFrameResponse(
+            success=False,
+            feedback_code="camera_error",
+            feedback_text=f"Camera error: {e}",
+            can_capture=False,
+            error=str(e),
+        )
+
+
+@router.post("/api/camera/capture", response_model=CameraCaptureResponse)
+def capture_camera_frame(seek_frame: Optional[int] = None) -> CameraCaptureResponse:
+    """Capture a confirmed high-quality frame and save it to staging directory."""
+    from generation.camera_service import get_camera_service
+    service = get_camera_service()
+    try:
+        data = service.capture_confirmed_frame(seek_frame=seek_frame)
+        return CameraCaptureResponse(**data)
+    except Exception as e:
+        log.exception("Camera capture error: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to capture frame: {e}",
+        )
+
+
+@router.post("/api/camera/release", response_model=CameraReleaseResponse)
+def release_camera() -> CameraReleaseResponse:
+    """Explicitly release the camera hardware handle."""
+    from generation.camera_service import get_camera_service
+    service = get_camera_service()
+    data = service.release()
+    return CameraReleaseResponse(**data)
+
+
+@router.get("/api/camera/status", response_model=CameraStatusResponse)
+def get_camera_status() -> CameraStatusResponse:
+    """Check the current camera hardware capture and watchdog status."""
+    from generation.camera_service import get_camera_service
+    service = get_camera_service()
+    data = service.get_status()
+    return CameraStatusResponse(**data)
+
 
 

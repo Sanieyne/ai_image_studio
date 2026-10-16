@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/engine_process_manager.dart';
+import '../services/model_download_service.dart';
+import '../screens/downloads_screen.dart';
 
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../theme/app_theme.dart';
@@ -20,6 +23,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onMenuToggle;
   final StudioExecutionMode executionMode;
   final ValueChanged<StudioExecutionMode>? onExecutionModeChanged;
+  final VoidCallback? onOpenDownloads;
 
   const TopBar({
     super.key,
@@ -36,6 +40,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.onMenuToggle,
     this.executionMode = StudioExecutionMode.local,
     this.onExecutionModeChanged,
+    this.onOpenDownloads,
   });
 
   final String? deviceName;
@@ -218,6 +223,18 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 child: const Text('+ Buy Credits',
                     style: TextStyle(fontSize: 13)),
+              ),
+              const SizedBox(width: 8),
+              // Downloads management entry point.
+              _DownloadsTopBarButton(
+                border: border,
+                muted: muted,
+                onTap: onOpenDownloads ??
+                    () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const DownloadsScreen(),
+                          ),
+                        ),
               ),
               const SizedBox(width: 8),
               // Theme toggle.
@@ -435,6 +452,107 @@ class _ToggleOpt extends StatelessWidget {
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: active ? Colors.white : muted)),
+    );
+  }
+}
+
+class _DownloadsTopBarButton extends StatefulWidget {
+  final Color border;
+  final Color muted;
+  final VoidCallback onTap;
+
+  const _DownloadsTopBarButton({
+    required this.border,
+    required this.muted,
+    required this.onTap,
+  });
+
+  @override
+  State<_DownloadsTopBarButton> createState() => _DownloadsTopBarButtonState();
+}
+
+class _DownloadsTopBarButtonState extends State<_DownloadsTopBarButton> {
+  StreamSubscription<ModelDownloadProgress>? _sub;
+  bool _isDownloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _isDownloading = ModelDownloadService.instance.hasActiveDownloads;
+    _sub = ModelDownloadService.instance.globalProgressStream.listen((prog) {
+      final active = ModelDownloadService.instance.hasActiveDownloads;
+      if (mounted && _isDownloading != active) {
+        setState(() => _isDownloading = active);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: _isDownloading
+          ? 'Downloads in progress — click to manage'
+          : 'Downloads & model storage',
+      child: InkWell(
+        onTap: widget.onTap,
+        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+            border: Border.all(
+              color: _isDownloading
+                  ? LuminaColors.cyan.withValues(alpha: 0.8)
+                  : widget.border,
+            ),
+            color: _isDownloading
+                ? LuminaColors.cyan.withValues(alpha: 0.12)
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Icon(
+                    Icons.download_rounded,
+                    size: 16,
+                    color: _isDownloading ? LuminaColors.cyan : widget.muted,
+                  ),
+                  if (_isDownloading)
+                    const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(LuminaColors.cyan),
+                      ),
+                    ),
+                ],
+              ),
+              if (_isDownloading) ...[
+                const SizedBox(width: 6),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: LuminaColors.cyan,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

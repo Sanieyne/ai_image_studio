@@ -213,3 +213,54 @@ class EnhanceResponse(BaseModel):
     scale: int = 4
     model_name: str = "amd/realesrgan-x4plus"
     inference_time_ms: int = 0
+
+
+class CameraFaceMetrics(BaseModel):
+    bbox: List[int]
+    score: float
+    area_ratio: float
+    offset_x: float
+    offset_y: float
+    width: int
+    height: int
+
+
+class CameraFrameResponse(BaseModel):
+    success: bool
+    image_base64: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    faces_count: int = 0
+    feedback_code: str
+    feedback_text: str
+    can_capture: bool
+    face_metrics: Optional[CameraFaceMetrics] = None
+    error: Optional[str] = None
+
+
+class CameraCaptureResponse(BaseModel):
+    success: bool
+    file_path: str
+    file_name: str
+    timestamp: str
+    width: int
+    height: int
+    feedback_code: str
+    feedback_text: str
+    can_capture: bool
+    face_metrics: Optional[CameraFaceMetrics] = None
+    image_base64: Optional[str] = None
+    error: Optional[str] = None
+
+
+class CameraReleaseResponse(BaseModel):
+    released: bool
+    message: str
+
+
+class CameraStatusResponse(BaseModel):
+    active: bool
+    source: Optional[str] = None
+    is_mock_feed: bool = False
+    idle_seconds: Optional[float] = None
+    inactivity_timeout: float = 5.0

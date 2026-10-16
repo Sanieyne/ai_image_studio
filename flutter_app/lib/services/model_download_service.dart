@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import 'api_client.dart';
+import 'auth_service.dart';
 
 enum ModelDownloadStatus {
   notDownloaded,
@@ -158,8 +159,13 @@ class ModelDownloadService {
 
   final ApiClient _apiClient = ApiClient();
   final Map<String, StreamController<ModelDownloadProgress>> _controllers = {};
+  final StreamController<ModelDownloadProgress> _globalProgressController =
+      StreamController<ModelDownloadProgress>.broadcast();
   final Map<String, ModelDownloadProgress> _currentProgress = {};
   final Map<String, _Job> _jobs = {};
+
+  /// Optional default auth token to use when downloading or fetching URLs
+  String? defaultAuthToken;
 
   /// Canonical mapping from various UI display names / aliases to catalog IDs
   static final Map<String, String> _idMapping = {
@@ -334,19 +340,77 @@ class ModelDownloadService {
     return _currentProgress[canonicalId];
   }
 
+  /// Stream of download progress across all models
+  Stream<ModelDownloadProgress> get globalProgressStream => _globalProgressController.stream;
+
+  /// Whether any model download is currently active
+  bool get hasActiveDownloads {
+    if (_jobs.isNotEmpty) return true;
+    return _currentProgress.values.any((p) =>
+        p.status == ModelDownloadStatus.downloading ||
+        p.status == ModelDownloadStatus.checking ||
+        p.status == ModelDownloadStatus.waitingForNetwork ||
+        p.status == ModelDownloadStatus.verifying);
+  }
+
+  /// Calculates size on disk in bytes for a downloaded model
+  Future<int> getDownloadedModelSizeBytes(String rawModelId) async {
+    final canonicalId = normalizeModelId(rawModelId);
+    final dir = getModelDirectory(canonicalId);
+    var total = 0;
+    if (dir.existsSync()) {
+      try {
+        for (final entity in dir.listSync(recursive: true)) {
+          if (entity is File && !entity.path.endsWith('.part')) {
+            total += entity.lengthSync();
+          }
+        }
+      } catch (_) {}
+    }
+    if (total == 0 && canonicalId == 'realesrgan-x4plus') {
+      final alt1 = File('/workspace/models/realesrgan/RealESRGAN_x4plus.pth');
+      final alt2 = File('/root/models/realesrgan/RealESRGAN_x4plus.pth');
+      final alt3 = File(p.join(Platform.environment['HOME'] ?? '', '.cache/realesrgan/RealESRGAN_x4plus.pth'));
+      if (alt1.existsSync()) {
+        total = alt1.lengthSync();
+      } else if (alt2.existsSync()) {
+        total = alt2.lengthSync();
+      } else if (alt3.existsSync()) {
+        total = alt3.lengthSync();
+      }
+    }
+    return total;
+  }
+
+  /// Calculates total size on disk in bytes across all specified models
+  Future<int> getTotalDownloadedSizeBytes(Iterable<String> modelIds) async {
+    var total = 0;
+    for (final id in modelIds) {
+      if (await isModelDownloaded(id)) {
+        total += await getDownloadedModelSizeBytes(id);
+      }
+    }
+    return total;
+  }
+
   void _emitProgress(ModelDownloadProgress progress) {
     _currentProgress[progress.modelId] = progress;
     _controllers[progress.modelId]?.add(progress);
+    _globalProgressController.add(progress);
   }
 
   /// Fetches signed download URLs from the backend
   Future<Map<String, dynamic>> fetchDownloadUrls(String rawModelId, {String? authToken}) async {
     final canonicalId = normalizeModelId(rawModelId);
+    final effectiveToken = authToken ??
+        defaultAuthToken ??
+        AuthService.instance.accessToken ??
+        Platform.environment['LUMINA_AUTH_TOKEN'];
     try {
-      final headers = authToken != null ? {'Authorization': 'Bearer $authToken'} : null;
+      final headers = effectiveToken != null ? {'Authorization': 'Bearer $effectiveToken'} : null;
       final res = await _apiClient.get(
         'models/$canonicalId/download-urls',
-        auth: authToken == null,
+        auth: false,
         headers: headers,
       );
       if (res.statusCode == 200) {
@@ -362,7 +426,7 @@ class ModelDownloadService {
         final localUri = Uri.parse('http://localhost:5000/api/v1/models/$canonicalId/download-urls');
         final localReq = await http.get(
           localUri,
-          headers: authToken != null ? {'Authorization': 'Bearer $authToken'} : null,
+          headers: effectiveToken != null ? {'Authorization': 'Bearer $effectiveToken'} : null,
         );
         if (localReq.statusCode == 200) {
           final json = jsonDecode(localReq.body);
@@ -459,6 +523,10 @@ class ModelDownloadService {
   /// Downloads a model end-to-end. Resumes partial files; survives dropped
   /// connections, stalls and expired links (see the class comment).
   Future<void> downloadModel(String rawModelId, {String? authToken}) async {
+    final effectiveAuthToken = authToken ??
+        defaultAuthToken ??
+        AuthService.instance.accessToken ??
+        Platform.environment['LUMINA_AUTH_TOKEN'];
     final canonicalId = normalizeModelId(rawModelId);
     if (_jobs.containsKey(canonicalId)) return; // already running
     final job = _Job();
@@ -468,7 +536,7 @@ class ModelDownloadService {
     var aggregate = 0;
     var totalBytes = 0;
     try {
-      var data = await _fetchUrls(canonicalId, authToken);
+      var data = await _fetchUrls(canonicalId, effectiveAuthToken);
       final files = List<Map<String, dynamic>>.from(
           (data['files'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map)));
       totalBytes = (data['totalBytes'] as num?)?.toInt() ??
@@ -502,16 +570,24 @@ class ModelDownloadService {
       }
 
       await _setPending(canonicalId, true);
-      void emit(ModelDownloadStatus status, {String? file, String? message}) => _emitProgress(ModelDownloadProgress(
-            modelId: canonicalId,
-            status: status,
-            downloadedBytes: aggregate,
-            totalBytes: totalBytes,
-            percentage: totalBytes > 0 ? (aggregate / totalBytes).clamp(0.0, 1.0) : 0.0,
-            currentFile: file,
-            errorMessage: message,
-          ));
-      emit(ModelDownloadStatus.downloading);
+      int lastEmitMs = 0;
+      void emit(ModelDownloadStatus status, {String? file, String? message, bool force = false}) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (!force && status == ModelDownloadStatus.downloading && now - lastEmitMs < 80) {
+          return;
+        }
+        lastEmitMs = now;
+        _emitProgress(ModelDownloadProgress(
+          modelId: canonicalId,
+          status: status,
+          downloadedBytes: aggregate,
+          totalBytes: totalBytes,
+          percentage: totalBytes > 0 ? (aggregate / totalBytes).clamp(0.0, 1.0) : 0.0,
+          currentFile: file,
+          errorMessage: message,
+        ));
+      }
+      emit(ModelDownloadStatus.downloading, force: true);
 
       for (var i = 0; i < files.length; i++) {
         final f = files[i];
@@ -562,7 +638,7 @@ class ModelDownloadService {
           } on _UrlExpired {
             refreshes += 1;
             if (refreshes > 3) throw _Fatal('Download link for $filename keeps being refused.');
-            data = await _fetchUrls(canonicalId, authToken);
+            data = await _fetchUrls(canonicalId, effectiveAuthToken);
             final fresh = (data['files'] as List? ?? const [])
                 .map((e) => Map<String, dynamic>.from(e as Map))
                 .where((e) => e['filename'] == filename)
@@ -576,6 +652,7 @@ class ModelDownloadService {
           } on InsufficientDiskSpaceException {
             rethrow;
           } catch (e) {
+            print('[ModelDownloadService fetchFile error]: $e');
             if (job.cancelRequested || job.pauseRequested) continue; // loop top throws _Interrupted
             failures += 1;
             if (failures > maxNetworkRetries) {
@@ -786,6 +863,19 @@ class ModelDownloadService {
     final dir = getModelDirectory(canonicalId);
     if (dir.existsSync()) {
       await dir.delete(recursive: true);
+    }
+    if (canonicalId == 'realesrgan-x4plus') {
+      final targets = [
+        '/workspace/models/realesrgan/RealESRGAN_x4plus.pth',
+        '/root/models/realesrgan/RealESRGAN_x4plus.pth',
+        p.join(Platform.environment['HOME'] ?? '', '.cache/realesrgan/RealESRGAN_x4plus.pth'),
+      ];
+      for (final t in targets) {
+        try {
+          final f = File(t);
+          if (f.existsSync()) f.deleteSync();
+        } catch (_) {}
+      }
     }
     _emitProgress(ModelDownloadProgress(
       modelId: canonicalId,

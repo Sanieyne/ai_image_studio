@@ -5,6 +5,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'screens/downloads_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -12,6 +13,7 @@ import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/engine_process_manager.dart';
 import 'theme/app_theme.dart';
+import 'widgets/top_bar.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -65,10 +67,27 @@ class _AiImageStudioAppState extends State<AiImageStudioApp> {
       theme: LuminaTheme.light,
       darkTheme: LuminaTheme.dark,
       themeMode: _mode,
-      home: AuthGate(
-        isDark: _mode == ThemeMode.dark,
-        onThemeToggle: _toggleTheme,
-      ),
+      home: Platform.environment['DIRECT_SCREEN'] == 'downloads'
+          ? Scaffold(
+              backgroundColor: LuminaColors.darkBg,
+              body: Column(
+                children: [
+                  TopBar(
+                    engineOnline: true,
+                    cloudOnline: false,
+                    credits: 2450,
+                    isDark: _mode == ThemeMode.dark,
+                    onThemeToggle: _toggleTheme,
+                    workspaceLabel: 'Neural Inference Hub',
+                  ),
+                  const Expanded(child: DownloadsScreen()),
+                ],
+              ),
+            )
+          : AuthGate(
+              isDark: _mode == ThemeMode.dark,
+              onThemeToggle: _toggleTheme,
+            ),
     );
   }
 }

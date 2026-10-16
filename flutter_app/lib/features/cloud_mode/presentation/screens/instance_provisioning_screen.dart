@@ -749,7 +749,7 @@ class _InstanceProvisioningScreenState
   String _getSubtitleText() {
     switch (_state) {
       case ProvisioningState.provisioning:
-        return 'Allocating dedicated GPU hardware and configuring high-speed R2 stream channels.';
+        return 'Allocating dedicated GPU hardware and configuring high-speed stream channels.';
       case ProvisioningState.downloadingModel:
         final readyCount = _models.where((m) => m.status == 'ready').length;
         if (readyCount > 0) {
@@ -1149,7 +1149,7 @@ class _InstanceProvisioningScreenState
           ),
         );
         trailingInfo = Text(
-          'Streaming R2...',
+          'Streaming weights...',
           style: TextStyle(fontSize: 11, color: muted),
         );
         break;

@@ -152,7 +152,8 @@ class ChatterboxVoiceEngine:
 
     def __init__(self):
         self.mock_mode = os.getenv("AI_STUDIO_MOCK", "0") == "1"
-        self.device = "cuda"
+        from generation.device import get_device
+        self.device, self._torch_device = get_device()
         self._en_model = None
         self._mtl_model = None
         self._breeze_runtime = None
@@ -160,8 +161,8 @@ class ChatterboxVoiceEngine:
 
     def _check_environment(self):
         try:
-            import torch
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            from generation.device import get_device
+            self.device, self._torch_device = get_device()
         except Exception:
             self.device = "cpu"
             self.mock_mode = True
@@ -355,8 +356,10 @@ class ChatterboxVoiceEngine:
 
         try:
             import torch
-            if torch.cuda.is_available():
+            if torch is not None:
                 torch.manual_seed(seed)
+                if self.device == "cuda" and torch.cuda.is_available():
+                    torch.cuda.manual_seed_all(seed)
         except Exception:
             pass
 

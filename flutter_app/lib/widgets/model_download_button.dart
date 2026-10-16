@@ -8,6 +8,7 @@ class ModelDownloadButton extends StatefulWidget {
   final String displayName;
   final VoidCallback? onUse;
   final bool isSelected;
+  final bool? isInitiallyDownloaded;
 
   const ModelDownloadButton({
     super.key,
@@ -15,15 +16,45 @@ class ModelDownloadButton extends StatefulWidget {
     required this.displayName,
     this.onUse,
     this.isSelected = false,
+    this.isInitiallyDownloaded,
   });
+
+  /// Reusable confirmation dialog and deletion logic for any UI screen
+  static Future<bool> confirmAndDelete(
+    BuildContext context,
+    String modelId,
+    String displayName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Model Weights?'),
+        content: Text('This will delete all local weight files for $displayName to free up disk space.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await ModelDownloadService.instance.deleteModel(modelId);
+      return true;
+    }
+    return false;
+  }
 
   @override
   State<ModelDownloadButton> createState() => _ModelDownloadButtonState();
 }
 
 class _ModelDownloadButtonState extends State<ModelDownloadButton> {
-  bool _isDownloaded = false;
-  bool _isLoading = true;
+  late bool _isDownloaded = widget.isInitiallyDownloaded ?? false;
+  late bool _isLoading = widget.isInitiallyDownloaded == null;
   bool _hasUnfinished = false;
   StreamSubscription<ModelDownloadProgress>? _sub;
   ModelDownloadProgress? _progress;
@@ -141,7 +172,7 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Weights will be downloaded from Cloudflare R2 into your local engine models directory.',
+                'Weights will be downloaded to your local engine models directory.',
                 style: TextStyle(fontSize: 12, color: dark ? Colors.white70 : Colors.black87),
               ),
               const SizedBox(height: 14),
@@ -230,24 +261,8 @@ class _ModelDownloadButtonState extends State<ModelDownloadButton> {
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Model Weights?'),
-        content: Text('This will delete all local weight files for ${widget.displayName} to free up disk space.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await ModelDownloadService.instance.deleteModel(widget.modelId);
+    final deleted = await ModelDownloadButton.confirmAndDelete(context, widget.modelId, widget.displayName);
+    if (deleted) {
       await _checkStatus();
     }
   }

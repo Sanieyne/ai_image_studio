@@ -136,7 +136,8 @@ class EnhancerEngine:
 
     def __init__(self, weights_dir: Optional[str] = None):
         self.mock_mode = os.getenv("AI_STUDIO_MOCK", "0") == "1"
-        self.device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
+        from generation.device import get_device
+        self.device, self._torch_device = get_device()
         self.model: Optional[torch.nn.Module] = None
         self.current_model_name: Optional[str] = None
         self.weights_dir = weights_dir or os.getenv("REALESRGAN_WEIGHTS_DIR", "weights")

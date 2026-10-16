@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import '../models/generation_request.dart';
 import '../models/generation_result.dart';
 import '../models/lora.dart';
+import '../models/camera_frame_result.dart';
 /// Information about an available model returned by GET /models/available
 class AvailableModelInfo {
   final String id;
@@ -839,6 +840,95 @@ class ApiService {
       byteData.setInt16(44 + i * 2, val, Endian.little);
     }
     return byteData.buffer.asUint8List();
+  }
+
+  /// GET /api/camera/frame -> Real-time camera frame + InsightFace framing evaluation
+  Future<CameraFrameResult> getCameraFrame() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/api/camera/frame'))
+          .timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return CameraFrameResult.fromJson(data);
+      }
+      return CameraFrameResult(
+        success: false,
+        feedbackCode: 'http_error',
+        feedbackText: 'Camera service error (${response.statusCode})',
+        canCapture: false,
+      );
+    } catch (e) {
+      return CameraFrameResult(
+        success: false,
+        feedbackCode: 'network_error',
+        feedbackText: 'Cannot connect to camera engine: $e',
+        canCapture: false,
+      );
+    }
+  }
+
+  /// POST /api/camera/capture -> Confirms and saves frame to staging directory
+  Future<CameraCaptureResult> captureCameraFrame() async {
+    try {
+      final response = await _client
+          .post(Uri.parse('$baseUrl/api/camera/capture'))
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        return CameraCaptureResult.fromJson(data);
+      }
+      return CameraCaptureResult(
+        success: false,
+        filePath: '',
+        fileName: '',
+        timestamp: '',
+        width: 0,
+        height: 0,
+        feedbackCode: 'http_error',
+        feedbackText: 'Capture failed (${response.statusCode})',
+        canCapture: false,
+        error: 'HTTP ${response.statusCode}: ${response.body}',
+      );
+    } catch (e) {
+      return CameraCaptureResult(
+        success: false,
+        filePath: '',
+        fileName: '',
+        timestamp: '',
+        width: 0,
+        height: 0,
+        feedbackCode: 'network_error',
+        feedbackText: 'Capture request failed: $e',
+        canCapture: false,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// POST /api/camera/release -> Releases camera hardware device
+  Future<bool> releaseCamera() async {
+    try {
+      final response = await _client
+          .post(Uri.parse('$baseUrl/api/camera/release'))
+          .timeout(const Duration(seconds: 4));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// GET /api/camera/status -> Camera hardware & watchdog status
+  Future<Map<String, dynamic>> getCameraStatus() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/api/camera/status'))
+          .timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return {'active': false};
   }
 
   void dispose() => _client.close();

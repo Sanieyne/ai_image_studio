@@ -485,6 +485,22 @@ class CloudApiService {
       sizeGB: 0.15,
       requiredVramGB: 4,
     ),
+    CloudModel(
+      modelId: 'breeze-tts-2',
+      displayName: 'Breeze TTS 2',
+      mode: 'voice',
+      hfRepoId: 'BreezeBlue/Breeze-TTS-2',
+      sizeGB: 7.7,
+      requiredVramGB: 8,
+    ),
+    CloudModel(
+      modelId: 'instantid',
+      displayName: 'InstantID Face-Lock',
+      mode: 'image',
+      hfRepoId: 'InstantX/InstantID',
+      sizeGB: 4.6,
+      requiredVramGB: 12,
+    ),
   ];
 
   // =========================================================================
