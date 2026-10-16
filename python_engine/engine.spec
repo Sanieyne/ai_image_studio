@@ -33,6 +33,11 @@ hiddenimports = [
     'generation.enhancer_pipeline',
     'generation.model_status',
     'generation.model_paths',
+    'generation.camera_service',
+    'generation.live_face_swap',
+    'cv2',
+    'insightface',
+    'onnxruntime',
     'download_model',
     'self_test',
     'failure_server',
@@ -106,6 +111,8 @@ metadata_packages = [
     'uvicorn',
     'pydantic',
     'huggingface-hub',
+    'insightface',
+    'onnxruntime',
 ]
 
 for pkg in metadata_packages:
