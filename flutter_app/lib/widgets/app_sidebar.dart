@@ -75,6 +75,7 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<String>? onSelectImageModel;
   final ValueChanged<String>? onSelectEnhancerModel;
   final VoidCallback? onOpenCloudMode;
+  final VoidCallback? onOpenDeepFaceCamera;
   final SidebarTab? activeTab;
 
   const AppSidebar({
@@ -102,6 +103,7 @@ class AppSidebar extends StatefulWidget {
     this.onSelectImageModel,
     this.onSelectEnhancerModel,
     this.onOpenCloudMode,
+    this.onOpenDeepFaceCamera,
     this.activeTab,
   });
 
@@ -1954,6 +1956,77 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                   fontSize: 12.5,
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // DEEPFACE WEBCAM CAPTURE ACTION
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              gradient: LinearGradient(
+                colors: dark
+                    ? [const Color(0xFF1E293B), const Color(0xFF0F172A)]
+                    : [const Color(0xFFF1F5F9), const Color(0xFFE2E8F0)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(
+                color: LuminaColors.primaryStart.withValues(alpha: 0.35),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: LuminaColors.primaryStart.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.face_retouching_natural,
+                    color: LuminaColors.primaryEnd,
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'DeepFace Camera',
+                        style: TextStyle(
+                            fontSize: 12.5, fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Live face framing & capture',
+                        style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                FilledButton.tonal(
+                  onPressed: widget.onOpenDeepFaceCamera,
+                  style: FilledButton.tonalStyleFrom(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    backgroundColor:
+                        LuminaColors.primaryStart.withValues(alpha: 0.25),
+                  ),
+                  child: const Text(
+                    'Capture',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      color: LuminaColors.primaryEnd,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),

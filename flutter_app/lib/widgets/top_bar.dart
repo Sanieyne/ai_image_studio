@@ -7,6 +7,7 @@ import '../screens/downloads_screen.dart';
 
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../theme/app_theme.dart';
+import 'camera_capture_dialog.dart';
 
 /// Floating glass top bar: logo + workspace pill + Local/Cloud switcher on the left;
 /// credits pill, buy button, theme toggle and engine/cloud status on the right.
@@ -24,6 +25,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final StudioExecutionMode executionMode;
   final ValueChanged<StudioExecutionMode>? onExecutionModeChanged;
   final VoidCallback? onOpenDownloads;
+  final VoidCallback? onOpenDeepFaceCamera;
 
   const TopBar({
     super.key,
@@ -41,6 +43,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.executionMode = StudioExecutionMode.local,
     this.onExecutionModeChanged,
     this.onOpenDownloads,
+    this.onOpenDeepFaceCamera,
   });
 
   final String? deviceName;
@@ -223,6 +226,14 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 ),
                 child: const Text('+ Buy Credits',
                     style: TextStyle(fontSize: 13)),
+              ),
+              const SizedBox(width: 8),
+              // Live DeepFace Webcam Capture entry point.
+              _DeepFaceTopBarButton(
+                border: border,
+                muted: muted,
+                onTap: onOpenDeepFaceCamera ??
+                    () => CameraCaptureDialog.show(context),
               ),
               const SizedBox(width: 8),
               // Downloads management entry point.
@@ -556,3 +567,56 @@ class _DownloadsTopBarButtonState extends State<_DownloadsTopBarButton> {
     );
   }
 }
+
+class _DeepFaceTopBarButton extends StatelessWidget {
+  final Color border;
+  final Color muted;
+  final VoidCallback onTap;
+
+  const _DeepFaceTopBarButton({
+    required this.border,
+    required this.muted,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'DeepFace & Webcam Face Capture (InsightFace / InstantID)',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+            border: Border.all(
+              color: LuminaColors.primaryStart.withValues(alpha: 0.5),
+            ),
+            color: LuminaColors.primaryStart.withValues(alpha: 0.12),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.face_retouching_natural,
+                size: 16,
+                color: LuminaColors.primaryEnd,
+              ),
+              SizedBox(width: 6),
+              Text(
+                'DeepFace',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: LuminaColors.primaryEnd,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

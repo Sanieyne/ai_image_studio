@@ -7,10 +7,12 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
+import '../models/camera_frame_result.dart';
 import '../models/image_template.dart';
 import '../models/video_template.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'camera_capture_dialog.dart';
 import 'lora_manager.dart';
 
 typedef PromptGenerateCallback = FutureOr<void> Function(
@@ -188,6 +190,15 @@ class PromptInputBarState extends State<PromptInputBar> {
         _model = modeModels.first.value;
       }
       _applyModelDefaults(_model);
+    });
+  }
+
+  /// Sets captured face from webcam/DeepFace dialog
+  void setCapturedFace(Uint8List bytes, String fileName, [String? base64]) {
+    setState(() {
+      _referenceBytes = bytes;
+      _referenceName = fileName;
+      _referenceBase64 = base64 ?? base64Encode(bytes);
     });
   }
 
@@ -492,6 +503,57 @@ class PromptInputBarState extends State<PromptInputBar> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load reference image: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _openCameraCapture() async {
+    try {
+      final result = await CameraCaptureDialog.show(
+        context,
+        apiService: widget.apiService,
+      );
+      if (result != null && result.success && result.imageBytes != null) {
+        setState(() {
+          _referenceBytes = result.imageBytes;
+          _referenceName = 'Webcam: ${result.fileName ?? 'capture.jpg'}';
+          _referenceBase64 =
+              result.imageBase64 ?? base64Encode(result.imageBytes!);
+          if (_model == 'Wan 2.1 I2V 14B') {
+            _videoTemplateNotice = null;
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.face_retouching_natural,
+                      color: LuminaColors.primaryEnd, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'DeepFace attached: ${result.fileName ?? "Webcam Face"}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E293B),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to open camera: $e'),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -1348,12 +1410,22 @@ class PromptInputBarState extends State<PromptInputBar> {
                           : 'Attach driving video (Wan 2.2 Motion)',
                     ),
                     IconButton(
-                      onPressed: () =>
-                          _comingSoon('Camera reference'),
-                      icon: const Icon(Icons.camera_alt_outlined,
-                          size: 20),
-                      color: muted,
-                      tooltip: 'Camera reference',
+                      onPressed: _openCameraCapture,
+                      icon: Icon(
+                        _referenceBytes != null &&
+                                _referenceName?.startsWith('Webcam') == true
+                            ? Icons.face_retouching_natural
+                            : Icons.camera_alt_outlined,
+                        size: 20,
+                        color: _referenceBytes != null &&
+                                _referenceName?.startsWith('Webcam') == true
+                            ? LuminaColors.primaryGlow
+                            : muted,
+                      ),
+                      tooltip: _referenceBytes != null &&
+                              _referenceName?.startsWith('Webcam') == true
+                          ? 'Change DeepFace webcam capture'
+                          : 'DeepFace Webcam Capture',
                     ),
                     const SizedBox(width: 4),
                     Container(
