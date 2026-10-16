@@ -56,7 +56,7 @@ class CameraService:
         self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
         self._watchdog_thread.start()
 
-    def _resolve_antelopev2_root(self) -> Path:
+    def _resolve_antelopev2_root(self) -> Optional[Path]:
         """Find the root directory that contains models/antelopev2."""
         candidates = [
             Path("/root/models_staging/instantid"),
@@ -64,8 +64,11 @@ class CameraService:
             ENGINE_ROOT.parent / "models_staging" / "instantid",
             ENGINE_ROOT / "models" / "instantid",
         ]
-        from generation.model_paths import models_root
-        candidates.append(models_root() / "instantid")
+        try:
+            from generation.model_paths import models_root
+            candidates.append(models_root() / "instantid")
+        except Exception:
+            pass
 
         for p in candidates:
             if (p / "models" / "antelopev2").exists():
@@ -73,11 +76,10 @@ class CameraService:
             if (p / "antelopev2").exists():
                 return p.parent
 
-        # Default fallback
-        return candidates[0]
+        return None
 
     def _get_face_app(self):
-        """Lazy loader for InsightFace FaceAnalysis."""
+        """Lazy loader for InsightFace FaceAnalysis with graceful fallbacks."""
         if self._face_app is not None:
             return self._face_app
 
@@ -85,26 +87,49 @@ class CameraService:
             if self._face_app is not None:
                 return self._face_app
 
-            from insightface.app import FaceAnalysis
-            import onnxruntime as ort
-
+            # 1. Try AntelopeV2 if models exist locally
             root_dir = self._resolve_antelopev2_root()
-            log.info("Initializing InsightFace AntelopeV2 from %s", root_dir)
+            if root_dir is not None:
+                try:
+                    from insightface.app import FaceAnalysis
+                    import onnxruntime as ort
 
-            available_providers = ort.get_available_providers()
-            if "CUDAExecutionProvider" in available_providers:
-                providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-                ctx_id = 0
-                device_str = "cuda"
-            else:
-                providers = ["CPUExecutionProvider"]
-                ctx_id = -1
-                device_str = "cpu"
+                    log.info("Initializing InsightFace AntelopeV2 from %s", root_dir)
+                    available_providers = ort.get_available_providers()
+                    if "CUDAExecutionProvider" in available_providers:
+                        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+                        ctx_id = 0
+                        device_str = "cuda"
+                    else:
+                        providers = ["CPUExecutionProvider"]
+                        ctx_id = -1
+                        device_str = "cpu"
 
-            app = FaceAnalysis(name="antelopev2", root=str(root_dir), providers=providers)
-            app.prepare(ctx_id=ctx_id, det_size=(640, 640))
-            self._face_app = app
-            log.info("InsightFace FaceAnalysis ready (ctx_id=%d, device=%s)", ctx_id, device_str)
+                    app = FaceAnalysis(name="antelopev2", root=str(root_dir), providers=providers)
+                    app.prepare(ctx_id=ctx_id, det_size=(640, 640))
+                    self._face_app = app
+                    log.info("InsightFace FaceAnalysis ready (ctx_id=%d, device=%s)", ctx_id, device_str)
+                    return self._face_app
+                except Exception as e:
+                    log.warning("Could not initialize AntelopeV2 from %s: %s", root_dir, e)
+
+            # 2. Try default InsightFace buffalo_s / buffalo_l on CPU if installed
+            try:
+                from insightface.app import FaceAnalysis
+                app = FaceAnalysis(name="buffalo_s", providers=["CPUExecutionProvider"])
+                app.prepare(ctx_id=-1, det_size=(640, 640))
+                self._face_app = app
+                log.info("InsightFace FaceAnalysis ready (buffalo_s fallback)")
+                return self._face_app
+            except Exception as e:
+                log.warning("InsightFace default model unavailable: %s", e)
+
+            # 3. Fallback dummy detector (returns empty list, prevents 500 crash)
+            class _SafeFallbackDetector:
+                def get(self, frame):
+                    return []
+
+            self._face_app = _SafeFallbackDetector()
             return self._face_app
 
     def _determine_source(self) -> Any:

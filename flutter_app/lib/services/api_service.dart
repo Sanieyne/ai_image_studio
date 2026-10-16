@@ -852,10 +852,17 @@ class ApiService {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         return CameraFrameResult.fromJson(data);
       }
+      String errorDetail = '';
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['detail'] != null) {
+          errorDetail = ': ${body['detail']}';
+        }
+      } catch (_) {}
       return CameraFrameResult(
         success: false,
         feedbackCode: 'http_error',
-        feedbackText: 'Camera service error (${response.statusCode})',
+        feedbackText: 'Camera service error (${response.statusCode}$errorDetail)',
         canCapture: false,
       );
     } catch (e) {
@@ -878,6 +885,13 @@ class ApiService {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
         return CameraCaptureResult.fromJson(data);
       }
+      String errorDetail = '';
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['detail'] != null) {
+          errorDetail = ': ${body['detail']}';
+        }
+      } catch (_) {}
       return CameraCaptureResult(
         success: false,
         filePath: '',
@@ -886,7 +900,7 @@ class ApiService {
         width: 0,
         height: 0,
         feedbackCode: 'http_error',
-        feedbackText: 'Capture failed (${response.statusCode})',
+        feedbackText: 'Capture failed (${response.statusCode}$errorDetail)',
         canCapture: false,
         error: 'HTTP ${response.statusCode}: ${response.body}',
       );
