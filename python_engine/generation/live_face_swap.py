@@ -34,6 +34,38 @@ PROJECT_ROOT = os.path.dirname(
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models", "deep_live_cam")
 PRESETS_DIR = os.path.join(MODELS_DIR, "presets")
 
+# Auto-download helpers for fresh machine setups
+def _download_hf_file(url: str, target: str):
+    import urllib.request
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    temp_target = target + ".part"
+    logger.info(f"[LiveFaceSwap] Downloading {os.path.basename(target)} from {url}...")
+    req = urllib.request.Request(url, headers={"User-Agent": "Deep-Live-Cam"})
+    with urllib.request.urlopen(req, timeout=90) as resp, open(temp_target, "wb") as out:
+        while True:
+            chunk = resp.read(1024 * 512)
+            if not chunk:
+                break
+            out.write(chunk)
+    os.replace(temp_target, target)
+    logger.info(f"[LiveFaceSwap] Downloaded {os.path.basename(target)} successfully.")
+
+def _ensure_model_file(filename: str, target_path: str):
+    if os.path.exists(target_path) and os.path.getsize(target_path) > 1024:
+        return target_path
+    url = f"https://huggingface.co/hacksider/deep-live-cam/resolve/main/{filename}"
+    _download_hf_file(url, target_path)
+    return target_path
+
+def _ensure_buffalo_pack():
+    pack_dir = os.path.expanduser("~/.insightface/models/buffalo_l")
+    required = ["det_10g.onnx", "2d106det.onnx", "w600k_r50.onnx", "1k3d68.onnx", "genderage.onnx"]
+    for fname in required:
+        dest = os.path.join(pack_dir, fname)
+        if not os.path.exists(dest) or os.path.getsize(dest) < 1024:
+            url = f"https://huggingface.co/hacksider/deep-live-cam/resolve/main/buffalo_l/buffalo_l/{fname}"
+            _download_hf_file(url, dest)
+
 # FFHQ 512 5-point template for GFPGAN face alignment
 FFHQ_TEMPLATE_512 = np.array(
     [
@@ -145,7 +177,13 @@ class LiveFaceSwapService:
                 "Please run: pip install insightface"
             )
 
-        logger.info("[LiveFaceSwap] Loading face detection and analysis models...")
+        logger.info("[LiveFaceSwap] Ensuring face detection models are present...")
+        try:
+            _ensure_buffalo_pack()
+        except Exception as e:
+            logger.warning(f"[LiveFaceSwap] Could not auto-download buffalo_l pack: {e}")
+
+        logger.info("[LiveFaceSwap] Initializing FaceAnalysis...")
         self.face_analyser = FaceAnalysis(
             name="buffalo_l",
             root=os.path.expanduser("~/.insightface"),
@@ -154,19 +192,29 @@ class LiveFaceSwapService:
         # Using (320, 320) detection size for real-time video performance
         self.face_analyser.prepare(ctx_id=0, det_size=(320, 320))
 
-        # Check for FP16 or FP32 INSwapper
+        # Check for FP16 or FP32 INSwapper (auto-download if missing)
         fp16_path = os.path.join(MODELS_DIR, "inswapper_128_fp16.onnx")
         fp32_path = os.path.join(MODELS_DIR, "inswapper_128.onnx")
         model_path = fp16_path if os.path.exists(fp16_path) else fp32_path
 
         if not os.path.exists(model_path):
-            raise FileNotFoundError(f"No INSwapper model found in {MODELS_DIR}")
+            try:
+                _ensure_model_file("inswapper_128_fp16.onnx", fp16_path)
+                model_path = fp16_path
+            except Exception as e:
+                logger.error(f"[LiveFaceSwap] Failed to auto-download INSwapper: {e}")
+                raise FileNotFoundError(f"No INSwapper model found in {MODELS_DIR} and download failed: {e}")
 
         logger.info(f"[LiveFaceSwap] Loading INSwapper from {model_path}...")
         self.face_swapper = insightface.model_zoo.get_model(model_path)
 
-        # Preload GFPGAN if available
+        # Preload GFPGAN if available (auto-download if missing)
         gfpgan_path = os.path.join(MODELS_DIR, "gfpgan-1024.onnx")
+        if not os.path.exists(gfpgan_path):
+            try:
+                _ensure_model_file("gfpgan-1024.onnx", gfpgan_path)
+            except Exception as e:
+                logger.warning(f"[LiveFaceSwap] Could not auto-download GFPGAN: {e}")
         if os.path.exists(gfpgan_path):
             try:
                 import onnxruntime as ort
