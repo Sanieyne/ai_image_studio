@@ -1996,12 +1996,12 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'DeepFace Camera',
+                        'DeepFace Live Cam',
                         style: TextStyle(
                             fontSize: 12.5, fontWeight: FontWeight.w700),
                       ),
                       Text(
-                        'Live face framing & capture',
+                        'Live video call clone (Deep-Live-Cam)',
                         style: TextStyle(fontSize: 10.5, color: Colors.grey),
                       ),
                     ],

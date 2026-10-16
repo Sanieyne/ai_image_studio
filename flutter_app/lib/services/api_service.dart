@@ -10,6 +10,7 @@ import '../models/generation_request.dart';
 import '../models/generation_result.dart';
 import '../models/lora.dart';
 import '../models/camera_frame_result.dart';
+import '../models/live_cam_models.dart';
 /// Information about an available model returned by GET /models/available
 class AvailableModelInfo {
   final String id;
@@ -943,6 +944,122 @@ class ApiService {
       }
     } catch (_) {}
     return {'active': false};
+  }
+
+  // =========================================================================
+  // Deep-Live-Cam Real-time Web Video API
+  // =========================================================================
+
+  String getLiveCamStreamUrl() => '$baseUrl/api/live-cam/stream.mjpg';
+
+  /// POST /api/live-cam/start -> Starts real-time webcam face cloning
+  Future<LiveCamStatusResult> startLiveCam({
+    int cameraIndex = 0,
+    String? sourceImagePath,
+    bool enhance = false,
+    bool mirror = true,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/start'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'camera_index': cameraIndex,
+          'source_image_path': sourceImagePath,
+          'enhance': enhance,
+          'mirror': mirror,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return LiveCamStatusResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] startLiveCam error: $e');
+    }
+    return LiveCamStatusResult(success: false, message: 'Failed to start live cam');
+  }
+
+  /// POST /api/live-cam/stop -> Stops real-time webcam face cloning
+  Future<LiveCamStatusResult> stopLiveCam() async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/stop'),
+      ).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        return LiveCamStatusResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] stopLiveCam error: $e');
+    }
+    return LiveCamStatusResult(success: false, message: 'Failed to stop live cam');
+  }
+
+  /// GET /api/live-cam/status -> Current live cam streaming status
+  Future<LiveCamStatusResult> getLiveCamStatus() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/live-cam/status'),
+      ).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return LiveCamStatusResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (_) {}
+    return LiveCamStatusResult(success: false, message: 'Standby');
+  }
+
+  /// GET /api/live-cam/frame -> Real-time swapped frame buffer + telemetry
+  Future<LiveCamFrameResult> getLiveCamFrame() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/live-cam/frame'),
+      ).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return LiveCamFrameResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] getLiveCamFrame error: $e');
+    }
+    return LiveCamFrameResult(active: false, fps: 0.0, sourceName: 'None');
+  }
+
+  /// GET /api/live-cam/presets -> Celebrity / target face presets
+  Future<List<LiveCamPreset>> getLiveCamPresets() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/api/live-cam/presets'),
+      ).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final list = data['presets'] as List? ?? [];
+        return list.map((e) => LiveCamPreset.fromJson(e as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// POST /api/live-cam/set-source -> Swap active clone target instantly
+  Future<LiveCamStatusResult> setLiveCamSource({
+    String? presetName,
+    String? sourceImagePath,
+    String? imageBase64,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/set-source'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'preset_name': presetName,
+          'source_image_path': sourceImagePath,
+          'image_base64': imageBase64,
+        }),
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return LiveCamStatusResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] setLiveCamSource error: $e');
+    }
+    return LiveCamStatusResult(success: false, message: 'Failed to update target face');
   }
 
   void dispose() => _client.close();

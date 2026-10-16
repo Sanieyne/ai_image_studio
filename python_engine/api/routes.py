@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import StreamingResponse
 from PIL import Image
 
 from api.schemas import (
@@ -36,6 +37,12 @@ from api.schemas import (
     CameraCaptureResponse,
     CameraReleaseResponse,
     CameraStatusResponse,
+    LiveCamStartRequest,
+    LiveCamSetSourceRequest,
+    LiveCamResponse,
+    LiveCamFrameResponse,
+    LiveCamPresetItem,
+    LiveCamPresetsResponse,
 )
 
 from generation.pipeline import (
@@ -787,6 +794,178 @@ def get_camera_status() -> CameraStatusResponse:
         return CameraStatusResponse(**data)
     except Exception as e:
         return CameraStatusResponse(active=False, source=None, is_mock_feed=False, idle_seconds=None)
+
+
+# =========================================================================
+# Live Video Call DeepFace (Deep-Live-Cam clone) API Endpoints
+# =========================================================================
+
+@router.post("/api/live-cam/start", response_model=LiveCamResponse)
+def start_live_cam(req: LiveCamStartRequest) -> LiveCamResponse:
+    """Start real-time face cloning stream from webcam feed."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.start(
+            camera_index=req.camera_index,
+            source_image_path=req.source_image_path,
+            enhance=req.enhance,
+            mirror=req.mirror,
+        )
+        return LiveCamResponse(
+            success=res.get("success", True),
+            message=res.get("message", "Live webcam deepface engine started."),
+            active=service.is_running,
+            source_name=service.source_name,
+            stream_url="/api/live-cam/stream.mjpg",
+        )
+    except Exception as e:
+        log.exception(f"Error starting live cam: {e}")
+        return LiveCamResponse(
+            success=False,
+            message=f"Failed to start live cam: {e}",
+            active=False,
+            source_name=None,
+            stream_url=None,
+        )
+
+
+@router.post("/api/live-cam/stop", response_model=LiveCamResponse)
+def stop_live_cam() -> LiveCamResponse:
+    """Stop real-time face cloning stream and release camera."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.stop()
+        return LiveCamResponse(
+            success=res.get("success", True),
+            message=res.get("message", "Live face swap stopped."),
+            active=False,
+            source_name=service.source_name,
+        )
+    except Exception as e:
+        log.exception(f"Error stopping live cam: {e}")
+        return LiveCamResponse(
+            success=False,
+            message=f"Failed to stop live cam: {e}",
+            active=False,
+        )
+
+
+@router.get("/api/live-cam/status", response_model=LiveCamResponse)
+def get_live_cam_status() -> LiveCamResponse:
+    """Check current live cam streaming status."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        return LiveCamResponse(
+            success=True,
+            message="Live cam active" if service.is_running else "Live cam standby",
+            active=service.is_running,
+            source_name=service.source_name,
+            stream_url="/api/live-cam/stream.mjpg" if service.is_running else None,
+        )
+    except Exception as e:
+        return LiveCamResponse(success=False, message=str(e), active=False)
+
+
+@router.post("/api/live-cam/set-source", response_model=LiveCamResponse)
+def set_live_cam_source(req: LiveCamSetSourceRequest) -> LiveCamResponse:
+    """Switch active clone target on the fly during a live call."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+
+        if req.preset_name:
+            presets = service.get_available_presets()
+            match = next((p for p in presets if req.preset_name.lower() in p["name"].lower()), None)
+            if match:
+                service.set_source_image(match["path"], name=match["name"])
+                return LiveCamResponse(
+                    success=True,
+                    message=f"Switched clone target to {match['name']}",
+                    active=service.is_running,
+                    source_name=service.source_name,
+                )
+
+        if req.source_image_path:
+            ok = service.set_source_image(req.source_image_path)
+            return LiveCamResponse(
+                success=ok,
+                message=f"Switched clone target to {service.source_name}" if ok else "Failed to find face in image",
+                active=service.is_running,
+                source_name=service.source_name,
+            )
+
+        if req.image_base64:
+            clean_b64 = req.image_base64
+            if "," in clean_b64:
+                clean_b64 = clean_b64.split(",", 1)[1]
+            raw_bytes = base64.b64decode(clean_b64)
+            ok = service.set_source_image(raw_bytes, name="Custom Upload")
+            return LiveCamResponse(
+                success=ok,
+                message="Switched clone target to uploaded face" if ok else "No face detected in upload",
+                active=service.is_running,
+                source_name=service.source_name,
+            )
+
+        return LiveCamResponse(success=False, message="No source image or preset provided.", active=service.is_running)
+    except Exception as e:
+        log.exception(f"Error setting live cam source: {e}")
+        return LiveCamResponse(success=False, message=str(e), active=False)
+
+
+@router.get("/api/live-cam/frame", response_model=LiveCamFrameResponse)
+def get_live_cam_frame() -> LiveCamFrameResponse:
+    """Acquire latest swapped live video frame with telemetry for UI preview."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        data = service.get_latest_frame()
+        return LiveCamFrameResponse(**data)
+    except Exception as e:
+        log.exception(f"Error fetching live frame: {e}")
+        return LiveCamFrameResponse(
+            active=False,
+            fps=0.0,
+            source_name="None",
+            enhance_face=False,
+            mirror=True,
+            frame_base64=None,
+            message=str(e),
+        )
+
+
+@router.get("/api/live-cam/presets", response_model=LiveCamPresetsResponse)
+def get_live_cam_presets() -> LiveCamPresetsResponse:
+    """List celebrity and preloaded clone target face presets."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        presets = service.get_available_presets()
+        items = [LiveCamPresetItem(**p) for p in presets]
+        return LiveCamPresetsResponse(presets=items)
+    except Exception as e:
+        return LiveCamPresetsResponse(presets=[])
+
+
+@router.get("/api/live-cam/stream.mjpg")
+def get_live_cam_mjpeg_stream():
+    """Stream live multipart MJPEG feed for browsers, OBS, and web video calls."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        if not service.is_running:
+            service.start()
+        return StreamingResponse(
+            service.generate_mjpeg_stream(),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+        )
+    except Exception as e:
+        log.exception(f"Streaming error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

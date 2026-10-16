@@ -264,3 +264,45 @@ class CameraStatusResponse(BaseModel):
     is_mock_feed: bool = False
     idle_seconds: Optional[float] = None
     inactivity_timeout: float = 5.0
+
+
+class LiveCamStartRequest(BaseModel):
+    camera_index: int = 0
+    source_image_path: Optional[str] = None
+    enhance: bool = False
+    mirror: bool = True
+
+
+class LiveCamSetSourceRequest(BaseModel):
+    source_image_path: Optional[str] = None
+    preset_name: Optional[str] = None
+    image_base64: Optional[str] = None
+
+
+class LiveCamResponse(BaseModel):
+    success: bool
+    message: str
+    active: bool = False
+    source_name: Optional[str] = None
+    stream_url: Optional[str] = None
+
+
+class LiveCamFrameResponse(BaseModel):
+    active: bool
+    fps: float
+    source_name: str
+    enhance_face: bool = False
+    mirror: bool = True
+    frame_base64: Optional[str] = None
+    message: Optional[str] = None
+
+
+class LiveCamPresetItem(BaseModel):
+    name: str
+    filename: str
+    path: str
+
+
+class LiveCamPresetsResponse(BaseModel):
+    presets: List[LiveCamPresetItem]
+

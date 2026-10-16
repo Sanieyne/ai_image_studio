@@ -8,6 +8,7 @@ import '../screens/downloads_screen.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../theme/app_theme.dart';
 import 'camera_capture_dialog.dart';
+import 'deep_live_cam_dialog.dart';
 
 /// Floating glass top bar: logo + workspace pill + Local/Cloud switcher on the left;
 /// credits pill, buy button, theme toggle and engine/cloud status on the right.
@@ -233,7 +234,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 border: border,
                 muted: muted,
                 onTap: onOpenDeepFaceCamera ??
-                    () => CameraCaptureDialog.show(context),
+                    () => DeepLiveCamDialog.show(context),
               ),
               const SizedBox(width: 8),
               // Downloads management entry point.

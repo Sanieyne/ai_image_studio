@@ -21,6 +21,7 @@ import '../widgets/top_bar.dart';
 import '../widgets/video_template_gallery.dart';
 import '../widgets/image_template_gallery.dart';
 import '../widgets/camera_capture_dialog.dart';
+import '../widgets/deep_live_cam_dialog.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../features/cloud_mode/presentation/screens/cloud_management_screen.dart';
@@ -528,36 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleOpenDeepFaceCamera() async {
-    final result = await CameraCaptureDialog.show(context, apiService: _api);
-    if (result != null && result.success && result.imageBytes != null) {
-      _promptBarKey.currentState?.setCapturedFace(
-        result.imageBytes!,
-        'Webcam: ${result.fileName ?? 'capture.jpg'}',
-        result.imageBase64,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.face_retouching_natural,
-                    color: LuminaColors.primaryEnd, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'DeepFace captured & set as reference: ${result.fileName ?? 'Webcam Face'}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 4),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: const Color(0xFF1E293B),
-          ),
-        );
-      }
-    }
+    await DeepLiveCamDialog.show(context, apiService: _api);
   }
 
   // ── generations feed ──────────────────────────────────────
