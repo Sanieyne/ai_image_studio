@@ -57,7 +57,7 @@ class AvailableModelInfo {
 /// management + health, with offline mock fallback.
 class ApiService {
 
-  static const String baseUrl = 'http://127.0.0.1:8000';
+  static String baseUrl = 'http://127.0.0.1:8000';
   static const Duration requestTimeout = Duration(minutes: 5);
 
   /// Set to true during UI testing without a backend.
@@ -76,28 +76,34 @@ class ApiService {
   String? activeDeviceName;
 
   /// GET /health -> true when the engine answers 200.
+  /// Automatically checks port 8000 and falls back to port 8001 if tunnel is on 8001.
   Future<bool> checkHealth({int retries = 1}) async {
-    for (int attempt = 0; attempt <= retries; attempt++) {
-      try {
-        final response = await _client
-            .get(
-              Uri.parse('$baseUrl/health'),
-              headers: const {'Connection': 'close'},
-            )
-            .timeout(const Duration(seconds: 5));
-        if (response.statusCode == 200) {
-          try {
-            final data = jsonDecode(response.body) as Map<String, dynamic>;
-            activeDevice = data['device'] as String?;
-            activeDeviceName = data['device_name'] as String?;
-          } catch (_) {}
-          return true;
+    final candidatePorts = [baseUrl, 'http://127.0.0.1:8001', 'http://127.0.0.1:8000'];
+    final uniqueCandidates = candidatePorts.toSet().toList();
+
+    for (final candidate in uniqueCandidates) {
+      for (int attempt = 0; attempt <= retries; attempt++) {
+        try {
+          final response = await _client
+              .get(
+                Uri.parse('$candidate/health'),
+                headers: const {'Connection': 'close'},
+              )
+              .timeout(const Duration(seconds: 4));
+          if (response.statusCode == 200) {
+            baseUrl = candidate;
+            try {
+              final data = jsonDecode(response.body) as Map<String, dynamic>;
+              activeDevice = data['device'] as String?;
+              activeDeviceName = data['device_name'] as String?;
+            } catch (_) {}
+            return true;
+          }
+        } catch (_) {
+          if (attempt < retries) {
+            await Future.delayed(const Duration(milliseconds: 150));
+          }
         }
-      } catch (_) {
-        if (attempt == retries) {
-          return false;
-        }
-        await Future.delayed(const Duration(milliseconds: 200));
       }
     }
     return false;
