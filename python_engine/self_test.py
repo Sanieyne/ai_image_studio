@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-ENGINE_VERSION = "0.3.0"  # same as app.py / flutter_app/lib/app_version.dart
+ENGINE_VERSION = "0.4.0"  # same as app.py / flutter_app/lib/app_version.dart
 
 REQUIRED = [
     ("fastapi", None),

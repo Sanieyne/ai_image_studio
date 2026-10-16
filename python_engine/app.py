@@ -61,7 +61,7 @@ from api.routes import router
 logging.basicConfig(level=logging.INFO)
 
 # Released together with the app (flutter_app/lib/app_version.dart).
-ENGINE_VERSION = "0.3.0"
+ENGINE_VERSION = "0.4.0"
 
 
 @asynccontextmanager
