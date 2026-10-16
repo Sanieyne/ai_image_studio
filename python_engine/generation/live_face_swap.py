@@ -6,7 +6,6 @@ with optional GFPGAN enhancement and MJPEG / WebRTC stream generation.
 """
 
 import base64
-import cv2
 import logging
 import numpy as np
 import os
@@ -14,8 +13,17 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple, Any
 
-import insightface
-from insightface.app import FaceAnalysis
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import insightface
+    from insightface.app import FaceAnalysis
+except ImportError:
+    insightface = None
+    FaceAnalysis = None
 
 logger = logging.getLogger("LiveFaceSwap")
 logger.setLevel(logging.INFO)
@@ -91,9 +99,14 @@ class LiveFaceSwapService:
 
     def _init_default_preset(self):
         """Set default source preset to Musk if present."""
+        if cv2 is None or insightface is None:
+            return
         default_preset = os.path.join(PRESETS_DIR, "musk_resize.jpeg")
         if os.path.exists(default_preset):
-            self.set_source_image(default_preset, name="Elon Musk")
+            try:
+                self.set_source_image(default_preset, name="Elon Musk")
+            except Exception as e:
+                logger.warning(f"Failed to load default preset: {e}")
 
     def get_available_presets(self) -> List[Dict[str, str]]:
         """Return available face presets for one-click switching."""
@@ -120,6 +133,17 @@ class LiveFaceSwapService:
         """Load InsightFace FaceAnalysis, INSwapper, and GFPGAN models."""
         if self.models_loaded:
             return
+
+        if cv2 is None:
+            raise RuntimeError(
+                "OpenCV (cv2) is not installed in this Python environment. "
+                "Please run: pip install opencv-python onnxruntime insightface"
+            )
+        if insightface is None or FaceAnalysis is None:
+            raise RuntimeError(
+                "InsightFace is not installed in this Python environment. "
+                "Please run: pip install insightface"
+            )
 
         logger.info("[LiveFaceSwap] Loading face detection and analysis models...")
         self.face_analyser = FaceAnalysis(

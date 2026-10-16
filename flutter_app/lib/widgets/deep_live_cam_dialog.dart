@@ -460,25 +460,18 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
             ),
           ),
           const SizedBox(height: 8),
-          SwitchListTile(
-            title: const Text('Mirror Camera', style: TextStyle(color: Colors.white, fontSize: 13)),
-            subtitle: Text('Flip preview horizontally', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+          _buildSettingRow(
+            title: 'Mirror Camera',
+            subtitle: 'Flip preview horizontally',
             value: _mirrorCamera,
-            activeColor: const Color(0xFFA78BFA),
-            contentPadding: EdgeInsets.zero,
-            onChanged: (val) {
-              setState(() => _mirrorCamera = val);
-            },
+            onChanged: (val) => setState(() => _mirrorCamera = val),
           ),
-          SwitchListTile(
-            title: const Text('GFPGAN Face Enhancer', style: TextStyle(color: Colors.white, fontSize: 13)),
-            subtitle: Text('Ultra-crisp face resolution boost', style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11)),
+          const SizedBox(height: 10),
+          _buildSettingRow(
+            title: 'GFPGAN Face Enhancer',
+            subtitle: 'Ultra-crisp face resolution boost',
             value: _enhanceFace,
-            activeColor: const Color(0xFFA78BFA),
-            contentPadding: EdgeInsets.zero,
-            onChanged: (val) {
-              setState(() => _enhanceFace = val);
-            },
+            onChanged: (val) => setState(() => _enhanceFace = val),
           ),
 
           const SizedBox(height: 16),
@@ -596,6 +589,49 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  Widget _buildSettingRow({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
+  }) {
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.45),
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: value,
+          activeColor: const Color(0xFFA78BFA),
+          activeTrackColor: const Color(0xFF7C3AED).withOpacity(0.5),
+          inactiveThumbColor: Colors.grey.shade400,
+          inactiveTrackColor: const Color(0xFF1E2330),
+          onChanged: onChanged,
+        ),
+      ],
     );
   }
 }
