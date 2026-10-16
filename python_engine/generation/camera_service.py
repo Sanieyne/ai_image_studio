@@ -115,25 +115,16 @@ class CameraService:
                 return int(env_source)
             return env_source
 
-        # On Linux, check if video device node exists before calling VideoCapture(0)
         import sys
-        if sys.platform.startswith("linux") and not Path("/dev/video0").exists():
+        if sys.platform.startswith("linux"):
+            available_nodes = [i for i in range(10) if Path(f"/dev/video{i}").exists()]
+            if available_nodes:
+                return available_nodes[0]
+            # No /dev/video* detected on Linux (e.g. headless container)
             test_video = ENGINE_ROOT / "examples" / "test_camera_feed.mp4"
             if test_video.exists():
-                log.info("No physical /dev/video0 detected on Linux. Using test video feed: %s", test_video)
+                log.info("No /dev/video* found. Using test video feed: %s", test_video)
                 return str(test_video)
-
-        # Check default device 0
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            cap.release()
-            return 0
-
-        # Physical camera not available (e.g. headless container); check for test feed
-        test_video = ENGINE_ROOT / "examples" / "test_camera_feed.mp4"
-        if test_video.exists():
-            log.info("No physical webcam found at index 0. Using test video feed: %s", test_video)
-            return str(test_video)
 
         return 0
 
@@ -146,18 +137,48 @@ class CameraService:
 
         source = self._determine_source()
         log.info("Opening camera capture from source: %s", source)
-        cap = cv2.VideoCapture(source)
+
+        import sys
+        cap = None
+        # On Linux, try V4L2 first if source is an integer index
+        if isinstance(source, int) and sys.platform.startswith("linux"):
+            try:
+                cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
+                if not cap.isOpened():
+                    cap.release()
+                    cap = None
+            except Exception:
+                cap = None
+
+        if cap is None or not cap.isOpened():
+            cap = cv2.VideoCapture(source)
+
+        # If primary index failed on Linux, try other available video nodes
+        if not cap.isOpened() and isinstance(source, int) and sys.platform.startswith("linux"):
+            for alt_idx in [1, 2, 3]:
+                if Path(f"/dev/video{alt_idx}").exists():
+                    log.info("Trying alternate video device: %d", alt_idx)
+                    try:
+                        cap = cv2.VideoCapture(alt_idx, cv2.CAP_V4L2)
+                    except Exception:
+                        cap = cv2.VideoCapture(alt_idx)
+                    if cap.isOpened():
+                        source = alt_idx
+                        break
 
         if not cap.isOpened():
-            # If device 0 failed, check if test video is available
             test_video = ENGINE_ROOT / "examples" / "test_camera_feed.mp4"
             if test_video.exists() and source != str(test_video):
-                log.warning("Failed to open source %s. Falling back to test video: %s", source, test_video)
+                log.warning("Camera index %s could not open; falling back to test video: %s", source, test_video)
                 source = str(test_video)
                 cap = cv2.VideoCapture(source)
 
         if not cap.isOpened():
-            raise RuntimeError(f"Could not open camera device or video source: {source}")
+            raise RuntimeError(
+                f"Could not open camera device (index {source}). "
+                "Verify your physical webcam is connected, user has video permissions "
+                "(sudo usermod -a -G video $USER), and camera is not open in another app."
+            )
 
         self._camera_source = source
         self._is_mock_feed = isinstance(source, str) and source.endswith(".mp4")
