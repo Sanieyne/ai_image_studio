@@ -97,7 +97,6 @@ class _CameraCaptureDialogState extends State<CameraCaptureDialog> {
 
       if (captureResult.success) {
         setState(() {
-          _capturedResult = captureResult;
           _isCapturing = false;
         });
 

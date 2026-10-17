@@ -2009,7 +2009,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                 ),
                 FilledButton.tonal(
                   onPressed: widget.onOpenDeepFaceCamera,
-                  style: FilledButton.tonalStyleFrom(
+                  style: FilledButton.styleFrom(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     minimumSize: Size.zero,
