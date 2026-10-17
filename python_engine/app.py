@@ -51,10 +51,12 @@ if getattr(sys, "frozen", False):
     except Exception:
         pass
 
+import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.routes import router
 
@@ -88,6 +90,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Rented cloud instances listen on a public port. The backend sets a per-rental token
+# and relays every request with it; without the token only /health answers.
+# Local installs set no token and stay open on 127.0.0.1 as before.
+ENGINE_TOKEN = os.environ.get("AI_STUDIO_ENGINE_TOKEN", "").strip()
+UNAUTHENTICATED_PATHS = {"/health", "/ping"}
+
+
+@app.middleware("http")
+async def require_engine_token(request: Request, call_next):
+    if ENGINE_TOKEN and request.url.path not in UNAUTHENTICATED_PATHS:
+        supplied = request.headers.get("x-engine-token", "")
+        if not hmac.compare_digest(supplied.encode(), ENGINE_TOKEN.encode()):
+            return JSONResponse(status_code=401, content={"detail": "Engine token required."})
+    return await call_next(request)
+
 
 app.include_router(router)
 

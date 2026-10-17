@@ -71,6 +71,23 @@ describe('rentGPU', () => {
     assert.equal((await User.findById(user._id).lean()).activeGpuInstances, 1);
   });
 
+  test('each rental gets its own engine token, sent to the instance and never returned', async () => {
+    const user = await makeUser(500);
+    const a = await gpuProviderService.rentGPU(rentParams(user));
+    const tokenA = vast.calls.create[0].config.env.AI_STUDIO_ENGINE_TOKEN;
+    assert.match(tokenA, /^[0-9a-f]{64}$/);
+
+    assert.equal(a.engineToken, undefined);
+    assert.equal(JSON.stringify(a).includes(tokenA), false);
+    assert.equal((await GpuInstance.findById(a._id).lean()).engineToken, undefined);
+    const stored = await GpuInstance.findById(a._id).select('+engineToken').lean();
+    assert.equal(stored.engineToken, tokenA);
+
+    await gpuProviderService.terminateInstance(user._id, a._id);
+    await gpuProviderService.rentGPU(rentParams(user));
+    assert.notEqual(vast.calls.create[1].config.env.AI_STUDIO_ENGINE_TOKEN, tokenA);
+  });
+
   test('concurrent rent requests never exceed the per-user cap', async () => {
     const user = await makeUser(500);
     const results = await Promise.allSettled(

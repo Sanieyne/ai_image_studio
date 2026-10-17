@@ -80,6 +80,13 @@ const gpuInstanceSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Per-rental secret the engine requires on every route but /health. Only the
+    // backend relay sends it; never returned to clients.
+    engineToken: {
+      type: String,
+      default: null,
+      select: false,
+    },
     modelsRequested: {
       type: [String],
       default: [],

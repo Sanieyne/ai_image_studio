@@ -19,6 +19,7 @@ import {
   LOG_LEVELS,
 } from '../config/constants.js';
 import { ApiError } from '../utils/ApiError.js';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -345,10 +346,12 @@ class GpuProviderService {
       );
     }
 
+    const engineToken = crypto.randomBytes(32).toString('hex');
     let instance;
     try {
       instance = await GpuInstance.create({
         holdsSlot: true,
+        engineToken,
         user: userId,
         provider: GPU_PROVIDERS.VASTAI,
         providerInstanceId: `pending-${Date.now()}`,
@@ -414,6 +417,7 @@ class GpuProviderService {
           AI_STUDIO_USER_ID: String(userId),
           AI_STUDIO_INSTANCE_ID: String(instance._id),
           AI_STUDIO_SELECTED_MODELS: selectedModelIds.join(','),
+          AI_STUDIO_ENGINE_TOKEN: engineToken,
           R2_ENDPOINT: env.R2_ENDPOINT,
           R2_BUCKET_NAME: env.R2_BUCKET_NAME,
           R2_ACCESS_KEY_ID: env.R2_READONLY_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
