@@ -68,6 +68,10 @@ tar -xzf /workspace/python_engine.tar.gz -C /workspace/python_engine \
   || fail "The engine package could not be unpacked."
 rm -f /workspace/python_engine.tar.gz
 cd /workspace/python_engine
+# Handle nested python_engine/ directory if present in tarball
+if [ -d python_engine ] && [ -f python_engine/requirements-cloud.lock ]; then
+  cp -rn python_engine/* . 2>/dev/null || true
+fi
 [ -f requirements-cloud.lock ] && [ -f constraints-cloud.txt ] && [ -f self_test.py ] \
   || fail "The engine package is outdated (no requirements-cloud.lock / self_test.py). Upload a new package."
 
