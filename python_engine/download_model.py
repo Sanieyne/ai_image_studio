@@ -160,6 +160,18 @@ MODEL_CATALOG: Dict[str, dict] = {
             (".", "/root/models/instantid"),
         ],
     },
+    "deep-live-cam": {
+        "family": "deep_live_cam",
+        "mode": "live_cam",
+        "aliases": ["hacksider/deep-live-cam", "deep_live_cam", "deepface"],
+        "target_subpath": "deep_live_cam",
+        "r2_prefix": "models/deep_live_cam/",
+        "symlinks": [
+            (".", "/workspace/models/deep-live-cam"),
+            (".", "/root/models/deep-live-cam"),
+            (".", "/root/models/deep_live_cam"),
+        ],
+    },
 }
 
 
@@ -247,8 +259,10 @@ def get_default_models_root() -> Path:
     return default
 
 
-def list_r2_model_files(s3, bucket: str, model_id: str) -> List[Dict]:
-    prefix = f"models/{model_id}/"
+def list_r2_model_files(s3, bucket: str, model_id: str, custom_prefix: Optional[str] = None) -> List[Dict]:
+    prefix = custom_prefix if custom_prefix else f"models/{model_id}/"
+    if not prefix.endswith("/"):
+        prefix += "/"
     files = []
     token = None
     while True:
@@ -281,12 +295,15 @@ def download_single_model(
     canonical = resolve_canonical_id(model_id)
     log(f"--- Processing model: '{canonical}' (raw: '{model_id}') ---")
 
-    dest_dir = models_root / canonical
+    catalog_info = MODEL_CATALOG.get(canonical, {})
+    target_subpath = catalog_info.get("target_subpath", canonical)
+    dest_dir = models_root / target_subpath
     dest_dir.mkdir(parents=True, exist_ok=True)
 
-    r2_files = list_r2_model_files(s3, bucket, canonical)
+    r2_prefix = catalog_info.get("r2_prefix", f"models/{canonical}/")
+    r2_files = list_r2_model_files(s3, bucket, canonical, custom_prefix=r2_prefix)
     if not r2_files:
-        log(f"[!] Warning: No objects found under models/{canonical}/ in R2 bucket '{bucket}'.")
+        log(f"[!] Warning: No objects found under {r2_prefix} in R2 bucket '{bucket}'.")
         return False
 
     total_bytes = sum(f["size"] for f in r2_files)

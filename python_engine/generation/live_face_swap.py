@@ -109,11 +109,21 @@ def _ensure_model_file(filename: str, target_path: str):
 
 def _ensure_buffalo_pack():
     pack_dir = os.path.expanduser("~/.insightface/models/buffalo_l")
+    os.makedirs(pack_dir, exist_ok=True)
     required = ["det_10g.onnx", "2d106det.onnx", "w600k_r50.onnx", "1k3d68.onnx", "genderage.onnx"]
     for fname in required:
         dest = os.path.join(pack_dir, fname)
         if not os.path.exists(dest) or os.path.getsize(dest) < 1024:
-            # Try R2 first
+            # 1. Check local models directory (populated by download_model.py)
+            local_cand = os.path.join(MODELS_DIR, "buffalo_l", fname)
+            if os.path.exists(local_cand) and os.path.getsize(local_cand) > 1024:
+                try:
+                    import shutil
+                    shutil.copyfile(local_cand, dest)
+                    continue
+                except Exception:
+                    pass
+            # 2. Try R2 next
             r2_key = f"models/deep_live_cam/buffalo_l/{fname}"
             if not _download_r2_file(r2_key, dest):
                 url = f"https://huggingface.co/hacksider/deep-live-cam/resolve/main/buffalo_l/buffalo_l/{fname}"

@@ -294,7 +294,18 @@ class ModelStatusManager:
             # Video models are heavy; keep ready on disk unless high VRAM allows residency
             return False
 
-        # 5. Base Image diffusion pipeline (SDXL, FLUX, Z-Image, Qwen)
+        # 5. Live Face Swap / Deep-Live-Cam / DeepFace
+        if "live-cam" in model_id.lower() or "deep_live_cam" in model_id.lower() or "deepface" in model_id.lower():
+            try:
+                from generation.live_face_swap import get_live_face_swap_service
+                service = get_live_face_swap_service()
+                service._load_models()
+                return True
+            except Exception as e:
+                log.warning("[!] Deep-Live-Cam engine preload notice: %s", e)
+                return False
+
+        # 6. Base Image diffusion pipeline (SDXL, FLUX, Z-Image, Qwen)
         if not can_fit:
             return False
         from generation.pipeline import get_pipeline, peek_pipeline
