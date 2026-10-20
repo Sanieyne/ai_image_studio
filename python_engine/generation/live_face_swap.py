@@ -550,7 +550,17 @@ class LiveFaceSwapService:
 
         # Pre-seed initial frame so frame queries never return None
         webcam_proof = "/root/.gemini/antigravity-cli/brain/af25ee55-4eed-4ab7-8bda-96ab5772a742/webcam_confirmed_capture.jpg"
-        fallback_target = cv2.imread(webcam_proof) if os.path.exists(webcam_proof) else np.zeros((480, 640, 3), dtype=np.uint8)
+        fallback_target = cv2.imread(webcam_proof) if os.path.exists(webcam_proof) else None
+        if fallback_target is None and os.path.exists(PRESETS_DIR):
+            for cand in ["kaifu_resize.png", "yann-lecun_resize.jpg", "musk_resize.jpeg"]:
+                cand_path = os.path.join(PRESETS_DIR, cand)
+                if os.path.exists(cand_path):
+                    loaded = cv2.imread(cand_path)
+                    if loaded is not None:
+                        fallback_target = cv2.resize(loaded, (640, 480), interpolation=cv2.INTER_AREA)
+                        break
+        if fallback_target is None:
+            fallback_target = np.zeros((480, 640, 3), dtype=np.uint8)
         ret, init_jpeg = cv2.imencode(".jpg", fallback_target, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ret:
             with self._frame_lock:
@@ -609,6 +619,17 @@ class LiveFaceSwapService:
         webcam_proof = "/root/.gemini/antigravity-cli/brain/af25ee55-4eed-4ab7-8bda-96ab5772a742/webcam_confirmed_capture.jpg"
         if os.path.exists(webcam_proof):
             fallback_target = cv2.imread(webcam_proof)
+
+        # 2. Check bundled presets for a real portrait to swap in cloud/virtual mode
+        if fallback_target is None and os.path.exists(PRESETS_DIR):
+            for cand in ["kaifu_resize.png", "yann-lecun_resize.jpg", "musk_resize.jpeg"]:
+                cand_path = os.path.join(PRESETS_DIR, cand)
+                if os.path.exists(cand_path):
+                    loaded = cv2.imread(cand_path)
+                    if loaded is not None:
+                        fallback_target = cv2.resize(loaded, (640, 480), interpolation=cv2.INTER_AREA)
+                        logger.info(f"[LiveFaceSwap] Using portrait preset '{cand}' as virtual camera feed.")
+                        break
 
         # Immediately publish initial preview frame
         initial_preview = fallback_target.copy() if fallback_target is not None else np.zeros((480, 640, 3), dtype=np.uint8)
