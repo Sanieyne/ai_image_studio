@@ -37,6 +37,9 @@ export function isConfirmedContractId(id) {
  * (GPU architecture, host driver, and a directly mapped port for the engine.)
  */
 export function hostUnsupportedReason(raw = {}) {
+  if (raw.has_avx === 0 || raw.has_avx === false) {
+    return 'This host CPU lacks AVX instructions required by PyTorch and AI runtimes.';
+  }
   const cap = Number(raw.compute_cap);
   if (Number.isFinite(cap) && cap < MIN_GPU_COMPUTE_CAP) {
     return `${raw.gpu_name || 'This GPU'} is too old for the engine (needs an RTX 20-series / GTX 16-series or newer).`;
@@ -194,6 +197,7 @@ class VastaiService {
     // Only hosts the engine image can run on, with directly mapped ports (the engine listens on 8000).
     body.compute_cap = { gte: MIN_GPU_COMPUTE_CAP };
     body.cuda_max_good = { gte: MIN_HOST_CUDA };
+    body.has_avx = { eq: true };
     body.direct_port_count = { gte: 1 };
 
     try {
@@ -218,7 +222,7 @@ class VastaiService {
           this.client.post('/bundles/', body)
         );
         let retryOffers = retryRes.data?.offers || [];
-        retryOffers = retryOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS);
+        retryOffers = retryOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS && !hostUnsupportedReason(o));
 
         if (retryOffers.length > 0) {
           const normalized = retryOffers.map((o) => this.normalizeOffer(o, totalModelSizeGB));
