@@ -105,7 +105,7 @@ class InMemoryTokenStore implements SecureTokenStore {
 class AuthService extends ChangeNotifier {
   static const String accessTokenKey = 'lumina.access_token';
   static const String refreshTokenKey = 'lumina.refresh_token';
-  static const Duration requestTimeout = Duration(seconds: 10);
+  static const Duration requestTimeout = Duration(seconds: 25);
 
   static final AuthService instance = AuthService._();
 
