@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../../../services/auth_service.dart';
+import '../../../../services/api_service.dart';
 import '../../../../theme/app_theme.dart';
 import '../../../../widgets/app_toast.dart';
 import '../../data/models/cloud_model.dart';
@@ -170,6 +171,10 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   void _openInstance(Map<String, dynamic> instance) {
     final id = (instance['_id'] ?? instance['id'] ?? '').toString();
     if (id.isEmpty) return;
+    final engineUrl = instance['pythonEngineUrl']?.toString();
+    if (engineUrl != null && engineUrl.isNotEmpty) {
+      ApiService.baseUrl = engineUrl;
+    }
     Navigator.of(context)
         .push(MaterialPageRoute(
           builder: (ctx) => InstanceProvisioningScreen(
@@ -177,6 +182,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
             gpuName: instance['gpuType']?.toString() ?? 'Cloud GPU',
             selectedModelIds: (instance['modelsRequested'] as List?)?.map((e) => e.toString()).toList() ?? const [],
             isDark: widget.isDark,
+            onReturnToStudio: widget.onReturnToStudio,
           ),
         ))
         .then((_) => _refreshRentalsAndInstances());

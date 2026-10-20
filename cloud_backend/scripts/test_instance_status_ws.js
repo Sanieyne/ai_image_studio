@@ -231,8 +231,8 @@ async function main() {
     gpuType: 'RTX 3090',
     vramGB: 24,
     costPerHour: 0.35,
-    // Set startedAt to 15 minutes ago to trigger timeout
-    startedAt: new Date(Date.now() - 15 * 60 * 1000),
+    // Set startedAt to 30 minutes ago to trigger timeout (base timeout is 25 min)
+    startedAt: new Date(Date.now() - 30 * 60 * 1000),
   });
 
   // Subscribe to timeout instance

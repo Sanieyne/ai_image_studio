@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../theme/app_theme.dart';
+import '../../../../services/api_service.dart';
 import '../../data/services/cloud_api_service.dart';
 import '../../data/services/instance_status_client.dart';
 
@@ -43,6 +44,9 @@ class ModelProvisioningItem {
       case 'realesrgan-x4plus':
       case 'amd/realesrgan-x4plus':
         return 'Real-ESRGAN 4x+';
+      case 'deep-live-cam':
+      case 'hacksider/deep-live-cam':
+        return 'DeepFace & Deep-Live-Cam';
       case 'fashn-vton-1.5':
       case 'fashn-ai/fashn-vton-1.5':
         return 'FASHN VTON 1.5';
@@ -293,6 +297,7 @@ class _InstanceProvisioningScreenState
     _handleStatusUpdate({
       'status': status,
       'details': {
+        if (data['pythonEngineUrl'] != null) 'pythonEngineUrl': data['pythonEngineUrl'],
         if (progress != null) 'progress': progress,
         'elapsedSeconds': data['elapsedSeconds'],
         'billing': billing,
@@ -390,6 +395,11 @@ class _InstanceProvisioningScreenState
         if (updated.isNotEmpty) {
           _models = updated;
         }
+      }
+
+      final engineUrl = details?['pythonEngineUrl']?.toString();
+      if (engineUrl != null && engineUrl.isNotEmpty) {
+        ApiService.baseUrl = engineUrl;
       }
 
       switch (rawStatus) {

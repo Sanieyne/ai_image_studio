@@ -25,7 +25,7 @@ async function main() {
   console.log('\n=== [3] Renting GPU Instance via POST /gpu/rent ===');
   const rentPayload = {
     offerId: selectedOffer.id,
-    storageGB: 15,
+    storageGB: 30,
     selectedModelIds: ['realesrgan-x4plus'], // Tiny ~64MB model for fast test
   };
 
@@ -50,10 +50,6 @@ async function main() {
   console.log(`[OK] Vast.ai Contract ID: #${contractId}`);
   console.log(`[OK] Initial Status: ${instance.status}`);
 
-  console.log('\n=== [4] Connecting to InstanceStatus WebSocket Channel ===');
-  const wsUri = `${WS_URL}?token=${token}&instanceId=${instanceId}`;
-  const ws = new WebSocket(wsUri);
-
   const transcript = [];
   const addLog = (event, data) => {
     const entry = {
@@ -65,58 +61,68 @@ async function main() {
     console.log(`[${entry.timestamp}] [WS ${event}]`, JSON.stringify(data));
   };
 
-  let finished = false;
-
-  await new Promise((resolve, reject) => {
-    const timeoutTimer = setTimeout(() => {
-      console.log('\n[!] Test run monitoring window completed (120s limit). Proceeding to cleanup...');
-      resolve();
-    }, 120000); // 2 minutes monitoring
-
-    ws.on('open', () => {
-      addLog('OPEN', { url: wsUri });
-    });
-
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString());
-        addLog(msg.type, msg);
-
-        if (msg.type === 'STATUS_UPDATE') {
-          console.log(`>>> STATE TRANSITION: ${msg.status} <<<`);
-          if (msg.status === 'READY') {
-            console.log('>>> GPU REACHED READY STATE! <<<');
-            clearTimeout(timeoutTimer);
-            resolve();
-          }
-        }
-      } catch (err) {
-        addLog('RAW', raw.toString());
-      }
-    });
-
-    ws.on('error', (err) => {
-      addLog('ERROR', { message: err.message });
-      reject(err);
-    });
-
-    ws.on('close', (code, reason) => {
-      addLog('CLOSE', { code, reason: reason.toString() });
-    });
-  });
-
-  ws.close();
-
-  console.log('\n=== [5] Terminating Rented Test Instance to Avoid Charges ===');
   try {
-    const termRes = await fetch(`${BASE_URL}/gpu/instances/${instanceId}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
+    console.log('\n=== [4] Connecting to InstanceStatus WebSocket Channel ===');
+    const wsUri = `${WS_URL}?token=${token}&instanceId=${instanceId}`;
+    const ws = new WebSocket(wsUri);
+
+    await new Promise((resolve, reject) => {
+      const timeoutTimer = setTimeout(() => {
+        console.log('\n[!] Test run monitoring window completed (240s limit). Proceeding to cleanup...');
+        resolve();
+      }, 240000); // 4 minutes max monitoring
+
+      ws.on('open', () => {
+        addLog('OPEN', { url: wsUri });
+      });
+
+      ws.on('message', (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          addLog(msg.type, msg);
+
+          if (msg.type === 'STATUS_UPDATE') {
+            console.log(`>>> STATE TRANSITION: ${msg.status} <<<`);
+            if (msg.status === 'READY') {
+              console.log('>>> GPU REACHED READY STATE! <<<');
+              clearTimeout(timeoutTimer);
+              resolve();
+            }
+          }
+        } catch (err) {
+          addLog('RAW', raw.toString());
+        }
+      });
+
+      ws.on('error', (err) => {
+        addLog('ERROR', { message: err.message });
+        resolve(); // proceed to cleanup rather than hanging
+      });
+
+      ws.on('close', (code, reason) => {
+        addLog('CLOSE', { code, reason: reason.toString() });
+      });
     });
-    const termJson = await termRes.json();
-    console.log(`[OK] Instance termination result: ${termJson.success ? 'Terminated successfully' : termJson.message}`);
-  } catch (err) {
-    console.error('Failed to terminate instance:', err.message);
+
+    try { ws.close(); } catch (_) {}
+  } finally {
+    console.log('\n=== [5] Terminating Rented Test Instance to Avoid Charges ===');
+    try {
+      const termRes = await fetch(`${BASE_URL}/gpu/instances/${instanceId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const termJson = await termRes.json();
+      console.log(`[OK] Instance termination result: ${termJson.success ? 'Terminated successfully' : termJson.message}`);
+    } catch (err) {
+      console.error('Failed to terminate instance via API, falling back to direct vastai CLI destroy:', err.message);
+      try {
+        const { execSync } = await import('child_process');
+        execSync(`vastai destroy instance ${contractId}`, { stdio: 'inherit' });
+      } catch (e2) {
+        console.error('Direct destroy error:', e2.message);
+      }
+    }
   }
 
   console.log('\n=== [6] Real Test Transcript Summary ===');

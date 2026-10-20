@@ -1,7 +1,7 @@
 """Pydantic schemas for the AI Image Studio engine (Part 3/5)."""
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -305,4 +305,86 @@ class LiveCamPresetItem(BaseModel):
 
 class LiveCamPresetsResponse(BaseModel):
     presets: List[LiveCamPresetItem]
+
+
+class LiveCamProcessFrameRequest(BaseModel):
+    frame_base64: str = Field(..., description="Base64 encoded JPEG/PNG camera frame from client")
+    source_image_base64: Optional[str] = Field(default=None, description="Optional custom target face base64")
+    preset_name: Optional[str] = Field(default=None, description="Optional preset name e.g. Elon Musk")
+    enhance: bool = Field(default=False, description="Enable GFPGAN facial enhancement")
+    mirror: bool = Field(default=False, description="Mirror horizontal axis")
+
+
+class LiveCamProcessFrameResponse(BaseModel):
+    success: bool
+    frame_base64: Optional[str] = None
+    fps: float = 0.0
+    latency_ms: float = 0.0
+    faces_detected: int = 0
+    source_name: Optional[str] = None
+    message: Optional[str] = None
+
+
+class FaceSwapImageRequest(BaseModel):
+    target_image_base64: str = Field(..., description="Base64 encoded target image to swap face onto")
+    source_image_base64: Optional[str] = Field(default=None, description="Base64 encoded source face image")
+    preset_name: Optional[str] = Field(default=None, description="Preset name e.g. Elon Musk")
+    enhance: bool = Field(default=True, description="Apply GFPGAN facial enhancement")
+
+
+class FaceSwapImageResponse(BaseModel):
+    success: bool
+    image_base64: Optional[str] = None
+    faces_swapped: int = 0
+    similarity_percent: float = 0.0
+    verified: bool = False
+    elapsed_seconds: float = 0.0
+    message: Optional[str] = None
+
+
+class FaceSwapVideoRequest(BaseModel):
+    target_video_base64: str = Field(..., description="Base64 encoded target MP4 video")
+    source_image_base64: Optional[str] = Field(default=None, description="Base64 encoded source face image")
+    preset_name: Optional[str] = Field(default=None, description="Preset name e.g. Elon Musk")
+    enhance: bool = Field(default=True, description="Apply GFPGAN facial enhancement")
+    max_frames: Optional[int] = Field(default=None, description="Optional cap on frames to process")
+
+
+class FaceSwapVideoResponse(BaseModel):
+    success: bool
+    video_base64: Optional[str] = None
+    frames_processed: int = 0
+    fps: float = 0.0
+    elapsed_seconds: float = 0.0
+    message: Optional[str] = None
+
+
+class FaceExtractRequest(BaseModel):
+    image_base64: str = Field(..., description="Base64 encoded face photo or selfie")
+
+
+class FaceExtractResponse(BaseModel):
+    success: bool
+    embedding: List[float] = []
+    bbox: List[int] = []
+    kps: List[Any] = []
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    cropped_face_base64: Optional[str] = None
+    message: Optional[str] = None
+
+
+class FaceVerifyRequest(BaseModel):
+    image1_base64: str = Field(..., description="Base64 encoded first face image")
+    image2_base64: str = Field(..., description="Base64 encoded second face image")
+
+
+class FaceVerifyResponse(BaseModel):
+    success: bool
+    match: bool = False
+    similarity_percent: float = 0.0
+    cosine_distance: float = 1.0
+    threshold: float = 0.35
+    message: Optional[str] = None
+
 

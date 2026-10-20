@@ -18,6 +18,87 @@ import { GPU_STATUS, GPU_PROVIDERS, LOG_LEVELS } from '../config/constants.js';
 
 const READY_STATUSES = [GPU_STATUS.READY, GPU_STATUS.RUNNING];
 
+// Human-friendly model labels for customer-facing progress updates
+const MODEL_FRIENDLY_NAMES = {
+  'minimax-h3': 'MiniMax-H3 Video+Audio',
+  'minimaxai/minimax-h3': 'MiniMax-H3 Video+Audio',
+  'flux-1-schnell': 'FLUX.1 Schnell',
+  'black-forest-labs/flux.1-schnell': 'FLUX.1 Schnell',
+  'flux-1-dev': 'FLUX.1 Dev',
+  'black-forest-labs/flux.1-dev': 'FLUX.1 Dev',
+  'sdxl-base-1.0': 'SDXL Base 1.0',
+  'stabilityai/stable-diffusion-xl-base-1.0': 'SDXL Base 1.0',
+  'qwen-image-2.1': 'Qwen-Image 2.1',
+  'qwen/qwen-image-2.1': 'Qwen-Image 2.1',
+  'wan-2.1-t2v-1.3b': 'Wan 2.1 T2V 1.3B',
+  'wan-ai/wan2.1-t2v-1.3b-diffusers': 'Wan 2.1 T2V 1.3B',
+  'wan-2.1-i2v-14b': 'Wan 2.1 I2V 14B',
+  'wan-ai/wan2.1-i2v-14b-480p-diffusers': 'Wan 2.1 I2V 14B',
+  'wan-2.2-animate-14b': 'Wan 2.2 Animate 14B',
+  'wan-ai/wan2.2-animate-14b': 'Wan 2.2 Animate 14B',
+  'realesrgan-x4plus': 'Real-ESRGAN 4x+',
+  'amd/realesrgan-x4plus': 'Real-ESRGAN 4x+',
+  'fashn-vton-1.5': 'FASHN VTON 1.5',
+  'fashn-ai/fashn-vton-1.5': 'FASHN VTON 1.5',
+  'breeze-tts-2': 'Breeze TTS 2',
+  'breezeblue/breeze-tts-2': 'Breeze TTS 2',
+  'chatterbox-tts': 'Chatterbox TTS',
+  'resembleai/chatterbox': 'Chatterbox TTS',
+  'z-image-turbo': 'Z-Image Turbo',
+};
+
+function formatFriendlyModelName(modelId = '') {
+  if (!modelId) return 'AI Model';
+  if (MODEL_FRIENDLY_NAMES[modelId]) return MODEL_FRIENDLY_NAMES[modelId];
+  const cleaned = modelId.split('/').pop() || modelId;
+  return cleaned
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Sanitize raw Docker / apt / driver strings into friendly customer progress messages. */
+function sanitizeVastProgressMessage(vastStatus, rawMsg = '') {
+  const msg = (rawMsg || '').trim();
+  const lower = msg.toLowerCase();
+
+  const percentMatch = msg.match(/(\d{1,3})%/);
+  const percent = percentMatch ? `${percentMatch[1]}%` : null;
+
+  if (lower.includes('downloading') || lower.includes('pulling') || lower.includes('fetching') || lower.includes('extracting')) {
+    return percent
+      ? `Downloading AI container runtime (${percent})...`
+      : 'Downloading AI container runtime image...';
+  }
+
+  if (lower.includes('libpam') || lower.includes('systemd') || lower.includes('setting up') || lower.includes('apt') || lower.includes('install')) {
+    return 'Configuring system packages and CUDA runtime...';
+  }
+
+  if (lower.includes('dockerfile') || lower.includes('build definition') || lower.includes('transferring') || lower.includes('layer')) {
+    return 'Preparing accelerated GPU container environment...';
+  }
+
+  if (lower.includes('ssl') || lower.includes('cert') || lower.includes('ssh')) {
+    return 'Establishing secure connection channels...';
+  }
+
+  if (lower.includes('starting') || lower.includes('created') || lower.includes('allocat')) {
+    return 'Allocating dedicated GPU server hardware...';
+  }
+
+  if (vastStatus === 'loading') {
+    return percent
+      ? `Loading GPU container environment (${percent})...`
+      : 'Loading GPU container environment...';
+  }
+
+  if (vastStatus === 'running') {
+    return 'GPU container online. Mapping high-speed communication ports...';
+  }
+
+  return 'Initializing GPU host instance...';
+}
+
 // Re-exported for existing importers (websocket/instanceStatus.ws.js).
 export { instanceEvents, toWebSocketStatus };
 
@@ -269,12 +350,12 @@ export class InstancePollerService {
         });
         data = res.data;
       } catch (healthErr) {
-        // Port mapped, engine not answering yet: installing packages or starting.
+        // Port mapped, engine not answering yet: downloading from R2 and starting.
         if (!READY_STATUSES.includes(instance.status)) {
           await this._recordProgress(instance, {
             ...vastFields,
             stage: 'engine_starting',
-            message: 'The GPU is running. Installing and starting the engine (this can take several minutes).',
+            message: 'Unpacking AI inference engine from Cloudflare R2 & initializing server...',
             portFound: true,
             engineReachable: false,
           }, now);
@@ -385,37 +466,43 @@ export class InstancePollerService {
   /** Progress text before the engine port is known. */
   _hostProgress(instance, confirmed, vastFields) {
     if (!confirmed) {
-      return { stage: 'requesting', message: 'Requesting the GPU from Vast.ai…' };
+      return { stage: 'requesting', message: 'Allocating dedicated GPU server hardware...' };
     }
     const { vastStatus, vastStatusMessage } = vastFields;
     if (!vastStatus) {
-      return { stage: 'starting', message: 'Vast.ai confirmed the rental. Waiting for the host to start it…' };
+      return { stage: 'starting', message: 'GPU server allocated. Initializing runtime environment...' };
     }
     if (vastStatus !== 'running') {
       return {
         ...vastFields,
         stage: 'starting',
-        message: `The host is starting the GPU (${vastStatus}${vastStatusMessage ? `: ${vastStatusMessage}` : ''}).`,
+        message: sanitizeVastProgressMessage(vastStatus, vastStatusMessage),
       };
     }
-    return { ...vastFields, stage: 'waiting_for_port', message: 'The GPU is running. Waiting for the engine port…' };
+    return { ...vastFields, stage: 'waiting_for_port', message: 'GPU container online. Mapping high-speed communication ports...' };
   }
 
   /** Stage and text once the engine answers. */
   _modelsProgress(models, data) {
     if (models.length === 0) {
-      return { stage: 'engine_online', message: 'The engine is running.' };
+      return { stage: 'ready', message: 'GPU inference engine ready! Opening Creative Studio...' };
     }
     if (models.every((m) => m.status === 'ready')) {
-      return { stage: 'ready', message: 'All models are ready.' };
+      return { stage: 'ready', message: 'GPU inference engine ready! Opening Creative Studio...' };
     }
     const current = models.find((m) => m.status !== 'ready') || models[0];
     const pct = Math.round(Number(current.progressPercent) || 0);
-    const verb = { queued: 'Waiting to download', downloading: 'Downloading', loading: 'Loading' }[current.status] || 'Preparing';
+    const friendlyName = formatFriendlyModelName(current.modelId);
+    const verb = {
+      queued: 'Queued to stream',
+      downloading: 'Streaming weights for',
+      loading: 'Loading into high-speed GPU VRAM:',
+      ready: 'Ready:',
+    }[current.status] || 'Preparing';
     const done = models.filter((m) => m.status === 'ready').length;
     return {
       stage: 'downloading_models',
-      message: `${verb} ${current.modelId}${current.status === 'downloading' ? ` (${pct}%)` : ''} — ${done} of ${models.length} models ready.`,
+      message: `${verb} ${friendlyName}${current.status === 'downloading' ? ` (${pct}%)` : ''} — ${done} of ${models.length} models ready.`,
     };
   }
 
@@ -509,11 +596,13 @@ export class InstancePollerService {
    */
   emitStatusChange(instance, dbStatus, extraDetails = {}) {
     const status = toWebSocketStatus(dbStatus);
+    const existingProgress = instance.progress?.toObject ? instance.progress.toObject() : instance.progress;
     const details = {
       gpuType: instance.gpuType,
       publicIp: instance.publicIp,
       pythonEngineUrl: instance.pythonEngineUrl,
       modelsRequested: instance.modelsRequested,
+      ...(existingProgress ? { progress: existingProgress } : {}),
       ...extraDetails,
     };
     this._lastKnownDetails.set(String(instance._id), details);

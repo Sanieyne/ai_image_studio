@@ -1068,5 +1068,132 @@ class ApiService {
     return LiveCamStatusResult(success: false, message: 'Failed to update target face');
   }
 
+  /// POST /api/live-cam/process-frame -> Remote frame swap from client webcam
+  Future<LiveCamFrameResult> processLiveCamFrame({
+    required String frameBase64,
+    String? sourceImageBase64,
+    String? presetName,
+    bool enhance = false,
+    bool mirror = false,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/process-frame'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'frame_base64': frameBase64,
+          'source_image_base64': sourceImageBase64,
+          'preset_name': presetName,
+          'enhance': enhance,
+          'mirror': mirror,
+        }),
+      ).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return LiveCamFrameResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] processLiveCamFrame error: $e');
+    }
+    return LiveCamFrameResult(active: false, fps: 0.0, sourceName: 'None', message: 'Frame processing error');
+  }
+
+  /// POST /api/live-cam/swap-image -> Single high-resolution face swap
+  Future<FaceSwapImageResult> swapFaceInImage({
+    required String targetImageBase64,
+    String? sourceImageBase64,
+    String? presetName,
+    bool enhance = true,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/swap-image'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'target_image_base64': targetImageBase64,
+          'source_image_base64': sourceImageBase64,
+          'preset_name': presetName,
+          'enhance': enhance,
+        }),
+      ).timeout(const Duration(minutes: 2));
+      if (response.statusCode == 200) {
+        return FaceSwapImageResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] swapFaceInImage error: $e');
+    }
+    return FaceSwapImageResult(success: false, message: 'Image face swap failed');
+  }
+
+  /// POST /api/live-cam/swap-video -> Video face swap with synchronized audio
+  Future<FaceSwapVideoResult> swapFaceInVideo({
+    required String targetVideoBase64,
+    String? sourceImageBase64,
+    String? presetName,
+    bool enhance = true,
+    int? maxFrames,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/live-cam/swap-video'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'target_video_base64': targetVideoBase64,
+          'source_image_base64': sourceImageBase64,
+          'preset_name': presetName,
+          'enhance': enhance,
+          'max_frames': maxFrames,
+        }),
+      ).timeout(const Duration(minutes: 10));
+      if (response.statusCode == 200) {
+        return FaceSwapVideoResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] swapFaceInVideo error: $e');
+    }
+    return FaceSwapVideoResult(success: false, message: 'Video face swap failed');
+  }
+
+  /// POST /api/face/extract -> Extract 512-d normalized embedding + crop
+  Future<FaceExtractResult> extractFace({
+    required String imageBase64,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/face/extract'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'image_base64': imageBase64}),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return FaceExtractResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] extractFace error: $e');
+    }
+    return FaceExtractResult(success: false, message: 'Face extraction failed');
+  }
+
+  /// POST /api/face/verify -> Compare two faces and compute similarity match
+  Future<FaceVerifyResult> verifyFaces({
+    required String image1Base64,
+    required String image2Base64,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/api/face/verify'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'image1_base64': image1Base64,
+          'image2_base64': image2Base64,
+        }),
+      ).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return FaceVerifyResult.fromJson(jsonDecode(response.body));
+      }
+    } catch (e) {
+      debugPrint('[ApiService] verifyFaces error: $e');
+    }
+    return FaceVerifyResult(success: false, message: 'Face verification failed');
+  }
+
   void dispose() => _client.close();
 }

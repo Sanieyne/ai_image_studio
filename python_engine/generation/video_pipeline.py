@@ -314,9 +314,12 @@ class MiniMaxH3Engine:
 
         try:
             import torch
-            from diffusers import MiniMaxH3Transformer3DModel, ModularPipeline, TorchAoConfig
+            from diffusers import MiniMaxH3Blocks, MiniMaxH3Transformer3DModel, TorchAoConfig
             from diffusers.hooks import apply_group_offloading
-            from transformers import Qwen3VLForConditionalGeneration
+            from diffusers.models.autoencoders.autoencoder_kl_minimax_h3 import AutoencoderKLMiniMaxH3
+            from diffusers.models.autoencoders.autoencoder_kl_minimax_h3_audio import AutoencoderKLMiniMaxH3Audio
+            from diffusers.schedulers.scheduling_minimax_h3 import MiniMaxH3Scheduler
+            from transformers import Qwen2TokenizerFast, Qwen3VLForConditionalGeneration, Qwen3VLProcessor
             from transformers import TorchAoConfig as TransformersTorchAoConfig
             from torchao.quantization import Int8WeightOnlyConfig
 
@@ -357,20 +360,17 @@ class MiniMaxH3Engine:
                 low_cpu_mem_usage=True,
             )
 
-            print(f"[*] Initializing MiniMax-H3 ModularPipeline from {self.model_path}...")
-            pipe = ModularPipeline.from_pretrained(self.model_path)
-
-            print("[*] Registering quantized transformer & text_encoder...")
-            pipe.update_components(transformer=transformer, text_encoder=text_encoder)
-
-            print("[*] Loading remaining pipeline components (VAEs, schedulers, tokenizer)...")
-            pipe.load_components(
-                names=[
-                    "image_processor", "tokenizer", "processor",
-                    "vae", "scheduler", "audio_scheduler",
-                    "video_processor", "audio_vae",
-                ],
-                dtype=torch.bfloat16,
+            print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
+            pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
+            pipe.update_components(
+                text_encoder=text_encoder,
+                transformer=transformer,
+                tokenizer=Qwen2TokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer"),
+                processor=Qwen3VLProcessor.from_pretrained(self.model_path, subfolder="processor"),
+                vae=AutoencoderKLMiniMaxH3.from_pretrained(self.model_path, subfolder="vae", torch_dtype=torch.bfloat16),
+                audio_vae=AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16),
+                scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="scheduler"),
+                audio_scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="audio_scheduler"),
             )
 
             pipe.transformer.requires_grad_(False)
@@ -379,12 +379,18 @@ class MiniMaxH3Engine:
             from generation.device import get_device
             device_str, _ = get_device()
             if device_str == "cuda":
-                print("[*] Setting up block-level GPU offloading (streamed to CUDA)...")
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
                 offload = dict(onload_device=torch.device("cuda"), offload_device=torch.device("cpu"), use_stream=False)
-                pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
                 apply_group_offloading(pipe.text_encoder.model, offload_type="leaf_level", **offload)
                 pipe.vae.to("cuda")
                 pipe.audio_vae.to("cuda")
+
+                if vram_gb >= 80:
+                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM >= 80GB: placing transformer 100% in VRAM for maximum speed...")
+                    pipe.transformer.to("cuda")
+                else:
+                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM < 80GB: enabling block-level offload...")
+                    pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
             elif device_str == "mps":
                 pipe.to("mps")
 
@@ -474,13 +480,13 @@ class MiniMaxH3Engine:
                 n = max(7, math.ceil((target_frames - 5) / 17))
                 num_frames = 17 * n + 5
 
-                # Resolution
+                # Resolution (must be multiples of 32: 1344x768)
                 if aspect_ratio == "9:16":
-                    h, w = 1360, 768
+                    h, w = 1344, 768
                 elif aspect_ratio == "1:1":
                     h, w = 768, 768
                 else:  # "16:9"
-                    h, w = 768, 1360
+                    h, w = 768, 1344
 
                 from generation.device import get_device
                 device_str, _ = get_device()

@@ -43,6 +43,16 @@ from api.schemas import (
     LiveCamFrameResponse,
     LiveCamPresetItem,
     LiveCamPresetsResponse,
+    LiveCamProcessFrameRequest,
+    LiveCamProcessFrameResponse,
+    FaceSwapImageRequest,
+    FaceSwapImageResponse,
+    FaceSwapVideoRequest,
+    FaceSwapVideoResponse,
+    FaceExtractRequest,
+    FaceExtractResponse,
+    FaceVerifyRequest,
+    FaceVerifyResponse,
 )
 
 from generation.pipeline import (
@@ -965,6 +975,88 @@ def get_live_cam_mjpeg_stream():
     except Exception as e:
         log.exception(f"Streaming error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/live-cam/process-frame", response_model=LiveCamProcessFrameResponse)
+def process_client_live_cam_frame(req: LiveCamProcessFrameRequest) -> LiveCamProcessFrameResponse:
+    """Process a single incoming camera frame from a remote client (e.g. Flutter webcam over HTTP)."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.process_client_frame(
+            frame_data=req.frame_base64,
+            source_image_or_preset=req.source_image_base64 or req.preset_name,
+            enhance=req.enhance,
+            mirror=req.mirror,
+        )
+        return LiveCamProcessFrameResponse(**res)
+    except Exception as e:
+        log.exception(f"Error processing client frame: {e}")
+        return LiveCamProcessFrameResponse(success=False, message=str(e))
+
+
+@router.post("/api/live-cam/swap-image", response_model=FaceSwapImageResponse)
+def swap_face_in_image(req: FaceSwapImageRequest) -> FaceSwapImageResponse:
+    """High-resolution face swap on a target image with GFPGAN restoration and verification."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.swap_image(
+            target_image=req.target_image_base64,
+            source_image=req.source_image_base64,
+            preset_name=req.preset_name,
+            enhance=req.enhance,
+        )
+        return FaceSwapImageResponse(**res)
+    except Exception as e:
+        log.exception(f"Error in image face swap: {e}")
+        return FaceSwapImageResponse(success=False, message=str(e))
+
+
+@router.post("/api/live-cam/swap-video", response_model=FaceSwapVideoResponse)
+def swap_face_in_video(req: FaceSwapVideoRequest) -> FaceSwapVideoResponse:
+    """Video face swap across all frames with original audio preserved."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.swap_video(
+            target_video_data=req.target_video_base64,
+            source_image=req.source_image_base64,
+            preset_name=req.preset_name,
+            enhance=req.enhance,
+            max_frames=req.max_frames,
+        )
+        return FaceSwapVideoResponse(**res)
+    except Exception as e:
+        log.exception(f"Error in video face swap: {e}")
+        return FaceSwapVideoResponse(success=False, message=str(e))
+
+
+@router.post("/api/face/extract", response_model=FaceExtractResponse)
+def extract_face_identity(req: FaceExtractRequest) -> FaceExtractResponse:
+    """Extract normalized 512-dim face embedding and aligned cropped face from photo or selfie."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.extract_face(req.image_base64)
+        return FaceExtractResponse(**res)
+    except Exception as e:
+        log.exception(f"Error extracting face embedding: {e}")
+        return FaceExtractResponse(success=False, message=str(e))
+
+
+@router.post("/api/face/verify", response_model=FaceVerifyResponse)
+def verify_face_similarity(req: FaceVerifyRequest) -> FaceVerifyResponse:
+    """Verify facial similarity between two faces using ArcFace/DeepFace cosine metric."""
+    try:
+        from generation.live_face_swap import get_live_face_swap_service
+        service = get_live_face_swap_service()
+        res = service.verify_faces(req.image1_base64, req.image2_base64)
+        return FaceVerifyResponse(**res)
+    except Exception as e:
+        log.exception(f"Error verifying faces: {e}")
+        return FaceVerifyResponse(success=False, message=str(e))
+
 
 
 
