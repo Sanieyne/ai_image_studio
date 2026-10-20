@@ -1018,7 +1018,7 @@ class ApiService {
     try {
       final response = await _client.get(
         Uri.parse('$baseUrl/api/live-cam/frame'),
-      ).timeout(const Duration(seconds: 4));
+      ).timeout(const Duration(seconds: 12));
       if (response.statusCode == 200) {
         return LiveCamFrameResult.fromJson(jsonDecode(response.body));
       }

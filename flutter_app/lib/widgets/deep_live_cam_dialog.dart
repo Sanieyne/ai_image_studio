@@ -34,6 +34,7 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
 
   bool _isLive = false;
   bool _isStarting = false;
+  bool _isFetchingFrame = false;
   bool _enhanceFace = false;
   bool _mirrorCamera = true;
   String _activeTargetName = 'Elon Musk';
@@ -76,20 +77,25 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
 
   void _startFramePolling() {
     _frameTimer?.cancel();
-    // Poll at ~20 fps for responsive live UI feedback
-    _frameTimer = Timer.periodic(const Duration(milliseconds: 50), (_) async {
-      if (!_isLive || !mounted) return;
-      final res = await _apiService.getLiveCamFrame();
-      if (mounted) {
-        setState(() {
-          _fps = res.fps;
-          if (res.sourceName.isNotEmpty) {
-            _activeTargetName = res.sourceName;
-          }
-          if (res.frameBase64 != null) {
-            _frameBase64 = res.frameBase64;
-          }
-        });
+    _isFetchingFrame = false;
+    _frameTimer = Timer.periodic(const Duration(milliseconds: 60), (_) async {
+      if (!_isLive || !mounted || _isFetchingFrame) return;
+      _isFetchingFrame = true;
+      try {
+        final res = await _apiService.getLiveCamFrame();
+        if (mounted && _isLive) {
+          setState(() {
+            _fps = res.fps;
+            if (res.sourceName.isNotEmpty) {
+              _activeTargetName = res.sourceName;
+            }
+            if (res.frameBase64 != null) {
+              _frameBase64 = res.frameBase64;
+            }
+          });
+        }
+      } finally {
+        _isFetchingFrame = false;
       }
     });
   }
