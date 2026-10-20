@@ -229,12 +229,34 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
                   letterSpacing: 0.3,
                 ),
               ),
-              Text(
-                'Deep-Live-Cam Engine • Real-time Face Replacement',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.55),
-                  fontSize: 12,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'Deep-Live-Cam Engine • ',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.55),
+                      fontSize: 12,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+                    ),
+                    child: Text(
+                      _apiService.activeDeviceName != null && _apiService.activeDeviceName!.isNotEmpty
+                          ? '⚡ ${_apiService.activeDeviceName}'
+                          : '⚡ Cloud GPU / CUDA',
+                      style: const TextStyle(
+                        color: Color(0xFF34D399),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

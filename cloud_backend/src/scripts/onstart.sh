@@ -76,14 +76,20 @@ fi
   || fail "The engine package is outdated (no requirements-cloud.lock / self_test.py). Upload a new package."
 
 stage "2/4 Installing engine packages (locked versions)"
+# 1. Install headless media and graphics libraries for OpenCV and video streaming
+apt-get update -qq > /var/log/apt_engine.log 2>&1 || true
+apt-get install -y -qq --no-install-recommends libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 ffmpeg >> /var/log/apt_engine.log 2>&1 || true
+
 python3 -m pip install --no-cache-dir -r requirements-cloud.lock -c constraints-cloud.txt \
     --extra-index-url https://download.pytorch.org/whl/cu128 > /var/log/pip_engine.log 2>&1 \
   || fail "Installing engine packages failed: $(last_lines /var/log/pip_engine.log 8)"
 python3 -m pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 >> /var/log/pip_engine.log 2>&1 \
   || fail "Installing the voice package failed: $(last_lines /var/log/pip_engine.log)"
-python3 -m pip install --no-cache-dir opencv-python-headless insightface onnxruntime-gpu >> /var/log/pip_engine.log 2>&1 \
-  || python3 -m pip install --no-cache-dir opencv-python-headless insightface onnxruntime >> /var/log/pip_engine.log 2>&1 \
-  || echo "[WARN] Deep-Live-Cam face package installation completed with warnings."
+python3 -m pip install --no-cache-dir opencv-python-headless onnxruntime-gpu scikit-image >> /var/log/pip_engine.log 2>&1 \
+  || python3 -m pip install --no-cache-dir opencv-python-headless onnxruntime scikit-image >> /var/log/pip_engine.log 2>&1 \
+  || echo "[WARN] Deep-Live-Cam base packages installation completed with warnings."
+python3 -m pip install --no-cache-dir --no-deps insightface >> /var/log/pip_engine.log 2>&1 \
+  || echo "[WARN] Insightface installation completed with warnings."
 
 stage "3/4 Engine self-test"
 python3 self_test.py --json > /workspace/self_test.json 2>/var/log/self_test.err

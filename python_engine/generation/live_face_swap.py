@@ -25,17 +25,21 @@ try:
 except ImportError:
     ort = None
 
+_cv2_error = None
 try:
     import cv2
-except ImportError:
+except Exception as e:
     cv2 = None
+    _cv2_error = f"{type(e).__name__}: {e}"
 
+_insightface_error = None
 try:
     import insightface
     from insightface.app import FaceAnalysis
-except ImportError:
+except Exception as e:
     insightface = None
     FaceAnalysis = None
+    _insightface_error = f"{type(e).__name__}: {e}"
 
 logger = logging.getLogger("LiveFaceSwap")
 logger.setLevel(logging.INFO)
@@ -44,7 +48,9 @@ PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
 MODELS_DIR = os.path.join(PROJECT_ROOT, "models", "deep_live_cam")
-PRESETS_DIR = os.path.join(MODELS_DIR, "presets")
+# Check bundled generation/presets directory first, fallback to external models/deep_live_cam/presets
+_BUNDLED_PRESETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "presets")
+PRESETS_DIR = _BUNDLED_PRESETS_DIR if os.path.exists(_BUNDLED_PRESETS_DIR) else os.path.join(MODELS_DIR, "presets")
 
 # Auto-download helpers for fresh machine setups
 def _download_r2_file(key: str, target: str) -> bool:
@@ -214,13 +220,15 @@ class LiveFaceSwapService:
             return
 
         if cv2 is None:
+            err_detail = f": {_cv2_error}" if _cv2_error else ""
             raise RuntimeError(
-                "OpenCV (cv2) is not installed in this Python environment. "
-                "Please run: pip install opencv-python onnxruntime insightface"
+                f"OpenCV (cv2) is not available{err_detail}. "
+                "Ensure libgl1 and opencv-python-headless are installed."
             )
         if insightface is None or FaceAnalysis is None:
+            err_detail = f": {_insightface_error}" if _insightface_error else ""
             raise RuntimeError(
-                "InsightFace is not installed in this Python environment. "
+                f"InsightFace is not available{err_detail}. "
                 "Please run: pip install insightface"
             )
 
