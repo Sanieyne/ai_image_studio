@@ -845,6 +845,13 @@ class LiveFaceSwapService:
         if not ret:
             return {"success": False, "message": "Failed to encode output frame"}
 
+        # Publish the swapped client frame directly to the live MJPEG stream (for OBS & browser viewers)
+        with self._frame_lock:
+            self._latest_bgr = frame
+            self._latest_jpeg = jpeg_buf.tobytes()
+            self._new_frame_event.set()
+        self.current_fps = fps
+
         out_b64 = base64.b64encode(jpeg_buf.tobytes()).decode("utf-8")
         return {
             "success": True,
