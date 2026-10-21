@@ -85,7 +85,8 @@ python3 -m pip install --no-cache-dir -r requirements-cloud.lock -c constraints-
   || fail "Installing engine packages failed: $(last_lines /var/log/pip_engine.log 8)"
 python3 -m pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 >> /var/log/pip_engine.log 2>&1 \
   || fail "Installing the voice package failed: $(last_lines /var/log/pip_engine.log)"
-python3 -m pip install --no-cache-dir opencv-python-headless onnxruntime-gpu scikit-image >> /var/log/pip_engine.log 2>&1 \
+python3 -m pip install --no-cache-dir opencv-python-headless "onnxruntime-gpu<1.21" scikit-image >> /var/log/pip_engine.log 2>&1 \
+  || python3 -m pip install --no-cache-dir opencv-python-headless onnxruntime-gpu scikit-image >> /var/log/pip_engine.log 2>&1 \
   || python3 -m pip install --no-cache-dir opencv-python-headless onnxruntime scikit-image >> /var/log/pip_engine.log 2>&1 \
   || echo "[WARN] Deep-Live-Cam base packages installation completed with warnings."
 python3 -m pip install --no-cache-dir --no-deps insightface >> /var/log/pip_engine.log 2>&1 \

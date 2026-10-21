@@ -87,12 +87,21 @@ def _check_cuda() -> str | None:
         return f"torch: {e}"
     if not torch.cuda.is_available():
         return "CUDA is not available (no GPU, or the driver is too old for this torch build)."
-    major, minor = torch.cuda.get_device_capability(0)
-    arch = f"sm_{major}{minor}"
-    supported = torch.cuda.get_arch_list()
-    if supported and arch not in supported:
-        name = torch.cuda.get_device_name(0)
-        return f"GPU {name} ({arch}) is not supported by this torch build (built for {', '.join(supported)})."
+    # Rather than a brittle string comparison against torch.cuda.get_arch_list()
+    # which fails for Ada Lovelace (sm_89: RTX 4060, 4070, 4080, 4090, L4) and newer arches,
+    # actually execute a kernel on the GPU device to verify compute capability.
+    try:
+        t = torch.zeros((2, 2), device="cuda")
+        y = (t + 1.0) * 2.0
+        torch.cuda.synchronize()
+        if float(y.sum().item()) != 8.0:
+            return "CUDA tensor operation produced unexpected result."
+    except Exception as e:
+        name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "unknown"
+        major, minor = torch.cuda.get_device_capability(0) if torch.cuda.is_available() else (0, 0)
+        arch = f"sm_{major}{minor}"
+        supported = torch.cuda.get_arch_list() if hasattr(torch.cuda, "get_arch_list") else []
+        return f"GPU {name} ({arch}) failed CUDA execution: {e} (supported: {', '.join(supported)})."
     return None
 
 
