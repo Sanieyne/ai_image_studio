@@ -92,6 +92,10 @@ python3 -m pip install --no-cache-dir opencv-python-headless "onnxruntime-gpu<1.
 python3 -m pip install --no-cache-dir --no-deps insightface >> /var/log/pip_engine.log 2>&1 \
   || echo "[WARN] Insightface installation completed with warnings."
 
+# Configure system dynamic linker so ONNX Runtime GPU finds cuDNN and CUDA 12 libraries
+python3 -c 'import glob; print("\n".join(glob.glob("/usr/local/lib/python*/dist-packages/nvidia/*/lib")))' > /etc/ld.so.conf.d/nvidia_pip.conf 2>/dev/null || true
+ldconfig 2>/dev/null || true
+
 stage "3/4 Engine self-test"
 python3 self_test.py --json > /workspace/self_test.json 2>/var/log/self_test.err
 if [ $? -ne 0 ]; then

@@ -188,6 +188,8 @@ class LiveFaceSwapService:
         # Soft mask cache for blending
         self._alpha_cache: Dict[int, np.ndarray] = {}
         self._enhancer_cache: Dict[str, Any] = {"mask": None, "mask_size": 0}
+        self._source_face_cache: Dict[str, Any] = {}
+        self._last_client_frame_time: float = 0.0
 
         # Initialize default source preset if available
         self._init_default_preset()
@@ -665,6 +667,12 @@ class LiveFaceSwapService:
 
         while not self._stop_event.is_set():
             loop_count += 1
+            if (time.time() - getattr(self, "_last_client_frame_time", 0.0)) < 3.0:
+                # Client is actively streaming remote webcam frames (e.g. from local PC or Flutter)
+                # Pause background loop to dedicate 100% GPU to client and prevent clobbering stream.mjpg
+                time.sleep(0.04)
+                continue
+
             if not use_fallback:
                 ret, frame = cap.read()
                 if not ret or frame is None:
@@ -790,6 +798,7 @@ class LiveFaceSwapService:
         Process an incoming webcam or video frame sent from a remote client (e.g. Flutter over HTTP).
         Swaps face using GPU-accelerated INSwapper + GFPGAN, returning base64 JPEG + metrics.
         """
+        self._last_client_frame_time = time.time()
         self._load_models()
         t0 = time.time()
 
@@ -806,15 +815,22 @@ class LiveFaceSwapService:
         active_source = self.source_face
         if source_target:
             if isinstance(source_target, str) and not source_target.startswith("data:") and len(source_target) < 100:
-                # Preset name
-                presets = self.get_available_presets()
-                match = next((p for p in presets if source_target.lower() in p["name"].lower()), None)
-                if match:
-                    src_img = cv2.imread(match["path"])
-                    if src_img is not None:
-                        src_faces = self.face_analyser.get(src_img)
-                        if src_faces:
-                            active_source = sorted(src_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+                # Preset name with caching
+                target_key = f"preset:{source_target.lower()}"
+                if target_key in getattr(self, "_source_face_cache", {}):
+                    active_source = self._source_face_cache[target_key]
+                else:
+                    presets = self.get_available_presets()
+                    match = next((p for p in presets if source_target.lower() in p["name"].lower()), None)
+                    if match:
+                        src_img = cv2.imread(match["path"])
+                        if src_img is not None:
+                            src_faces = self.face_analyser.get(src_img)
+                            if src_faces:
+                                active_source = sorted(src_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+                                if not hasattr(self, "_source_face_cache"):
+                                    self._source_face_cache = {}
+                                self._source_face_cache[target_key] = active_source
             else:
                 src_img = self._decode_image(source_target)
                 if src_img is not None:
