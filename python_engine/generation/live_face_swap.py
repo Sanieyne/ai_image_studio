@@ -614,14 +614,26 @@ class LiveFaceSwapService:
         t0 = time.time()
         fallback_frame_idx = 0
 
-        # Load fallback reference images if hardware camera is absent
+        # Load fallback reference video or image if hardware camera is absent
+        fallback_video_cap = None
+        for v_cand in [
+            os.path.join(ENGINE_ROOT, "examples", "test_camera_feed.mp4"),
+            "/workspace/python_engine/examples/test_camera_feed.mp4",
+        ]:
+            if os.path.exists(v_cand):
+                v_cap = cv2.VideoCapture(v_cand)
+                if v_cap.isOpened():
+                    fallback_video_cap = v_cap
+                    logger.info(f"[LiveFaceSwap] Using moving video loop as virtual camera feed: {v_cand}")
+                    break
+
         fallback_target = None
         webcam_proof = "/root/.gemini/antigravity-cli/brain/af25ee55-4eed-4ab7-8bda-96ab5772a742/webcam_confirmed_capture.jpg"
         if os.path.exists(webcam_proof):
             fallback_target = cv2.imread(webcam_proof)
 
         # 2. Check bundled presets for a real portrait to swap in cloud/virtual mode
-        if fallback_target is None and os.path.exists(PRESETS_DIR):
+        if fallback_video_cap is None and fallback_target is None and os.path.exists(PRESETS_DIR):
             for cand in ["kaifu_resize.png", "yann-lecun_resize.jpg", "musk_resize.jpeg"]:
                 cand_path = os.path.join(PRESETS_DIR, cand)
                 if os.path.exists(cand_path):
@@ -632,7 +644,14 @@ class LiveFaceSwapService:
                         break
 
         # Immediately publish initial preview frame
-        initial_preview = fallback_target.copy() if fallback_target is not None else np.zeros((480, 640, 3), dtype=np.uint8)
+        initial_preview = None
+        if fallback_video_cap is not None:
+            ret_init, f_init = fallback_video_cap.read()
+            if ret_init and f_init is not None:
+                initial_preview = cv2.resize(f_init, (640, 480)) if (f_init.shape[1] != 640 or f_init.shape[0] != 480) else f_init
+                fallback_video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        if initial_preview is None:
+            initial_preview = fallback_target.copy() if fallback_target is not None else np.zeros((480, 640, 3), dtype=np.uint8)
         ret, init_jpeg = cv2.imencode(".jpg", initial_preview, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ret:
             with self._frame_lock:
@@ -652,8 +671,15 @@ class LiveFaceSwapService:
                     time.sleep(0.01)
                     continue
             else:
-                # Synthetic animation loop demonstrating live swap in cloud/Docker
-                if fallback_target is not None:
+                # Video loop or animated simulation in cloud/Docker
+                if fallback_video_cap is not None:
+                    ret, frame = fallback_video_cap.read()
+                    if not ret or frame is None:
+                        fallback_video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        ret, frame = fallback_video_cap.read()
+                    if frame is not None and (frame.shape[1] != 640 or frame.shape[0] != 480):
+                        frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_AREA)
+                elif fallback_target is not None:
                     h, w = fallback_target.shape[:2]
                     # Slight smooth breathing zoom & tilt simulation
                     angle = np.sin(fallback_frame_idx * 0.05) * 1.5
@@ -671,7 +697,7 @@ class LiveFaceSwapService:
                         2,
                     )
                 fallback_frame_idx += 1
-                time.sleep(0.02)  # smooth cadence
+                time.sleep(0.033)  # ~30 fps smooth video playback
 
             # Process frame through face swap pipeline with detection interval
             detect_now = (loop_count % det_interval == 0) or (cached_faces is None)
