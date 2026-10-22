@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -293,26 +291,17 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
 
   Future<void> _pickAndUploadCustomFace() async {
     try {
-      final result = await FilePicker.pickFiles(
+      final files = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
-        allowMultiple: false,
-        withData: true,
       );
 
-      if (result == null || result.files.isEmpty) return;
+      if (files.isEmpty) return;
 
-      final file = result.files.first;
-      Uint8List? bytes = file.bytes;
+      final file = files.first;
+      final bytes = await file.readAsBytes();
 
-      if (bytes == null && file.path != null) {
-        final ioFile = File(file.path!);
-        if (await ioFile.exists()) {
-          bytes = await ioFile.readAsBytes();
-        }
-      }
-
-      if (bytes == null || bytes.isEmpty) {
+      if (bytes.isEmpty) {
         if (mounted) {
           setState(() => _statusMessage = 'Could not read image file');
         }
