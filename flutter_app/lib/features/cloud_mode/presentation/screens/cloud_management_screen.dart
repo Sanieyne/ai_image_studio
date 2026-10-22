@@ -486,6 +486,18 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
+                    if (widget.onReturnToStudio != null) ...[
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.arrow_back_rounded, size: 16),
+                        label: const Text('Return to Studio'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          side: BorderSide(color: border),
+                        ),
+                        onPressed: widget.onReturnToStudio,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     IconButton(
                       icon: const Icon(Icons.refresh_rounded, size: 20),
                       tooltip: 'Refresh Catalog & Recommendations',

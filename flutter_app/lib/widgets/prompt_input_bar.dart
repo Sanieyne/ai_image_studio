@@ -7,7 +7,6 @@ import 'dart:ui';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../models/camera_frame_result.dart';
 import '../models/image_template.dart';
 import '../models/video_template.dart';
 import '../services/api_service.dart';
@@ -221,6 +220,9 @@ class PromptInputBarState extends State<PromptInputBar> {
       _videoTemplateNotice = null;
     });
   }
+
+  /// Reload available models from the active engine (local or cloud GPU)
+  Future<void> refreshModels() => _fetchAvailableModels();
 
   bool get _isVoiceModel =>
       _model.contains('Chatterbox') || _model.contains('Breeze');

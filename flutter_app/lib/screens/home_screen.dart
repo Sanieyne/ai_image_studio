@@ -152,8 +152,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return text[0].toUpperCase() + text.substring(1);
   }
 
-  Future<void> _setExecutionMode(StudioExecutionMode mode) async {
-    if (_executionMode == mode) return;
+  Future<void> _setExecutionMode(StudioExecutionMode mode, {bool force = false}) async {
+    if (!force && _executionMode == mode) return;
     setState(() => _executionMode = mode);
     if (mode == StudioExecutionMode.cloud) {
       if (ApiService.cloudBaseUrl != null && ApiService.cloudBaseUrl!.isNotEmpty) {
@@ -165,6 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ApiService.baseUrl = ApiService.localBaseUrl;
     }
     _checkHealth();
+    _promptBarKey.currentState?.refreshModels();
     try {
       await _db.setSetting('studio_execution_mode', mode.name);
     } catch (_) {}
@@ -890,6 +891,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? CloudManagementScreen(
               isDark: widget.isDark,
               onReturnToStudio: () {
+                _setExecutionMode(StudioExecutionMode.cloud, force: true);
                 setState(() => _currentSidebarTab = SidebarTab.image);
               },
             )
