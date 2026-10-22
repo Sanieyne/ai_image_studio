@@ -1,11 +1,29 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/live_cam_models.dart';
 import '../services/api_service.dart';
 import '../services/desktop_webcam_service.dart';
+
+/// Represents a custom user-uploaded face for real-time cloning.
+class CustomCloneFace {
+  final String id;
+  final String name;
+  final String base64Data;
+  final Uint8List thumbnailBytes;
+
+  const CustomCloneFace({
+    required this.id,
+    required this.name,
+    required this.base64Data,
+    required this.thumbnailBytes,
+  });
+}
 
 /// Deep-Live-Cam Real-Time Face Swapping Dialog.
 /// Allows live webcam cloning for web video calls (Zoom, Discord, Meet, OBS).
@@ -47,6 +65,9 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
   String? _frameBase64;
   String? _statusMessage;
   List<LiveCamPreset> _presets = [];
+  final List<CustomCloneFace> _customFaces = [];
+  CustomCloneFace? _selectedCustomFace;
+  bool _isUploadingFace = false;
   List<DesktopWebcamDevice> _availableCameras = [];
   DesktopWebcamDevice? _selectedCamera;
   bool _copiedUrl = false;
@@ -186,7 +207,8 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
           try {
             final swapRes = await _apiService.processLiveCamFrame(
               frameBase64: frameBase64,
-              presetName: _activeTargetName,
+              presetName: _selectedCustomFace == null ? _activeTargetName : null,
+              sourceImageBase64: _selectedCustomFace?.base64Data,
               enhance: _enhanceFace,
               mirror: _mirrorCamera,
             );
@@ -239,12 +261,110 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
   }
 
   Future<void> _selectPreset(LiveCamPreset preset) async {
-    setState(() => _activeTargetName = preset.name);
+    setState(() {
+      _selectedCustomFace = null;
+      _activeTargetName = preset.name;
+    });
     final res = await _apiService.setLiveCamSource(presetName: preset.name);
     if (mounted) {
       setState(() {
         _statusMessage = res.message;
       });
+    }
+  }
+
+  Future<void> _selectCustomFace(CustomCloneFace face) async {
+    setState(() {
+      _selectedCustomFace = face;
+      _activeTargetName = face.name;
+    });
+
+    final res = await _apiService.setLiveCamSource(
+      imageBase64: face.base64Data,
+      name: face.name,
+    );
+
+    if (mounted) {
+      setState(() {
+        _statusMessage = res.message;
+      });
+    }
+  }
+
+  Future<void> _pickAndUploadCustomFace() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+        allowMultiple: false,
+        withData: true,
+      );
+
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      Uint8List? bytes = file.bytes;
+
+      if (bytes == null && file.path != null) {
+        final ioFile = File(file.path!);
+        if (await ioFile.exists()) {
+          bytes = await ioFile.readAsBytes();
+        }
+      }
+
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) {
+          setState(() => _statusMessage = 'Could not read image file');
+        }
+        return;
+      }
+
+      setState(() {
+        _isUploadingFace = true;
+        _statusMessage = 'Uploading face & extracting features on GPU...';
+      });
+
+      final b64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+      final faceName = file.name.replaceAll(RegExp(r'\.[a-zA-Z0-9]+$'), '');
+
+      final res = await _apiService.setLiveCamSource(
+        imageBase64: b64,
+        name: faceName,
+      );
+
+      if (mounted) {
+        if (res.success) {
+          final customFace = CustomCloneFace(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            name: faceName,
+            base64Data: b64,
+            thumbnailBytes: bytes,
+          );
+
+          setState(() {
+            _customFaces.add(customFace);
+            _selectedCustomFace = customFace;
+            _activeTargetName = faceName;
+            _isUploadingFace = false;
+            _statusMessage = '⚡ Switched clone target to "$faceName"';
+          });
+        } else {
+          setState(() {
+            _isUploadingFace = false;
+            _statusMessage = res.message.isNotEmpty
+                ? res.message
+                : 'No face detected in uploaded photo. Please try a clearer portrait.';
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('[DeepLiveCamDialog] Upload error: $e');
+      if (mounted) {
+        setState(() {
+          _isUploadingFace = false;
+          _statusMessage = 'Error loading image: $e';
+        });
+      }
     }
   }
 
@@ -833,43 +953,137 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: _presets.map((preset) {
-        final isSelected = _activeTargetName.toLowerCase() == preset.name.toLowerCase();
-        return InkWell(
-          onTap: () => _selectPreset(preset),
+      children: [
+        // 1. Upload Custom Face Button
+        InkWell(
+          onTap: _isUploadingFace ? null : _pickAndUploadCustomFace,
           borderRadius: BorderRadius.circular(8),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF7C3AED).withOpacity(0.2) : const Color(0xFF1E2330),
+              color: const Color(0xFF7C3AED).withOpacity(0.15),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: isSelected ? const Color(0xFFA78BFA) : Colors.transparent,
+                color: const Color(0xFFA78BFA).withOpacity(0.5),
                 width: 1.5,
               ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.account_circle_rounded,
-                  color: isSelected ? const Color(0xFFA78BFA) : Colors.grey,
-                  size: 16,
-                ),
+                _isUploadingFace
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFFA78BFA),
+                        ),
+                      )
+                    : const Icon(
+                        Icons.add_photo_alternate_rounded,
+                        color: Color(0xFFA78BFA),
+                        size: 16,
+                      ),
                 const SizedBox(width: 6),
                 Text(
-                  preset.name,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : Colors.white70,
+                  _isUploadingFace ? 'Extracting Face...' : '+ Upload Face',
+                  style: const TextStyle(
+                    color: Color(0xFFA78BFA),
                     fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ],
             ),
           ),
-        );
-      }).toList(),
+        ),
+
+        // 2. Custom Uploaded Faces Chips
+        ..._customFaces.map((face) {
+          final isSelected = _selectedCustomFace == face;
+          return InkWell(
+            onTap: () => _selectCustomFace(face),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? const Color(0xFF7C3AED).withOpacity(0.25)
+                    : const Color(0xFF1E2330),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? const Color(0xFFA78BFA) : Colors.transparent,
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.memory(
+                      face.thumbnailBytes,
+                      width: 20,
+                      height: 20,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    face.name,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+
+        // 3. Bundled Celebrity Presets
+        ..._presets.map((preset) {
+          final isSelected = _selectedCustomFace == null &&
+              _activeTargetName.toLowerCase() == preset.name.toLowerCase();
+          return InkWell(
+            onTap: () => _selectPreset(preset),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFF7C3AED).withOpacity(0.2) : const Color(0xFF1E2330),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected ? const Color(0xFFA78BFA) : Colors.transparent,
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.account_circle_rounded,
+                    color: isSelected ? const Color(0xFFA78BFA) : Colors.grey,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    preset.name,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontSize: 12,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 

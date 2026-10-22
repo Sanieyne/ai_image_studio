@@ -912,10 +912,11 @@ def set_live_cam_source(req: LiveCamSetSourceRequest) -> LiveCamResponse:
             if "," in clean_b64:
                 clean_b64 = clean_b64.split(",", 1)[1]
             raw_bytes = base64.b64decode(clean_b64)
-            ok = service.set_source_image(raw_bytes, name="Custom Upload")
+            name = req.name or req.preset_name or "Custom Upload"
+            ok = service.set_source_image(raw_bytes, name=name)
             return LiveCamResponse(
                 success=ok,
-                message="Switched clone target to uploaded face" if ok else "No face detected in upload",
+                message=f"Switched clone target to '{service.source_name}'" if ok else "No face detected in upload",
                 active=service.is_running,
                 source_name=service.source_name,
             )

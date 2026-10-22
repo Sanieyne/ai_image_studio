@@ -277,6 +277,7 @@ class LiveCamSetSourceRequest(BaseModel):
     source_image_path: Optional[str] = None
     preset_name: Optional[str] = None
     image_base64: Optional[str] = None
+    name: Optional[str] = None
 
 
 class LiveCamResponse(BaseModel):

@@ -1048,6 +1048,7 @@ class ApiService {
     String? presetName,
     String? sourceImagePath,
     String? imageBase64,
+    String? name,
   }) async {
     try {
       final response = await _client.post(
@@ -1057,6 +1058,7 @@ class ApiService {
           'preset_name': presetName,
           'source_image_path': sourceImagePath,
           'image_base64': imageBase64,
+          'name': name,
         }),
       ).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {

@@ -350,24 +350,17 @@ class LiveFaceSwapService:
         """Set or update the active clone face target without stopping video stream."""
         self._load_models()
 
-        if isinstance(image_path_or_bytes, str):
-            if not os.path.exists(image_path_or_bytes):
-                logger.error(f"[LiveFaceSwap] Source file does not exist: {image_path_or_bytes}")
-                return False
-            img = cv2.imread(image_path_or_bytes)
-            self.source_image_path = image_path_or_bytes
-            self.source_name = name or os.path.basename(image_path_or_bytes)
-        elif isinstance(image_path_or_bytes, bytes):
-            nparr = np.frombuffer(image_path_or_bytes, np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            self.source_image_path = "uploaded_buffer"
-            self.source_name = name or "Custom Face"
-        else:
-            return False
-
+        img = self._decode_image(image_path_or_bytes)
         if img is None:
             logger.error("[LiveFaceSwap] Could not decode source face image.")
             return False
+
+        if isinstance(image_path_or_bytes, str) and os.path.exists(image_path_or_bytes):
+            self.source_image_path = image_path_or_bytes
+            self.source_name = name or os.path.splitext(os.path.basename(image_path_or_bytes))[0]
+        else:
+            self.source_image_path = "custom_upload"
+            self.source_name = name or "Custom Face"
 
         faces = self.face_analyser.get(img)
         if not faces:
@@ -381,6 +374,12 @@ class LiveFaceSwapService:
             reverse=True,
         )[0]
         self.source_embedding = self.source_face.normed_embedding
+
+        # Cache by name and path
+        if not hasattr(self, "_source_face_cache"):
+            self._source_face_cache = {}
+        self._source_face_cache[f"preset:{self.source_name.lower()}"] = self.source_face
+
         logger.info(f"[LiveFaceSwap] Active clone face updated to '{self.source_name}'")
         return True
 
@@ -832,11 +831,18 @@ class LiveFaceSwapService:
                                     self._source_face_cache = {}
                                 self._source_face_cache[target_key] = active_source
             else:
-                src_img = self._decode_image(source_target)
-                if src_img is not None:
-                    src_faces = self.face_analyser.get(src_img)
-                    if src_faces:
-                        active_source = sorted(src_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+                cache_key = f"b64:{hash(str(source_target)[:128])}"
+                if cache_key in getattr(self, "_source_face_cache", {}):
+                    active_source = self._source_face_cache[cache_key]
+                else:
+                    src_img = self._decode_image(source_target)
+                    if src_img is not None:
+                        src_faces = self.face_analyser.get(src_img)
+                        if src_faces:
+                            active_source = sorted(src_faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]), reverse=True)[0]
+                            if not hasattr(self, "_source_face_cache"):
+                                self._source_face_cache = {}
+                            self._source_face_cache[cache_key] = active_source
 
         if active_source is None:
             self._init_default_preset()
