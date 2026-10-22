@@ -118,7 +118,24 @@ class EngineProcessManager {
     // 3. In development mode (flutter run), locate python_engine source in monorepo
     final devScript = kDebugMode ? _findDevEngineScript() : null;
     if (devScript != null && devScript.existsSync()) {
-      final pythonCmd = Platform.isWindows ? 'python' : 'python3';
+      var pythonCmd = Platform.isWindows ? 'python' : 'python3';
+      final venvCandidates = Platform.isWindows
+          ? [
+              p.join(devScript.parent.path, '.venv', 'Scripts', 'python.exe'),
+              p.join(devScript.parent.parent.path, '.venv', 'Scripts', 'python.exe'),
+            ]
+          : [
+              p.join(devScript.parent.path, '.venv', 'bin', 'python'),
+              p.join(devScript.parent.parent.path, '.venv', 'bin', 'python'),
+            ];
+      for (final venv in venvCandidates) {
+        if (File(venv).existsSync()) {
+          pythonCmd = venv;
+          debugPrint('[EngineManager] Using dedicated virtual environment: $venv');
+          break;
+        }
+      }
+
       return _launchProcess(
         executable: pythonCmd,
         args: [devScript.path],

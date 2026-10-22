@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../models/live_cam_models.dart';
 import '../services/api_service.dart';
+import '../services/desktop_webcam_service.dart';
 
 /// Deep-Live-Cam Real-Time Face Swapping Dialog.
 /// Allows live webcam cloning for web video calls (Zoom, Discord, Meet, OBS).
@@ -30,32 +31,57 @@ class DeepLiveCamDialog extends StatefulWidget {
 
 class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
   late final ApiService _apiService;
+  final DesktopWebcamService _webcamService = DesktopWebcamService.instance;
+  StreamSubscription<String>? _webcamSubscription;
   Timer? _frameTimer;
 
   bool _isLive = false;
   bool _isStarting = false;
   bool _isFetchingFrame = false;
+  bool _isProcessingFrame = false;
   bool _enhanceFace = false;
   bool _mirrorCamera = true;
+  bool _useLocalWebcam = true;
   String _activeTargetName = 'Elon Musk';
   double _fps = 0.0;
   String? _frameBase64;
   String? _statusMessage;
   List<LiveCamPreset> _presets = [];
+  List<DesktopWebcamDevice> _availableCameras = [];
+  DesktopWebcamDevice? _selectedCamera;
   bool _copiedUrl = false;
 
   @override
   void initState() {
     super.initState();
     _apiService = widget.apiService ?? ApiService();
+    _loadAvailableCameras();
     _loadPresetsAndStatus();
   }
 
   @override
   void dispose() {
+    _webcamSubscription?.cancel();
+    _webcamService.stopStreaming();
     _frameTimer?.cancel();
     _apiService.stopLiveCam();
     super.dispose();
+  }
+
+  Future<void> _loadAvailableCameras() async {
+    try {
+      final cameras = await _webcamService.getAvailableCameras();
+      if (mounted) {
+        setState(() {
+          _availableCameras = cameras;
+          if (cameras.isNotEmpty) {
+            _selectedCamera = cameras.first;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[DeepLiveCamDialog] Failed to probe cameras: $e');
+    }
   }
 
   Future<void> _loadPresetsAndStatus() async {
@@ -105,8 +131,11 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
 
     if (_isLive) {
       setState(() => _isStarting = true);
-      final res = await _apiService.stopLiveCam();
+      _webcamSubscription?.cancel();
+      _webcamSubscription = null;
+      _webcamService.stopStreaming();
       _frameTimer?.cancel();
+      final res = await _apiService.stopLiveCam();
       if (mounted) {
         setState(() {
           _isLive = false;
@@ -118,23 +147,92 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
     } else {
       setState(() {
         _isStarting = true;
-        _statusMessage = 'Initializing live AI models...';
+        _statusMessage = _useLocalWebcam
+            ? 'Starting webcam & streaming to GPU...'
+            : 'Initializing live AI models...';
       });
+
       final res = await _apiService.startLiveCam(
         enhance: _enhanceFace,
         mirror: _mirrorCamera,
       );
-      if (mounted) {
-        setState(() {
-          _isStarting = false;
-          _isLive = res.success;
-          _statusMessage = res.message;
-          if (res.sourceName != null) {
-            _activeTargetName = res.sourceName!;
+
+      if (!res.success && !_useLocalWebcam) {
+        if (mounted) {
+          setState(() {
+            _isStarting = false;
+            _statusMessage = res.message;
+          });
+        }
+        return;
+      }
+
+      if (_useLocalWebcam) {
+        // Stream physical webcam frames from local desktop directly to GPU
+        _webcamSubscription?.cancel();
+        _isProcessingFrame = false;
+
+        final camIdx = _selectedCamera?.index ?? 0;
+        final stream = _webcamService.startStreaming(
+          cameraIndex: camIdx,
+          width: 640,
+          height: 480,
+          fps: 25,
+        );
+
+        _webcamSubscription = stream.listen((frameBase64) async {
+          if (!_isLive || !mounted || _isProcessingFrame) return;
+          _isProcessingFrame = true;
+          try {
+            final swapRes = await _apiService.processLiveCamFrame(
+              frameBase64: frameBase64,
+              presetName: _activeTargetName,
+              enhance: _enhanceFace,
+              mirror: _mirrorCamera,
+            );
+            if (mounted && _isLive) {
+              setState(() {
+                _fps = swapRes.fps;
+                if (swapRes.sourceName.isNotEmpty) {
+                  _activeTargetName = swapRes.sourceName;
+                }
+                if (swapRes.frameBase64 != null) {
+                  _frameBase64 = swapRes.frameBase64;
+                }
+              });
+            }
+          } catch (e) {
+            debugPrint('[DeepLiveCam] Frame error: $e');
+          } finally {
+            _isProcessingFrame = false;
           }
+        }, onError: (err) {
+          if (mounted) setState(() => _statusMessage = 'Webcam error: $err');
         });
-        if (_isLive) {
-          _startFramePolling();
+
+        if (mounted) {
+          setState(() {
+            _isStarting = false;
+            _isLive = true;
+            _statusMessage = '⚡ Live physical webcam streaming active!';
+            if (res.sourceName != null) {
+              _activeTargetName = res.sourceName!;
+            }
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _isStarting = false;
+            _isLive = res.success;
+            _statusMessage = res.message;
+            if (res.sourceName != null) {
+              _activeTargetName = res.sourceName!;
+            }
+          });
+          if (_isLive) {
+            _startFramePolling();
+          }
         }
       }
     }
@@ -417,6 +515,9 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
       padding: const EdgeInsets.all(18),
       child: ListView(
         children: [
+          // 0. Camera Source Selector (My PC Webcam vs Server)
+          _buildCameraSourceSelector(),
+
           // 1. Target Face Preset Selector
           const Text(
             'SELECT CLONE TARGET',
@@ -573,6 +674,158 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCameraSourceSelector() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CAMERA SOURCE',
+          style: TextStyle(
+            color: Colors.grey,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: _isLive ? null : () => setState(() => _useLocalWebcam = true),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: _useLocalWebcam
+                        ? const Color(0xFF7C3AED).withOpacity(0.2)
+                        : const Color(0xFF1E2330),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _useLocalWebcam ? const Color(0xFFA78BFA) : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.videocam_rounded,
+                        color: _useLocalWebcam ? const Color(0xFFA78BFA) : Colors.grey,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'My PC Webcam',
+                        style: TextStyle(
+                          color: _useLocalWebcam ? Colors.white : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: _useLocalWebcam ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: InkWell(
+                onTap: _isLive ? null : () => setState(() => _useLocalWebcam = false),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: !_useLocalWebcam
+                        ? const Color(0xFF7C3AED).withOpacity(0.2)
+                        : const Color(0xFF1E2330),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: !_useLocalWebcam ? const Color(0xFFA78BFA) : Colors.transparent,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.cloud_sync_rounded,
+                        color: !_useLocalWebcam ? const Color(0xFFA78BFA) : Colors.grey,
+                        size: 16,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Server / Virtual',
+                        style: TextStyle(
+                          color: !_useLocalWebcam ? Colors.white : Colors.white70,
+                          fontSize: 12,
+                          fontWeight: !_useLocalWebcam ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (_useLocalWebcam) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F1219),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF232A3B)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.camera_alt_outlined, size: 16, color: Color(0xFFA78BFA)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<DesktopWebcamDevice>(
+                      value: _selectedCamera,
+                      isExpanded: true,
+                      dropdownColor: const Color(0xFF13171F),
+                      icon: const Icon(Icons.arrow_drop_down, color: Colors.grey),
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                      items: _availableCameras.map((device) {
+                        return DropdownMenuItem<DesktopWebcamDevice>(
+                          value: device,
+                          child: Text(
+                            device.name,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: _isLive
+                          ? null
+                          : (device) {
+                              if (device != null) {
+                                setState(() => _selectedCamera = device);
+                              }
+                            },
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh_rounded, size: 16, color: Colors.grey),
+                  tooltip: 'Rescan cameras',
+                  onPressed: _isLive ? null : _loadAvailableCameras,
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        const Divider(color: Color(0xFF232A3B), height: 1),
+        const SizedBox(height: 14),
+      ],
     );
   }
 
