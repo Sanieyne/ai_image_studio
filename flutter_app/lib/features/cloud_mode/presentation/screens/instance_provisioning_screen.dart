@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../theme/app_theme.dart';
 import '../../../../services/api_service.dart';
+import '../../../../services/database_service.dart';
 import '../../data/services/cloud_api_service.dart';
 import '../../data/services/instance_status_client.dart';
 
@@ -399,7 +400,9 @@ class _InstanceProvisioningScreenState
 
       final engineUrl = details?['pythonEngineUrl']?.toString();
       if (engineUrl != null && engineUrl.isNotEmpty) {
+        ApiService.cloudBaseUrl = engineUrl;
         ApiService.baseUrl = engineUrl;
+        DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
       }
 
       switch (rawStatus) {

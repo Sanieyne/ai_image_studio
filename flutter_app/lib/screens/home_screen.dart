@@ -20,7 +20,6 @@ import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
 import '../widgets/video_template_gallery.dart';
 import '../widgets/image_template_gallery.dart';
-import '../widgets/camera_capture_dialog.dart';
 import '../widgets/deep_live_cam_dialog.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
@@ -156,6 +155,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _setExecutionMode(StudioExecutionMode mode) async {
     if (_executionMode == mode) return;
     setState(() => _executionMode = mode);
+    if (mode == StudioExecutionMode.cloud) {
+      if (ApiService.cloudBaseUrl != null && ApiService.cloudBaseUrl!.isNotEmpty) {
+        ApiService.baseUrl = ApiService.cloudBaseUrl!;
+      } else {
+        setState(() => _currentSidebarTab = SidebarTab.cloud);
+      }
+    } else {
+      ApiService.baseUrl = ApiService.localBaseUrl;
+    }
+    _checkHealth();
     try {
       await _db.setSetting('studio_execution_mode', mode.name);
     } catch (_) {}
@@ -164,11 +173,19 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── projects ──────────────────────────────────────────────
   Future<void> _loadInitialData() async {
     try {
+      final savedCloudUrl = await _db.getSetting('studio_cloud_engine_url');
+      if (savedCloudUrl != null && savedCloudUrl.isNotEmpty) {
+        ApiService.cloudBaseUrl = savedCloudUrl;
+      }
       final savedMode = await _db.getSetting('studio_execution_mode');
       if (savedMode == StudioExecutionMode.cloud.name) {
         if (mounted) setState(() => _executionMode = StudioExecutionMode.cloud);
+        if (ApiService.cloudBaseUrl != null && ApiService.cloudBaseUrl!.isNotEmpty) {
+          ApiService.baseUrl = ApiService.cloudBaseUrl!;
+        }
       } else if (savedMode == StudioExecutionMode.local.name) {
         if (mounted) setState(() => _executionMode = StudioExecutionMode.local);
+        ApiService.baseUrl = ApiService.localBaseUrl;
       }
     } catch (_) {}
 
@@ -869,10 +886,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
-      body: _executionMode == StudioExecutionMode.cloud
+      body: _currentSidebarTab == SidebarTab.cloud
           ? CloudManagementScreen(
               isDark: widget.isDark,
-              onReturnToStudio: () => _setExecutionMode(StudioExecutionMode.local),
+              onReturnToStudio: () {
+                setState(() => _currentSidebarTab = SidebarTab.image);
+              },
             )
           : Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -883,10 +902,18 @@ class _HomeScreenState extends State<HomeScreen> {
             activeProjectId: _activeProject?.id,
             activeTab: _currentSidebarTab,
             onOpenDeepFaceCamera: _handleOpenDeepFaceCamera,
-            onOpenCloudMode: () => _setExecutionMode(StudioExecutionMode.cloud),
+            onOpenCloudMode: () {
+              setState(() {
+                _currentSidebarTab = SidebarTab.cloud;
+                _executionMode = StudioExecutionMode.cloud;
+              });
+            },
             onTabChanged: (tab) {
               if (tab == SidebarTab.cloud) {
-                _setExecutionMode(StudioExecutionMode.cloud);
+                setState(() {
+                  _currentSidebarTab = SidebarTab.cloud;
+                  _executionMode = StudioExecutionMode.cloud;
+                });
                 return;
               }
               // The composer follows the tab through PromptInputBar.studioTab,

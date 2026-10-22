@@ -7,7 +7,6 @@ import '../screens/downloads_screen.dart';
 
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../theme/app_theme.dart';
-import 'camera_capture_dialog.dart';
 import 'deep_live_cam_dialog.dart';
 
 /// Floating glass top bar: logo + workspace pill + Local/Cloud switcher on the left;
@@ -80,8 +79,8 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
           ),
           child: Row(
             children: [
-              // Sidebar collapse toggle (only relevant in local studio mode).
-              if (executionMode == StudioExecutionMode.local) ...[
+              // Sidebar collapse toggle.
+              if (onMenuToggle != null) ...[
                 IconButton(
                   onPressed: onMenuToggle,
                   icon: Icon(
@@ -162,34 +161,34 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
 
               const SizedBox(width: 10),
-              if (executionMode == StudioExecutionMode.local)
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 180),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(LuminaColors.pillRadius),
-                      border: Border.all(color: border),
-                    ),
-                    child: Text(
-                      workspaceLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: muted),
-                    ),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    borderRadius:
+                        BorderRadius.circular(LuminaColors.pillRadius),
+                    border: Border.all(color: border),
+                  ),
+                  child: Text(
+                    workspaceLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: muted),
                   ),
                 ),
+              ),
               const Spacer(),
-              // Engine or Cloud status chip
-              if (executionMode == StudioExecutionMode.local)
-                _StatusChip(online: engineOnline, deviceName: deviceName)
-              else
+              // Engine and Cloud status chips
+              _StatusChip(online: engineOnline, deviceName: deviceName),
+              if (executionMode == StudioExecutionMode.cloud) ...[
+                const SizedBox(width: 8),
                 _CloudStatusChip(online: cloudOnline),
+              ],
               const SizedBox(width: 10),
               // Credits pill.
               Container(

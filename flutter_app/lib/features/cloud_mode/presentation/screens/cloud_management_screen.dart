@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../../services/auth_service.dart';
 import '../../../../services/api_service.dart';
+import '../../../../services/database_service.dart';
 import '../../../../theme/app_theme.dart';
 import '../../../../widgets/app_toast.dart';
 import '../../data/models/cloud_model.dart';
@@ -173,7 +174,9 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
     if (id.isEmpty) return;
     final engineUrl = instance['pythonEngineUrl']?.toString();
     if (engineUrl != null && engineUrl.isNotEmpty) {
+      ApiService.cloudBaseUrl = engineUrl;
       ApiService.baseUrl = engineUrl;
+      DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
     }
     Navigator.of(context)
         .push(MaterialPageRoute(
