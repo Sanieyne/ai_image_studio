@@ -586,7 +586,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           _buildRailTabIcon(
             tab: SidebarTab.cloud,
             icon: Icons.cloud_outlined,
-            tooltip: 'Cloud GPU Mode (Vast.ai)',
+            tooltip: 'Rent GPU (Vast.ai)',
             dark: dark,
           ),
           const SizedBox(height: 8),
@@ -747,7 +747,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     (SidebarTab.video, 'Video', Icons.videocam_rounded),
     (SidebarTab.image, 'Image', Icons.photo_rounded),
     (SidebarTab.enhancer, 'Enhance', Icons.auto_fix_high_rounded),
-    (SidebarTab.cloud, 'Cloud', Icons.cloud_outlined),
+    (SidebarTab.cloud, 'Rent GPU', Icons.cloud_outlined),
     (SidebarTab.library, 'Library', Icons.collections_bookmark_rounded),
   ];
 

@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:ai_image_studio/widgets/app_sidebar.dart';
 
-const _labels = ['History', 'Voice', 'Video', 'Image', 'Enhance', 'Cloud', 'Library'];
+const _labels = ['History', 'Voice', 'Video', 'Image', 'Enhance', 'Rent GPU', 'Library'];
 
 /// The default test font draws every glyph as a full square (about twice as
 /// wide as real text), which would make any label look truncated. Load the
@@ -111,7 +111,7 @@ void main() {
         'Video': SidebarTab.video,
         'Image': SidebarTab.image,
         'Enhance': SidebarTab.enhancer,
-        'Cloud': SidebarTab.cloud,
+        'Rent GPU': SidebarTab.cloud,
         'Library': SidebarTab.library,
       };
       for (final entry in expected.entries) {
@@ -125,7 +125,7 @@ void main() {
     testWidgets('Cloud tab triggers onOpenCloudMode, others do not', (tester) async {
       var cloudOpened = 0;
       await _pumpSidebar(tester, sidebar: AppSidebar(onOpenCloudMode: () => cloudOpened++));
-      for (final label in ['History', 'Voice', 'Cloud']) {
+      for (final label in ['History', 'Voice', 'Rent GPU']) {
         await tester.tap(_tabLabel(label));
         await _settle(tester);
       }

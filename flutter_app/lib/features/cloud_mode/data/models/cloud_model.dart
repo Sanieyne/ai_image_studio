@@ -21,7 +21,7 @@ enum StudioExecutionMode {
   local,
   cloud;
 
-  String get label => this == StudioExecutionMode.local ? 'Local Engine' : 'Cloud GPU';
+  String get label => this == StudioExecutionMode.local ? 'Local Engine' : 'Rent GPU';
   IconData get icon => this == StudioExecutionMode.local ? Icons.memory_rounded : Icons.cloud_outlined;
 }
 

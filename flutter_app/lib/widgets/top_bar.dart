@@ -157,7 +157,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                     ),
                     _ModePill(
                       icon: Icons.cloud_outlined,
-                      label: 'Cloud GPU',
+                      label: 'Rent GPU',
                       selected: executionMode == StudioExecutionMode.cloud,
                       muted: muted,
                       onTap: () => onExecutionModeChanged?.call(StudioExecutionMode.cloud),
