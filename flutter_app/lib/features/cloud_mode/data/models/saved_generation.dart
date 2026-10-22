@@ -142,6 +142,8 @@ class CloudUserProfile {
   final double storageQuotaGB;
   final double storageUsedGB;
   final int credits;
+  final bool isSubscribed;
+  final String subscriptionPlan;
 
   const CloudUserProfile({
     required this.id,
@@ -154,6 +156,8 @@ class CloudUserProfile {
     this.storageQuotaGB = 20.0,
     this.storageUsedGB = 0.0,
     this.credits = 0,
+    this.isSubscribed = false,
+    this.subscriptionPlan = 'Free Tier',
   });
 
   bool get hasCustomProfile =>
@@ -162,6 +166,17 @@ class CloudUserProfile {
       (avatarUrl != null && avatarUrl!.isNotEmpty);
 
   factory CloudUserProfile.fromJson(Map<String, dynamic> json) {
+    final bool isSub = json['isSubscribed'] == true ||
+        json['subscribed'] == true ||
+        json['role'] == 'admin' ||
+        (json['subscription'] is Map &&
+            (json['subscription']['status'] == 'active' ||
+                json['subscription']['active'] == true)) ||
+        (json['plan'] != null &&
+            json['plan'].toString().toLowerCase() != 'free' &&
+            json['plan'].toString().toLowerCase() != 'free tier');
+    final String plan = (json['plan'] ?? (isSub ? 'Pro' : 'Free Tier')).toString();
+
     return CloudUserProfile(
       id: (json['_id'] ?? json['id'] ?? '').toString(),
       username: json['username'] as String? ?? 'user',
@@ -173,6 +188,8 @@ class CloudUserProfile {
       storageQuotaGB: (json['storageQuotaGB'] as num?)?.toDouble() ?? 20.0,
       storageUsedGB: (json['storageUsedGB'] as num?)?.toDouble() ?? 0.0,
       credits: (json['credits'] as num?)?.toInt() ?? 0,
+      isSubscribed: isSub,
+      subscriptionPlan: plan,
     );
   }
 }

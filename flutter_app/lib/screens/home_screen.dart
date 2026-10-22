@@ -18,6 +18,7 @@ import '../widgets/app_sidebar.dart';
 import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
+import '../widgets/subscription_dialog.dart';
 import '../widgets/video_template_gallery.dart';
 import '../widgets/image_template_gallery.dart';
 import '../widgets/deep_live_cam_dialog.dart';
@@ -45,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _promptBarKey = GlobalKey<PromptInputBarState>();
 
   StudioExecutionMode _executionMode = StudioExecutionMode.local;
+  bool _isLocallySubscribed = false;
   Timer? _healthTimer;
   bool _engineOnline = false;
   bool _cloudOnline = false;
@@ -187,6 +189,10 @@ class _HomeScreenState extends State<HomeScreen> {
       } else if (savedMode == StudioExecutionMode.local.name) {
         if (mounted) setState(() => _executionMode = StudioExecutionMode.local);
         ApiService.baseUrl = ApiService.localBaseUrl;
+      }
+      final subSetting = await _db.getSetting('user_subscription_status');
+      if (subSetting == 'pro') {
+        if (mounted) setState(() => _isLocallySubscribed = true);
       }
     } catch (_) {}
 
@@ -546,6 +552,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _handleOpenSubscriptionDialog() {
+    final user = AuthService.instance.currentUser;
+    final isSub = user?.isSubscribed ?? _isLocallySubscribed;
+    final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
+
+    SubscriptionPlanDialog.show(
+      context,
+      isSubscribed: isSub,
+      currentPlan: plan,
+      onPlanChanged: (subscribed) {
+        setState(() => _isLocallySubscribed = subscribed);
+      },
+    );
+  }
+
   Future<void> _handleOpenDeepFaceCamera() async {
     await DeepLiveCamDialog.show(context, apiService: _api);
   }
@@ -864,27 +885,32 @@ class _HomeScreenState extends State<HomeScreen> {
         preferredSize: const Size.fromHeight(64),
         child: ListenableBuilder(
           listenable: AuthService.instance,
-          builder: (context, _) => TopBar(
-            credits: AuthService.instance.currentUser?.credits ?? 0,
-            engineOnline: _engineOnline,
-            cloudOnline: _cloudOnline,
-            executionMode: _executionMode,
-            onExecutionModeChanged: _setExecutionMode,
-            deviceName: _api.activeDeviceName,
-            isDark: widget.isDark,
-            workspaceLabel: _activeProject?.title ?? 'Creative Studio',
-            onThemeToggle: widget.onThemeToggle,
-            sidebarCollapsed: _isSidebarCollapsed,
-            onMenuToggle: () => setState(
-                () => _isSidebarCollapsed = !_isSidebarCollapsed),
-            onOpenDeepFaceCamera: _handleOpenDeepFaceCamera,
-            onBuyCredits: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text('Checkout is disabled in this build.')),
-              );
-            },
-          ),
+          builder: (context, _) {
+            final user = AuthService.instance.currentUser;
+            final isSub = user?.isSubscribed ?? _isLocallySubscribed;
+            final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
+            return TopBar(
+              credits: user?.credits ?? 0,
+              isSubscribed: isSub,
+              subscriptionPlan: plan,
+              onSubscribe: _handleOpenSubscriptionDialog,
+              engineOnline: _engineOnline,
+              cloudOnline: _cloudOnline,
+              executionMode: _executionMode,
+              onExecutionModeChanged: _setExecutionMode,
+              deviceName: _api.activeDeviceName,
+              isDark: widget.isDark,
+              workspaceLabel: _activeProject?.title ?? 'Creative Studio',
+              onThemeToggle: widget.onThemeToggle,
+              sidebarCollapsed: _isSidebarCollapsed,
+              onMenuToggle: () => setState(
+                  () => _isSidebarCollapsed = !_isSidebarCollapsed),
+              onOpenDeepFaceCamera: _handleOpenDeepFaceCamera,
+              onBuyCredits: () {
+                setState(() => _currentSidebarTab = SidebarTab.cloud);
+              },
+            );
+          },
         ),
       ),
       body: _currentSidebarTab == SidebarTab.cloud

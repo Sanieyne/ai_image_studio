@@ -293,7 +293,7 @@ class _DeepLiveCamDialogState extends State<DeepLiveCamDialog> {
 
   Future<void> _pickAndUploadCustomFace() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['jpg', 'jpeg', 'png', 'webp'],
         allowMultiple: false,

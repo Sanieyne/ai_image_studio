@@ -26,6 +26,9 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final ValueChanged<StudioExecutionMode>? onExecutionModeChanged;
   final VoidCallback? onOpenDownloads;
   final VoidCallback? onOpenDeepFaceCamera;
+  final bool isSubscribed;
+  final String subscriptionPlan;
+  final VoidCallback? onSubscribe;
 
   const TopBar({
     super.key,
@@ -44,6 +47,9 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.onExecutionModeChanged,
     this.onOpenDownloads,
     this.onOpenDeepFaceCamera,
+    this.isSubscribed = false,
+    this.subscriptionPlan = 'Free Tier',
+    this.onSubscribe,
   });
 
   final String? deviceName;
@@ -190,43 +196,148 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 _CloudStatusChip(online: cloudOnline),
               ],
               const SizedBox(width: 10),
-              // Credits pill.
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                decoration: BoxDecoration(
-                  borderRadius:
-                      BorderRadius.circular(LuminaColors.pillRadius),
-                  border: Border.all(color: border),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('✦',
-                        style: TextStyle(
-                            color: LuminaColors.amber, fontSize: 14)),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${_fmt(credits)} Credits',
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600),
+              // Cloud Mode: Credits balance & Buy Credits button
+              // Local Mode: Subscription status (Pro Member vs Free Tier) & Upgrade button
+              if (executionMode == StudioExecutionMode.cloud) ...[
+                // Credits pill.
+                InkWell(
+                  onTap: onBuyCredits,
+                  borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      borderRadius:
+                          BorderRadius.circular(LuminaColors.pillRadius),
+                      border: Border.all(color: border),
+                      color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.15),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('✦',
+                            style: TextStyle(
+                                color: LuminaColors.amber, fontSize: 14)),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${_fmt(credits)} Credits',
+                          style: const TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              // Buy credits (secondary outline).
-              OutlinedButton(
-                onPressed: onBuyCredits,
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: LuminaColors.infoBlue),
-                  shape: const StadiumBorder(),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                const SizedBox(width: 8),
+                // Buy credits (secondary outline).
+                OutlinedButton(
+                  onPressed: onBuyCredits,
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: LuminaColors.infoBlue),
+                    shape: const StadiumBorder(),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  ),
+                  child: const Text('+ Buy Credits',
+                      style: TextStyle(fontSize: 13)),
                 ),
-                child: const Text('+ Buy Credits',
-                    style: TextStyle(fontSize: 13)),
-              ),
+              ] else ...[
+                // Local Mode Subscription Status
+                if (isSubscribed) ...[
+                  InkWell(
+                    onTap: onSubscribe,
+                    borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                        border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.35)),
+                        color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.verified_rounded, size: 15, color: Color(0xFF10B981)),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$subscriptionPlan Member',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF10B981),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Text(
+                              'Active',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF10B981),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  // Not Subscribed -> Friendly Free Tier pill + Get Pro button
+                  InkWell(
+                    onTap: onSubscribe,
+                    borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                        border: Border.all(color: border),
+                        color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.person_outline_rounded, size: 14, color: muted),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Free Tier',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: muted,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: onSubscribe,
+                    icon: const Icon(Icons.star_rounded, size: 15, color: Colors.white),
+                    label: const Text(
+                      'Get Pro',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      shape: const StadiumBorder(),
+                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+                      backgroundColor: LuminaColors.primaryEnd,
+                      elevation: 2,
+                      shadowColor: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                    ),
+                  ),
+                ],
+              ],
               const SizedBox(width: 8),
               // Live DeepFace Webcam Capture entry point.
               _DeepFaceTopBarButton(
