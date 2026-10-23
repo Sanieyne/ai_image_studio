@@ -133,22 +133,7 @@ jobs:
           Set-AuthenticodeSignature -FilePath "dist\AI_Image_Studio\engine\engine.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
 
           # Create 1-Click Trusted Launcher / Installer
-          $installerScript = @"
-@echo off
-title Installing Cosmic-Gen AI Studio Certificate...
-echo ========================================================
-echo   Cosmic-Gen AI Studio - Trusted Publisher Setup
-echo ========================================================
-echo.
-echo Installing trusted publisher certificate to prevent Windows SmartScreen warnings...
-certutil -addstore -f "Root" "%~dp0CosmicGen_Publisher.cer" >nul 2>&1
-certutil -addstore -f "TrustedPublisher" "%~dp0CosmicGen_Publisher.cer" >nul 2>&1
-echo.
-echo [OK] Verified Publisher installed successfully!
-echo Starting Cosmic-Gen AI Studio...
-start "" "%~dp0ai_image_studio.exe"
-exit
-"@
+          $installerScript = "@echo off`r`ntitle Installing Cosmic-Gen AI Studio Certificate...`r`necho ========================================================`r`necho   Cosmic-Gen AI Studio - Trusted Publisher Setup`r`necho ========================================================`r`necho.`r`necho Installing trusted publisher certificate to prevent Windows SmartScreen warnings...`r`ncertutil -addstore -f `"Root`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`ncertutil -addstore -f `"TrustedPublisher`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`necho.`r`necho [OK] Verified Publisher installed successfully!`r`necho Starting Cosmic-Gen AI Studio...`r`nstart `"`" `"%~dp0ai_image_studio.exe`"`r`nexit`r`n"
           [System.IO.File]::WriteAllText("dist\AI_Image_Studio\1-Click_Launch.bat", $installerScript)
 
           # Show bundle size summary
