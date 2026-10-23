@@ -1,0 +1,66 @@
+name: Build AI Image Studio macOS Release (Apple Silicon M1-M4)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*mac*'
+
+jobs:
+  build-macos:
+    name: Build macOS Apple Silicon (.dmg / .zip)
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Python Engine Dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r python_engine/requirements.txt
+          pip install pyinstaller cryptography
+
+      - name: Freeze Python Engine with PyInstaller
+        working-directory: ./python_engine
+        run: |
+          pyinstaller --noconfirm --onedir --clean engine.spec
+
+      - name: Build Flutter macOS Desktop
+        working-directory: ./flutter_app
+        run: |
+          flutter config --enable-macos-desktop
+          flutter pub get
+          flutter build macos --release
+
+      - name: Bundle Engine into macOS App
+        run: |
+          APP_PATH="flutter_app/build/macos/Build/Products/Release/AI Image Studio.app"
+          RESOURCES_DIR="$APP_PATH/Contents/Resources/engine"
+          mkdir -p "$RESOURCES_DIR"
+          cp -R python_engine/dist/engine/* "$RESOURCES_DIR/"
+          chmod +x "$RESOURCES_DIR/engine"
+
+      - name: Package macOS Release ZIP
+        run: |
+          mkdir -p dist
+          cd "flutter_app/build/macos/Build/Products/Release"
+          zip -r -y ../../../../../dist/AI_Image_Studio_macOS_AppleSilicon.zip "AI Image Studio.app"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI_Image_Studio_macOS_AppleSilicon
+          path: dist/AI_Image_Studio_macOS_AppleSilicon.zip

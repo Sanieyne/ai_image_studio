@@ -271,8 +271,16 @@ class EngineProcessManager {
       final appDir = p.dirname(exePath);
 
       // On Windows: appDir/engine/engine.exe
+      // On macOS:   appDir/../Resources/engine/engine or appDir/engine/engine
       // On Linux:   appDir/engine/engine
       final binaryName = Platform.isWindows ? 'engine.exe' : 'engine';
+
+      if (Platform.isMacOS) {
+        // macOS App Bundle standard structure: AppName.app/Contents/MacOS/executable
+        // Resources live at AppName.app/Contents/Resources/engine/engine
+        final macResourcePath = File(p.join(appDir, '..', 'Resources', 'engine', binaryName));
+        if (macResourcePath.existsSync()) return macResourcePath;
+      }
 
       // Check standard bundle location
       var candidate = File(p.join(appDir, 'engine', binaryName));
