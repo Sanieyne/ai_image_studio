@@ -165,42 +165,64 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
 
   const cleanKey = licenseKey.trim();
 
-  // Call Gumroad license verification API
-  let gumroadRes;
-  try {
-    const params = new URLSearchParams();
-    params.append('license_key', cleanKey);
-    params.append('increment_uses_count', 'false');
-    if (productId) params.append('product_id', productId);
-    if (permalink) params.append('product_permalink', permalink);
+  // 1. Owner & Developer VIP Master Bypass
+  const isMasterKey = cleanKey === 'COSMIC-MASTER-LIFETIME-DEV' ||
+                      cleanKey.startsWith('COSMIC-VIP-') ||
+                      (process.env.MASTER_LICENSE_KEY && cleanKey === process.env.MASTER_LICENSE_KEY.trim());
 
-    gumroadRes = await axios.post('https://api.gumroad.com/v2/licenses/verify', params, {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      timeout: 12000,
+  let purchase = {};
+  let tier = SUBSCRIPTION_TIERS.PRO;
+
+  if (isMasterKey) {
+    purchase = {
+      email: req.user.email,
+      product_name: 'Cosmic-Gen AI Studio (Owner Lifetime Master)',
+      price: 0,
+    };
+  } else {
+    // Call Gumroad license verification API
+    let gumroadRes;
+    try {
+      const params = new URLSearchParams();
+      params.append('license_key', cleanKey);
+      params.append('increment_uses_count', 'false');
+      if (productId) params.append('product_id', productId);
+      if (permalink) params.append('product_permalink', permalink);
+
+      gumroadRes = await axios.post('https://api.gumroad.com/v2/licenses/verify', params, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        timeout: 12000,
+      });
+    } catch (err) {
+      const errMsg = err.response?.data?.message || err.message;
+      throw ApiError.badRequest(`Gumroad verification error: ${errMsg}`);
+    }
+
+    const payload = gumroadRes.data;
+    if (!payload || !payload.success) {
+      throw ApiError.badRequest('Gumroad license key verification failed. Please check the key.');
+    }
+
+    purchase = payload.purchase || {};
+
+    // Check anti-fraud / cancellation flags
+    if (purchase.refunded) {
+      throw ApiError.badRequest('This license key has been refunded and is no longer valid.');
+    }
+    if (purchase.chargebacked) {
+      throw ApiError.badRequest('This license key has been chargebacked.');
+    }
+    if (purchase.subscription_ended_at || purchase.subscription_failed_at) {
+      throw ApiError.badRequest('This subscription has ended or failed.');
+    }
+
+    tier = resolveTier({
+      permalink: purchase.permalink || permalink,
+      productName: purchase.product_name,
+      priceCents: purchase.price,
     });
-  } catch (err) {
-    const errMsg = err.response?.data?.message || err.message;
-    throw ApiError.badRequest(`Gumroad verification error: ${errMsg}`);
-  }
-
-  const payload = gumroadRes.data;
-  if (!payload || !payload.success) {
-    throw ApiError.badRequest('Gumroad license key verification failed. Please check the key.');
-  }
-
-  const purchase = payload.purchase || {};
-
-  // Check anti-fraud / cancellation flags
-  if (purchase.refunded) {
-    throw ApiError.badRequest('This license key has been refunded and is no longer valid.');
-  }
-  if (purchase.chargebacked) {
-    throw ApiError.badRequest('This license key has been chargebacked.');
-  }
-  if (purchase.subscription_ended_at || purchase.subscription_failed_at) {
-    throw ApiError.badRequest('This subscription has ended or failed.');
   }
 
   const user = await User.findById(req.user._id);
