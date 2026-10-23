@@ -12,7 +12,7 @@ const pricingConfigSchema = new mongoose.Schema(
     tokenValue: {
       type: Number,
       required: [true, 'Token value (credits per USD) is required'],
-      default: 50,
+      default: 100,
       min: [1, 'Token value must be at least 1 credit per USD'],
     },
     // Percentage markup added to raw provider costs (e.g. 25 = 25% markup)

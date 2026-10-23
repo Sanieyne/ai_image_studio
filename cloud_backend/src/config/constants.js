@@ -59,8 +59,8 @@ export const STORAGE_STATUS = Object.freeze({
   DELETED: 'deleted',
 });
 
-// Pricing & Credits Policy: 50 credits per 1 USD, 25% markup on raw Vast.ai pricing (1.25x)
-export const CREDITS_PER_USD = 50;
+// Pricing & Credits Policy: 100 credits per 1 USD (0.01 USD/credit), 25% markup on raw Vast.ai pricing (1.25x)
+export const CREDITS_PER_USD = 100;
 export const VASTAI_PRICE_MARKUP = 1.25;
 
 // System overheads

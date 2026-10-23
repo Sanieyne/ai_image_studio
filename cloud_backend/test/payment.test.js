@@ -62,7 +62,7 @@ describe('Payment & Gumroad Webhooks', () => {
     assert.equal(updated.subscriptionTier, 'pro');
     assert.equal(updated.subscriptionStatus, 'active');
     assert.equal(updated.gumroadLicenseKey, 'GUM-PRO-12345');
-    assert.equal(updated.credits, 260); // 10 original + 250 pro bonus
+    assert.equal(updated.credits, 510); // 10 original + 500 pro bonus
   });
 
   it('POST /api/v1/payments/gumroad-webhook activates VIP membership and badge', async () => {
@@ -88,7 +88,7 @@ describe('Payment & Gumroad Webhooks', () => {
     const updated = await User.findById(user._id);
     assert.equal(updated.subscriptionTier, 'vip');
     assert.equal(updated.subscriptionStatus, 'active');
-    assert.equal(updated.credits, 1000);
+    assert.equal(updated.credits, 2000);
   });
 
   it('POST /api/v1/payments/gumroad-webhook downgrades on refund or cancellation', async () => {
