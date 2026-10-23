@@ -52,7 +52,6 @@ REQUIRED = [
 ]
 
 OPTIONAL = [
-    ("generation.live_face_swap", ["get_live_face_swap_service"], "live face swap (deep-live-cam)"),
     ("generation.camera_service", ["get_camera_service"], "camera capture service"),
     ("fashn_vton", ["TryOnPipeline"], "virtual try-on"),
     ("breeze_infer.runtime", None, "Breeze voice"),

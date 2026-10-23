@@ -160,18 +160,6 @@ MODEL_CATALOG: Dict[str, dict] = {
             (".", "/root/models/instantid"),
         ],
     },
-    "deep-live-cam": {
-        "family": "deep_live_cam",
-        "mode": "live_cam",
-        "aliases": ["hacksider/deep-live-cam", "deep_live_cam", "deepface"],
-        "target_subpath": "deep_live_cam",
-        "r2_prefix": "models/deep_live_cam/",
-        "symlinks": [
-            (".", "/workspace/models/deep-live-cam"),
-            (".", "/root/models/deep-live-cam"),
-            (".", "/root/models/deep_live_cam"),
-        ],
-    },
 }
 
 

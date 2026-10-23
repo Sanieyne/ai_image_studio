@@ -501,14 +501,6 @@ class CloudApiService {
       sizeGB: 4.6,
       requiredVramGB: 12,
     ),
-    CloudModel(
-      modelId: 'deep-live-cam',
-      displayName: 'DeepFace & Deep-Live-Cam',
-      mode: 'image',
-      hfRepoId: 'hacksider/deep-live-cam',
-      sizeGB: 0.6,
-      requiredVramGB: 4,
-    ),
   ];
 
   // =========================================================================

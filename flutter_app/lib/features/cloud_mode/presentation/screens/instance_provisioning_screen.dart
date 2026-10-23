@@ -45,9 +45,6 @@ class ModelProvisioningItem {
       case 'realesrgan-x4plus':
       case 'amd/realesrgan-x4plus':
         return 'Real-ESRGAN 4x+';
-      case 'deep-live-cam':
-      case 'hacksider/deep-live-cam':
-        return 'DeepFace & Deep-Live-Cam';
       case 'fashn-vton-1.5':
       case 'fashn-ai/fashn-vton-1.5':
         return 'FASHN VTON 1.5';

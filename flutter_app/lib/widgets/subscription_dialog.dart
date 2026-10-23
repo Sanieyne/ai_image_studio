@@ -399,7 +399,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                                 _buildFeatureRow('Pay-as-you-go Cloud GPU rentals', true, dark, muted),
                                 _buildFeatureRow('Unlimited local generation', false, dark, muted),
                                 _buildFeatureRow('100 monthly compute credits', false, dark, muted),
-                                _buildFeatureRow('Live DeepFace webcam streaming', false, dark, muted),
+                                _buildFeatureRow('High-resolution 4K AI upscaling', false, dark, muted),
                                 const SizedBox(height: 14),
                                 SizedBox(
                                   width: double.infinity,
@@ -499,7 +499,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                                 const SizedBox(height: 14),
                                 _buildFeatureRow('Unlimited high-speed local generation', true, dark, muted, highlight: true),
                                 _buildFeatureRow('100 monthly Cloud GPU compute credits', true, dark, muted, highlight: true),
-                                _buildFeatureRow('HD Live DeepFace webcam swap stream', true, dark, muted, highlight: true),
+                                _buildFeatureRow('Turbo video animation (Wan 2.1 & MiniMax)', true, dark, muted, highlight: true),
                                 _buildFeatureRow('4K Super-Resolution & Real-ESRGAN', true, dark, muted, highlight: true),
                                 _buildFeatureRow('Special PRO Member badge in studio UI', true, dark, muted, highlight: true),
                                 _buildFeatureRow('100% offline data privacy & security', true, dark, muted, highlight: true),

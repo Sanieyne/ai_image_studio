@@ -24,11 +24,11 @@ export const PLANS = Object.freeze({
     monthlyCredits: 100,
     badge: 'PRO',
     permalink: process.env.GUMROAD_PRO_PERMALINK || 'pro',
-    description: 'Unlimited local AI generation with 100 monthly cloud credits & live DeepFace',
+    description: 'Unlimited local AI generation with 100 monthly cloud credits & 4K upscaling',
     features: [
       'Unlimited high-speed local generation',
       '100 monthly Cloud GPU compute credits',
-      'Live DeepFace webcam streaming & face swap',
+      'Turbo video animation (Wan 2.1 & MiniMax)',
       '4K Super-Resolution & Real-ESRGAN upscaling',
       'Special PRO Member badge in studio UI',
       '100% offline data privacy',

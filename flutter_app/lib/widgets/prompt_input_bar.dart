@@ -192,7 +192,7 @@ class PromptInputBarState extends State<PromptInputBar> {
     });
   }
 
-  /// Sets captured face from webcam/DeepFace dialog
+  /// Sets captured photo from webcam dialog
   void setCapturedFace(Uint8List bytes, String fileName, [String? base64]) {
     setState(() {
       _referenceBytes = bytes;
@@ -538,7 +538,7 @@ class PromptInputBarState extends State<PromptInputBar> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'DeepFace attached: ${result.fileName ?? "Webcam Face"}',
+                      'Webcam photo attached: ${result.fileName ?? "Webcam Photo"}',
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -1426,8 +1426,8 @@ class PromptInputBarState extends State<PromptInputBar> {
                       ),
                       tooltip: _referenceBytes != null &&
                               _referenceName?.startsWith('Webcam') == true
-                          ? 'Change DeepFace webcam capture'
-                          : 'DeepFace Webcam Capture',
+                          ? 'Change webcam photo'
+                          : 'Webcam Photo Capture',
                     ),
                     const SizedBox(width: 4),
                     Container(

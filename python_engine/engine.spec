@@ -34,7 +34,6 @@ hiddenimports = [
     'generation.model_status',
     'generation.model_paths',
     'generation.camera_service',
-    'generation.live_face_swap',
     'cv2',
     'insightface',
     'onnxruntime',

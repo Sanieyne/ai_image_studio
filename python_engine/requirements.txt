@@ -28,10 +28,7 @@ omegaconf
 pykakasi==2.3.0
 spacy-pkuseg
 # then: pip install --no-deps chatterbox-tts==0.1.7
-# Live Face Swap (DeepFace & Deep-Live-Cam)
 opencv-python-headless>=4.9.0
-onnxruntime>=1.19.0
-insightface>=0.7.3
 scikit-image>=0.22.0
 # Virtual try-on (optional): pip install git+https://github.com/fashn-AI/fashn-vton-1.5.git
 # InstantID tests (optional): requirements-instantid.txt

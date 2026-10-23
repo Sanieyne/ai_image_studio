@@ -24,7 +24,6 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final StudioExecutionMode executionMode;
   final ValueChanged<StudioExecutionMode>? onExecutionModeChanged;
   final VoidCallback? onOpenDownloads;
-  final VoidCallback? onOpenDeepFaceCamera;
   final bool isSubscribed;
   final String subscriptionPlan;
   final VoidCallback? onSubscribe;
@@ -45,7 +44,6 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.executionMode = StudioExecutionMode.local,
     this.onExecutionModeChanged,
     this.onOpenDownloads,
-    this.onOpenDeepFaceCamera,
     this.isSubscribed = false,
     this.subscriptionPlan = 'Free Tier',
     this.onSubscribe,

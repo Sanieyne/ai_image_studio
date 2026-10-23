@@ -75,7 +75,6 @@ class AppSidebar extends StatefulWidget {
   final ValueChanged<String>? onSelectImageModel;
   final ValueChanged<String>? onSelectEnhancerModel;
   final VoidCallback? onOpenCloudMode;
-  final VoidCallback? onOpenDeepFaceCamera;
   final SidebarTab? activeTab;
 
   const AppSidebar({
@@ -103,7 +102,6 @@ class AppSidebar extends StatefulWidget {
     this.onSelectImageModel,
     this.onSelectEnhancerModel,
     this.onOpenCloudMode,
-    this.onOpenDeepFaceCamera,
     this.activeTab,
   });
 
