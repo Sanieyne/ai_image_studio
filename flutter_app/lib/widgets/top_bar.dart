@@ -243,7 +243,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 if (isSubscribed) ...[
                   _buildSubscriptionBadge(context, dark, border, muted),
                 ] else ...[
-                  // Not Subscribed -> Friendly Free Tier pill + Upgrade button
+                  // Not Activated -> Friendly Locked pill + Buy License button
                   InkWell(
                     onTap: onSubscribe,
                     borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
@@ -257,10 +257,10 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.person_outline_rounded, size: 14, color: muted),
+                          Icon(Icons.lock_outline_rounded, size: 14, color: muted),
                           const SizedBox(width: 6),
                           Text(
-                            'Free Tier',
+                            'Unlicensed',
                             style: TextStyle(
                               fontSize: 12.5,
                               fontWeight: FontWeight.w600,
@@ -274,9 +274,9 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: onSubscribe,
-                    icon: const Icon(Icons.star_rounded, size: 15, color: Colors.white),
+                    icon: const Icon(Icons.key_rounded, size: 15, color: Colors.white),
                     label: const Text(
-                      'Get Pro (\$4.99)',
+                      'Buy License (\$35)',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.bold,
@@ -363,10 +363,10 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.stars_rounded, size: 15, color: Color(0xFF10B981)),
+            const Icon(Icons.verified_user_rounded, size: 15, color: Color(0xFF10B981)),
             const SizedBox(width: 5),
             const Text(
-              'Pro Member',
+              'Licensed',
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w700,
@@ -381,7 +381,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Text(
-                'PRO',
+                'LIFETIME',
                 style: TextStyle(
                   fontSize: 9.5,
                   fontWeight: FontWeight.w800,

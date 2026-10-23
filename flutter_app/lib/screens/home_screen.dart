@@ -618,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!isSub) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🔒 Cosmic-Gen Pro subscription (\$4.99/mo) required to generate. Upgrade to unlock unlimited local generation + 100 credits.'),
+          content: Text('🔒 Lifetime License key required (\$35 one-time purchase). Unlock software to enable unlimited generation.'),
           backgroundColor: LuminaColors.primaryEnd,
           duration: Duration(seconds: 4),
         ),

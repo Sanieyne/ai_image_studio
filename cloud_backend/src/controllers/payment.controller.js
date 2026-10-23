@@ -226,22 +226,37 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
   if (purchase.subscription_id) user.gumroadSubscriptionId = purchase.subscription_id;
 
   if (!isExistingKey) {
-    const bonus = planInfo.monthlyCredits;
-    user.credits = (user.credits || 0) + bonus;
-    user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + bonus;
+    const bonus = planInfo.monthlyCredits || 0;
+    if (bonus > 0) {
+      user.credits = (user.credits || 0) + bonus;
+      user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + bonus;
 
-    await Transaction.create({
-      user: user._id,
-      type: TRANSACTION_TYPES.PURCHASE,
-      amount: bonus,
-      balanceAfter: user.credits,
-      description: `License Key Activated: ${planInfo.name} Tier (+${bonus} credits)`,
-      metadata: {
-        tier,
-        licenseKey: cleanKey,
-        purchase,
-      },
-    });
+      await Transaction.create({
+        user: user._id,
+        type: TRANSACTION_TYPES.PURCHASE,
+        amount: bonus,
+        balanceAfter: user.credits,
+        description: `License Key Activated: ${planInfo.name} Tier (+${bonus} credits)`,
+        metadata: {
+          tier,
+          licenseKey: cleanKey,
+          purchase,
+        },
+      });
+    } else {
+      await Transaction.create({
+        user: user._id,
+        type: TRANSACTION_TYPES.PURCHASE,
+        amount: 0,
+        balanceAfter: user.credits || 0,
+        description: `Software Activated: Lifetime License Key (${cleanKey.slice(0, 8)}...)`,
+        metadata: {
+          tier,
+          licenseKey: cleanKey,
+          purchase,
+        },
+      });
+    }
   }
 
   await user.save();

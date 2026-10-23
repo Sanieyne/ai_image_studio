@@ -13,6 +13,7 @@ import 'services/auth_service.dart';
 import 'services/database_service.dart';
 import 'services/engine_process_manager.dart';
 import 'theme/app_theme.dart';
+import 'widgets/license_activation_gate.dart';
 import 'widgets/top_bar.dart';
 
 void main() async {
@@ -132,9 +133,12 @@ class _AuthGateState extends State<AuthGate> {
           case AuthStatus.unknown:
             return const _AuthSplash();
           case AuthStatus.authenticated:
-            return HomeScreen(
+            return LicenseActivationGate(
               isDark: widget.isDark,
-              onThemeToggle: widget.onThemeToggle,
+              child: HomeScreen(
+                isDark: widget.isDark,
+                onThemeToggle: widget.onThemeToggle,
+              ),
             );
           case AuthStatus.unauthenticated:
             if (_showRegister) {
