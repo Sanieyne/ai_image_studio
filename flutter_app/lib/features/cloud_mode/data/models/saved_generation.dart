@@ -144,6 +144,9 @@ class CloudUserProfile {
   final int credits;
   final bool isSubscribed;
   final String subscriptionPlan;
+  final String subscriptionTier;
+  final String subscriptionStatus;
+  final String? gumroadLicenseKey;
 
   const CloudUserProfile({
     required this.id,
@@ -158,7 +161,14 @@ class CloudUserProfile {
     this.credits = 0,
     this.isSubscribed = false,
     this.subscriptionPlan = 'Free Tier',
+    this.subscriptionTier = 'free',
+    this.subscriptionStatus = 'none',
+    this.gumroadLicenseKey,
   });
+
+  bool get isStarter => (subscriptionTier.toLowerCase() == 'starter' || subscriptionPlan.toLowerCase() == 'starter') && isSubscribed;
+  bool get isPro => (subscriptionTier.toLowerCase() == 'pro' || subscriptionPlan.toLowerCase() == 'pro') && isSubscribed;
+  bool get isVip => (subscriptionTier.toLowerCase() == 'vip' || subscriptionPlan.toLowerCase() == 'vip') && isSubscribed;
 
   bool get hasCustomProfile =>
       (displayName != null && displayName!.isNotEmpty && displayName != username) ||
@@ -166,16 +176,37 @@ class CloudUserProfile {
       (avatarUrl != null && avatarUrl!.isNotEmpty);
 
   factory CloudUserProfile.fromJson(Map<String, dynamic> json) {
+    final rawTier = (json['subscriptionTier'] ?? json['tier'] ?? '').toString().toLowerCase();
+    final rawStatus = (json['subscriptionStatus'] ?? json['status'] ?? '').toString().toLowerCase();
+
     final bool isSub = json['isSubscribed'] == true ||
         json['subscribed'] == true ||
         json['role'] == 'admin' ||
+        rawStatus == 'active' ||
+        rawTier == 'starter' ||
+        rawTier == 'pro' ||
+        rawTier == 'vip' ||
         (json['subscription'] is Map &&
             (json['subscription']['status'] == 'active' ||
                 json['subscription']['active'] == true)) ||
         (json['plan'] != null &&
             json['plan'].toString().toLowerCase() != 'free' &&
             json['plan'].toString().toLowerCase() != 'free tier');
-    final String plan = (json['plan'] ?? (isSub ? 'Pro' : 'Free Tier')).toString();
+
+    String tier = rawTier.isNotEmpty ? rawTier : (isSub ? 'pro' : 'free');
+    String plan = 'Free Tier';
+    if (isSub) {
+      if (tier == 'vip' || json['plan']?.toString().toLowerCase() == 'vip') {
+        tier = 'vip';
+        plan = 'VIP';
+      } else if (tier == 'starter' || json['plan']?.toString().toLowerCase() == 'starter') {
+        tier = 'starter';
+        plan = 'Starter';
+      } else {
+        tier = 'pro';
+        plan = 'Pro';
+      }
+    }
 
     return CloudUserProfile(
       id: (json['_id'] ?? json['id'] ?? '').toString(),
@@ -190,6 +221,9 @@ class CloudUserProfile {
       credits: (json['credits'] as num?)?.toInt() ?? 0,
       isSubscribed: isSub,
       subscriptionPlan: plan,
+      subscriptionTier: tier,
+      subscriptionStatus: rawStatus.isNotEmpty ? rawStatus : (isSub ? 'active' : 'none'),
+      gumroadLicenseKey: json['gumroadLicenseKey'] as String?,
     );
   }
 }

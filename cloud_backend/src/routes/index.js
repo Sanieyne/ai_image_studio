@@ -12,6 +12,7 @@ import pricingRoutes from './pricing.routes.js';
 import generationRoutes from './generation.routes.js';
 import galleryRoutes from './gallery.routes.js';
 import adminRoutes from './admin.routes.js';
+import paymentRoutes from './payment.routes.js';
 
 const router = Router();
 
@@ -33,6 +34,7 @@ router.use('/pricing', pricingRoutes);
 router.use('/generations', generationRoutes);
 router.use('/gallery', galleryRoutes);
 router.use('/admin', adminRoutes);
+router.use('/payments', paymentRoutes);
 
 export default router;
 

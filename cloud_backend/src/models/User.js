@@ -126,6 +126,36 @@ const userSchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    subscriptionTier: {
+      type: String,
+      enum: ['free', 'starter', 'pro', 'vip'],
+      default: 'free',
+      index: true,
+    },
+    subscriptionStatus: {
+      type: String,
+      enum: ['none', 'active', 'cancelled', 'past_due', 'expired'],
+      default: 'none',
+      index: true,
+    },
+    subscriptionExpiresAt: {
+      type: Date,
+      default: null,
+    },
+    gumroadSubscriptionId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    gumroadLicenseKey: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    gumroadPurchaserEmail: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,

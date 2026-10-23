@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   StudioExecutionMode _executionMode = StudioExecutionMode.local;
   bool _isLocallySubscribed = false;
+  String _localSubscriptionTier = 'free';
   Timer? _healthTimer;
   bool _engineOnline = false;
   bool _cloudOnline = false;
@@ -191,8 +192,13 @@ class _HomeScreenState extends State<HomeScreen> {
         ApiService.baseUrl = ApiService.localBaseUrl;
       }
       final subSetting = await _db.getSetting('user_subscription_status');
-      if (subSetting == 'pro') {
-        if (mounted) setState(() => _isLocallySubscribed = true);
+      if (subSetting != null && subSetting != 'free' && subSetting != 'none') {
+        if (mounted) {
+          setState(() {
+            _isLocallySubscribed = true;
+            _localSubscriptionTier = subSetting;
+          });
+        }
       }
     } catch (_) {}
 
@@ -555,7 +561,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleOpenSubscriptionDialog() {
     final user = AuthService.instance.currentUser;
     final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-    final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
+    final plan = user?.subscriptionPlan ??
+        (_isLocallySubscribed
+            ? (_localSubscriptionTier == 'vip'
+                ? 'VIP'
+                : _localSubscriptionTier == 'starter'
+                    ? 'Starter'
+                    : 'Pro')
+            : 'Free Tier');
 
     SubscriptionPlanDialog.show(
       context,
@@ -568,6 +581,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleOpenDeepFaceCamera() async {
+    final user = AuthService.instance.currentUser;
+    final isSub = user?.isSubscribed ?? _isLocallySubscribed;
+    if (!isSub) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔒 Live DeepFace Webcam stream requires an active subscription. Upgrade to unlock.'),
+          backgroundColor: LuminaColors.primaryEnd,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      _handleOpenSubscriptionDialog();
+      return;
+    }
     await DeepLiveCamDialog.show(context, apiService: _api);
   }
 
@@ -612,6 +638,20 @@ class _HomeScreenState extends State<HomeScreen> {
       int? upscaleScale,
       bool? faceEnhance,
   }) async {
+    final user = AuthService.instance.currentUser;
+    final isSub = user?.isSubscribed ?? _isLocallySubscribed;
+    if (!isSub) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('🔒 Cosmic-Gen subscription required. Please choose a plan (Starter, Pro, or VIP) to generate.'),
+          backgroundColor: LuminaColors.primaryEnd,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      _handleOpenSubscriptionDialog();
+      return;
+    }
+
     if (_activeProject == null) {
       final newProj = ProjectItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -888,7 +928,14 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, _) {
             final user = AuthService.instance.currentUser;
             final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-            final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
+            final plan = user?.subscriptionPlan ??
+                (_isLocallySubscribed
+                    ? (_localSubscriptionTier == 'vip'
+                        ? 'VIP'
+                        : _localSubscriptionTier == 'starter'
+                            ? 'Starter'
+                            : 'Pro')
+                    : 'Free Tier');
             return TopBar(
               credits: user?.credits ?? 0,
               isSubscribed: isSub,
