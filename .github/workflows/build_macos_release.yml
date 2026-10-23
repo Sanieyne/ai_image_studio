@@ -58,7 +58,7 @@ jobs:
       - name: Freeze Python Engine with PyInstaller
         working-directory: ./python_engine
         run: |
-          pyinstaller --noconfirm --onedir --clean engine.spec
+          pyinstaller --noconfirm --clean engine.spec
 
       - name: Build Flutter macOS Desktop
         working-directory: ./flutter_app
