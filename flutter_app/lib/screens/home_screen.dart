@@ -21,7 +21,6 @@ import '../widgets/top_bar.dart';
 import '../widgets/subscription_dialog.dart';
 import '../widgets/video_template_gallery.dart';
 import '../widgets/image_template_gallery.dart';
-import '../widgets/deep_live_cam_dialog.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../features/cloud_mode/presentation/screens/cloud_management_screen.dart';
@@ -573,23 +572,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _handleOpenDeepFaceCamera() async {
-    final user = AuthService.instance.currentUser;
-    final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-    if (!isSub) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🔒 Live DeepFace Webcam streaming requires Cosmic-Gen Pro (\$4.99/mo). Upgrade to unlock.'),
-          backgroundColor: LuminaColors.primaryEnd,
-          duration: Duration(seconds: 4),
-        ),
-      );
-      _handleOpenSubscriptionDialog();
-      return;
-    }
-    await DeepLiveCamDialog.show(context, apiService: _api);
-  }
-
   // ── generations feed ──────────────────────────────────────
   Future<void> _loadGenerations() async {
     if (_activeProject == null) return;
@@ -938,7 +920,6 @@ class _HomeScreenState extends State<HomeScreen> {
               sidebarCollapsed: _isSidebarCollapsed,
               onMenuToggle: () => setState(
                   () => _isSidebarCollapsed = !_isSidebarCollapsed),
-              onOpenDeepFaceCamera: _handleOpenDeepFaceCamera,
               onBuyCredits: () {
                 setState(() => _currentSidebarTab = SidebarTab.cloud);
               },
@@ -962,7 +943,6 @@ class _HomeScreenState extends State<HomeScreen> {
             projects: _projects,
             activeProjectId: _activeProject?.id,
             activeTab: _currentSidebarTab,
-            onOpenDeepFaceCamera: _handleOpenDeepFaceCamera,
             onOpenCloudMode: () {
               setState(() {
                 _currentSidebarTab = SidebarTab.cloud;
