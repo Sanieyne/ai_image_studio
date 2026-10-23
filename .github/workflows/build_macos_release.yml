@@ -69,7 +69,10 @@ jobs:
 
       - name: Bundle Engine into macOS App
         run: |
-          APP_PATH="flutter_app/build/macos/Build/Products/Release/AI Image Studio.app"
+          # Find the actual .app bundle built by Flutter
+          APP_PATH=$(find flutter_app/build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -n 1)
+          echo "Found app bundle at: $APP_PATH"
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
           RESOURCES_DIR="$APP_PATH/Contents/Resources/engine"
           mkdir -p "$RESOURCES_DIR"
           cp -R python_engine/dist/engine/* "$RESOURCES_DIR/"
@@ -79,13 +82,13 @@ jobs:
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          APP_PATH="flutter_app/build/macos/Build/Products/Release/AI Image Studio.app"
           IDENTITY="Developer ID Application: ABDULRAHMAN NUHU INDABO ($TEAM_ID)"
+          echo "Signing with identity: $IDENTITY on $APP_PATH"
 
-          echo "Signing nested binaries and frameworks..."
-          find "$APP_PATH/Contents/Resources/engine" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -exec codesign --force --timestamp --options runtime --sign "$IDENTITY" {} +
+          # Sign all embedded dynamic libraries and frameworks inside engine
+          find "$APP_PATH/Contents/Resources/engine" -type f \( -name "*.dylib" -o -name "*.so" -o -perm +111 \) -exec codesign --force --timestamp --options runtime --sign "$IDENTITY" {} + 2>/dev/null || true
 
-          echo "Signing main Flutter App..."
+          # Sign the main application bundle
           codesign --force --deep --timestamp --options runtime --sign "$IDENTITY" "$APP_PATH"
 
           echo "Verifying signature..."
@@ -94,8 +97,10 @@ jobs:
       - name: Package macOS Release ZIP
         run: |
           mkdir -p dist
-          cd "flutter_app/build/macos/Build/Products/Release"
-          zip -r -y ../../../../../dist/AI_Image_Studio_macOS_AppleSilicon.zip "AI Image Studio.app"
+          APP_DIR=$(dirname "$APP_PATH")
+          APP_NAME=$(basename "$APP_PATH")
+          cd "$APP_DIR"
+          zip -r -y "$GITHUB_WORKSPACE/dist/AI_Image_Studio_macOS_AppleSilicon.zip" "$APP_NAME"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
