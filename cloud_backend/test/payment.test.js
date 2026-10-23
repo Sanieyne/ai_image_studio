@@ -22,19 +22,16 @@ describe('Payment & Gumroad Webhooks', () => {
     if (db) await db.clear();
   });
 
-  it('GET /api/v1/payments/plans returns Starter, Pro, and VIP plans', async () => {
+  it('GET /api/v1/payments/plans returns Pro plan ($4.99 / 100 credits)', async () => {
     const res = await request(app).get('/api/v1/payments/plans');
     assert.equal(res.status, 200);
     assert.equal(res.body.success, true);
-    assert.ok(res.body.data.plans.starter);
-    assert.equal(res.body.data.plans.starter.price, 4.99);
     assert.ok(res.body.data.plans.pro);
-    assert.equal(res.body.data.plans.pro.price, 9.99);
-    assert.ok(res.body.data.plans.vip);
-    assert.equal(res.body.data.plans.vip.price, 19.99);
+    assert.equal(res.body.data.plans.pro.price, 4.99);
+    assert.equal(res.body.data.plans.pro.monthlyCredits, 100);
   });
 
-  it('POST /api/v1/payments/gumroad-webhook activates Pro membership by user_id', async () => {
+  it('POST /api/v1/payments/gumroad-webhook activates Pro membership by user_id and grants 100 credits', async () => {
     const user = await User.create({
       username: 'cosmicuser',
       email: 'cosmic@example.com',
@@ -49,10 +46,10 @@ describe('Payment & Gumroad Webhooks', () => {
         email: 'buyer@example.com',
         user_id: user._id.toString(),
         product_name: 'Cosmic-Gen Pro Member',
-        permalink: 'cosmic-pro',
+        permalink: 'pro',
         license_key: 'GUM-PRO-12345',
         subscription_id: 'sub_pro_123',
-        price: '999',
+        price: '499',
       });
 
     assert.equal(res.status, 200);
@@ -62,33 +59,7 @@ describe('Payment & Gumroad Webhooks', () => {
     assert.equal(updated.subscriptionTier, 'pro');
     assert.equal(updated.subscriptionStatus, 'active');
     assert.equal(updated.gumroadLicenseKey, 'GUM-PRO-12345');
-    assert.equal(updated.credits, 510); // 10 original + 500 pro bonus
-  });
-
-  it('POST /api/v1/payments/gumroad-webhook activates VIP membership and badge', async () => {
-    const user = await User.create({
-      username: 'vipuser',
-      email: 'vip@example.com',
-      password: 'password123',
-      credits: 0,
-    });
-
-    const res = await request(app)
-      .post('/api/v1/payments/gumroad-webhook')
-      .type('form')
-      .send({
-        email: 'vip@example.com',
-        product_name: 'Cosmic-Gen VIP Lifetime Access',
-        permalink: 'cosmic-vip',
-        license_key: 'GUM-VIP-999',
-        price: '1999',
-      });
-
-    assert.equal(res.status, 200);
-    const updated = await User.findById(user._id);
-    assert.equal(updated.subscriptionTier, 'vip');
-    assert.equal(updated.subscriptionStatus, 'active');
-    assert.equal(updated.credits, 2000);
+    assert.equal(updated.credits, 110); // 10 original + 100 pro bonus
   });
 
   it('POST /api/v1/payments/gumroad-webhook downgrades on refund or cancellation', async () => {

@@ -279,7 +279,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                     onPressed: onSubscribe,
                     icon: const Icon(Icons.star_rounded, size: 15, color: Colors.white),
                     label: const Text(
-                      'Upgrade',
+                      'Get Pro (\$4.99)',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.bold,
@@ -355,114 +355,6 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   }
 
   Widget _buildSubscriptionBadge(BuildContext context, bool dark, Color border, Color muted) {
-    final normPlan = subscriptionPlan.toLowerCase();
-    final isVip = normPlan.contains('vip');
-    final isStarter = normPlan.contains('starter');
-
-    if (isVip) {
-      return InkWell(
-        onTap: onSubscribe,
-        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5.5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF8B5CF6), Color(0xFFD946EF), Color(0xFFF59E0B)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFFD946EF).withValues(alpha: 0.4),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.diamond_rounded, size: 14, color: Colors.white),
-              const SizedBox(width: 5),
-              const Text(
-                'VIP Member',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'VIP',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (isStarter) {
-      return InkWell(
-        onTap: onSubscribe,
-        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-            border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.45)),
-            color: const Color(0xFF3B82F6).withValues(alpha: 0.12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.bolt_rounded, size: 15, color: Color(0xFF3B82F6)),
-              const SizedBox(width: 5),
-              const Text(
-                'Starter Member',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF3B82F6),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'STARTER',
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF3B82F6),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    // Default Pro Member (Emerald / Mint glow)
     return InkWell(
       onTap: onSubscribe,
       borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
@@ -494,7 +386,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
             ),
             const SizedBox(width: 6),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
               decoration: BoxDecoration(
                 color: const Color(0xFF10B981).withValues(alpha: 0.25),
                 borderRadius: BorderRadius.circular(8),
@@ -512,6 +404,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         ),
       ),
     );
+  }
   }
 
   static String _fmt(int n) =>

@@ -9,9 +9,9 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 
-/// Cosmic-Gen AI 3-Tier Subscription & Gumroad Payment Dialog
-/// Supports Starter ($4.99), Pro ($9.99), and VIP ($19.99) with seamless
-/// browser checkout, real-time activation webhook polling, and license key verification.
+/// Cosmic-Gen AI Pro Subscription & Gumroad Payment Dialog
+/// Offers Pro ($4.99/mo) with unlimited local generation + 100 monthly cloud credits,
+/// seamless browser checkout, real-time webhook polling, and license key activation.
 class SubscriptionPlanDialog extends StatefulWidget {
   final bool isSubscribed;
   final String currentPlan;
@@ -50,7 +50,6 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
   late String _currentPlan;
   bool _isLoading = false;
   bool _isAwaitingWebhook = false;
-  String? _pendingCheckoutTier;
   Timer? _pollingTimer;
 
   final TextEditingController _licenseKeyController = TextEditingController();
@@ -58,10 +57,8 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
   String? _licenseError;
   String? _licenseSuccess;
 
-  // Gumroad Product Permalinks (configured for Cosmic-Gen store)
-  static const String starterPermalink = 'starter';
+  // Gumroad Product Permalink
   static const String proPermalink = 'pro';
-  static const String vipPermalink = 'vip';
 
   @override
   void initState() {
@@ -91,7 +88,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     }
   }
 
-  Future<void> _startCheckout(String tier, String permalink) async {
+  Future<void> _startCheckout() async {
     final user = AuthService.instance.currentUser;
     final email = user?.email ?? '';
     final userId = user?.id ?? '';
@@ -100,7 +97,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     final uri = Uri(
       scheme: 'https',
       host: 'gumroad.com',
-      path: '/l/$permalink',
+      path: '/l/$proPermalink',
       queryParameters: {
         if (email.isNotEmpty) 'email': email,
         if (userId.isNotEmpty) 'user_id': userId,
@@ -109,7 +106,6 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
 
     setState(() {
       _isAwaitingWebhook = true;
-      _pendingCheckoutTier = tier;
       _licenseError = null;
       _licenseSuccess = null;
     });
@@ -133,16 +129,16 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
         if (mounted) {
           setState(() {
             _isSubscribed = true;
-            _currentPlan = updatedUser.subscriptionPlan;
+            _currentPlan = 'Pro';
             _isAwaitingWebhook = false;
           });
-          await DatabaseService.instance.setSetting('user_subscription_status', updatedUser.subscriptionTier);
+          await DatabaseService.instance.setSetting('user_subscription_status', 'pro');
           widget.onPlanChanged?.call(true);
           Navigator.of(context).pop(true);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('🎉 Payment confirmed! Your ${_currentPlan.toUpperCase()} membership is active!'),
-              backgroundColor: const Color(0xFF10B981),
+            const SnackBar(
+              content: Text('🎉 Payment confirmed! Welcome to Cosmic-Gen Pro! Unlimited local generation is active.'),
+              backgroundColor: Color(0xFF10B981),
             ),
           );
         }
@@ -172,19 +168,15 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode == 200 && data['success'] == true) {
-        final planData = data['data']?['plan'] as Map<String, dynamic>?;
-        final planName = planData?['name']?.toString() ?? 'Pro';
-        final tier = data['data']?['subscriptionTier']?.toString() ?? 'pro';
-
         await AuthService.instance.getCurrentUser(forceRefresh: true);
-        await DatabaseService.instance.setSetting('user_subscription_status', tier);
+        await DatabaseService.instance.setSetting('user_subscription_status', 'pro');
 
         if (mounted) {
           setState(() {
             _isSubscribed = true;
-            _currentPlan = planName;
+            _currentPlan = 'Pro';
             _isVerifyingLicense = false;
-            _licenseSuccess = 'License verified! You are now on the $planName plan.';
+            _licenseSuccess = 'License verified! Welcome to Cosmic-Gen Pro.';
           });
 
           widget.onPlanChanged?.call(true);
@@ -211,17 +203,18 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     }
   }
 
-  Future<void> _handleLocalQuickToggle(String tier) async {
+  Future<void> _toggleFreeDowngrade() async {
     setState(() => _isLoading = true);
     try {
-      await DatabaseService.instance.setSetting('user_subscription_status', tier);
+      await DatabaseService.instance.setSetting('user_subscription_status', 'free');
       if (mounted) {
         setState(() {
-          _isSubscribed = tier != 'free';
-          _currentPlan = tier.toUpperCase();
+          _isSubscribed = false;
+          _currentPlan = 'Free Tier';
           _isLoading = false;
         });
-        widget.onPlanChanged?.call(_isSubscribed);
+        widget.onPlanChanged?.call(false);
+        Navigator.of(context).pop(false);
       }
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
@@ -236,17 +229,12 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     final muted = dark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
     final user = AuthService.instance.currentUser;
 
-    final normPlan = _currentPlan.toLowerCase();
-    final isCurrentStarter = _isSubscribed && normPlan.contains('starter');
-    final isCurrentPro = _isSubscribed && normPlan.contains('pro');
-    final isCurrentVip = _isSubscribed && normPlan.contains('vip');
-
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
       child: Container(
-        width: 880,
-        constraints: const BoxConstraints(maxWidth: 880, maxHeight: 820),
+        width: 720,
+        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 760),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(24),
@@ -291,14 +279,14 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Cosmic-Gen AI Membership',
+                          'Cosmic-Gen Pro Membership',
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           user != null
-                              ? 'Signed in as ${user.email}. Choose your tier to unlock full generation & DeepFace.'
-                              : 'Unlock unlimited inference, high-resolution models, and DeepFace webcam streaming.',
+                              ? 'Signed in as ${user.email}. Upgrade to Pro for unlimited generation & 100 credits.'
+                              : 'Unlock unlimited local image & video generation with 100 monthly cloud credits.',
                           style: TextStyle(fontSize: 12.5, color: muted),
                         ),
                       ],
@@ -331,10 +319,10 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                       child: CircularProgressIndicator(strokeWidth: 2.2, color: LuminaColors.primaryEnd),
                     ),
                     const SizedBox(width: 12),
-                    Expanded(
+                    const Expanded(
                       child: Text(
-                        'Gumroad checkout opened in your browser for ${_pendingCheckoutTier?.toUpperCase()}! Complete payment to auto-unlock.',
-                        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+                        'Gumroad checkout opened in your browser! Complete checkout to auto-unlock Pro.',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                       ),
                     ),
                     TextButton(
@@ -354,83 +342,188 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Starter Plan ($4.99)
+                        // Free Tier Card
                         Expanded(
-                          child: _buildPlanCard(
-                            title: 'Starter',
-                            price: '\$4.99',
-                            period: '/ month',
-                            subtitle: 'Essential local generation & webcam swap',
-                            isCurrent: isCurrentStarter,
-                            accentColor: const Color(0xFF3B82F6),
-                            dark: dark,
-                            border: border,
-                            muted: muted,
-                            features: const [
-                              'Unlimited local image generation',
-                              'Standard DeepFace webcam swap (640×480)',
-                              '100 Cloud GPU compute credits / mo',
-                              '100% offline data privacy',
-                              'Standard queue priority',
-                            ],
-                            buttonLabel: isCurrentStarter ? 'Active Plan' : 'Subscribe (\$4.99)',
-                            onSubscribe: () => _startCheckout('starter', starterPermalink),
+                          child: Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: border),
+                              color: dark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Free Tier',
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
+                                    const Spacer(),
+                                    if (!_isSubscribed)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                        ),
+                                        child: const Text(
+                                          'CURRENT',
+                                          style: TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.green,
+                                            letterSpacing: 0.4,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Free Forever',
+                                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Preview mode with cloud GPU pay-as-you-go',
+                                  style: TextStyle(fontSize: 11.5, color: muted),
+                                ),
+                                const SizedBox(height: 14),
+                                const Divider(height: 1),
+                                const SizedBox(height: 14),
+                                _buildFeatureRow('Browse template galleries & models', true, dark, muted),
+                                _buildFeatureRow('Offline database project storage', true, dark, muted),
+                                _buildFeatureRow('Pay-as-you-go Cloud GPU rentals', true, dark, muted),
+                                _buildFeatureRow('Unlimited local generation', false, dark, muted),
+                                _buildFeatureRow('100 monthly compute credits', false, dark, muted),
+                                _buildFeatureRow('Live DeepFace webcam streaming', false, dark, muted),
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton(
+                                    onPressed: _isSubscribed ? _toggleFreeDowngrade : null,
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      side: BorderSide(color: border),
+                                    ),
+                                    child: Text(
+                                      !_isSubscribed ? 'Current Plan' : 'Downgrade to Free',
+                                      style: TextStyle(fontSize: 12.5, color: muted, fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 14),
+                        const SizedBox(width: 16),
 
-                        // Pro Plan ($9.99) - Highlighted
+                        // Pro Member Card ($4.99)
                         Expanded(
-                          child: _buildPlanCard(
-                            title: 'Pro Member',
-                            badge: 'MOST POPULAR',
-                            price: '\$9.99',
-                            period: '/ month',
-                            subtitle: 'HD quality, upscaling & fast video',
-                            isCurrent: isCurrentPro,
-                            isHighlight: true,
-                            accentColor: const Color(0xFF10B981),
-                            dark: dark,
-                            border: border,
-                            muted: muted,
-                            features: const [
-                              'Unlimited high-speed local generations',
-                              '1080p HD Live DeepFace Webcam stream',
-                              '4K Super-Resolution & Real-ESRGAN',
-                              '500 Cloud GPU compute credits / mo',
-                              'Turbo video (Wan 2.1 & MiniMax)',
-                              'Special PRO Member badge in UI',
-                            ],
-                            buttonLabel: isCurrentPro ? 'Active Plan' : 'Subscribe (\$9.99)',
-                            onSubscribe: () => _startCheckout('pro', proPermalink),
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-
-                        // VIP Plan ($19.99) - Ultimate
-                        Expanded(
-                          child: _buildPlanCard(
-                            title: 'VIP Elite',
-                            badge: 'EXCLUSIVE VIP',
-                            price: '\$19.99',
-                            period: '/ month',
-                            subtitle: 'Dedicated GPU compute & full rights',
-                            isCurrent: isCurrentVip,
-                            isVipHighlight: true,
-                            accentColor: const Color(0xFF8B5CF6),
-                            dark: dark,
-                            border: border,
-                            muted: muted,
-                            features: const [
-                              'All Pro features & pipelines included',
-                              'Ultra HD 4K Live DeepFace Webcam stream',
-                              'Priority Dedicated Cloud GPU instances',
-                              '2,000 Cloud GPU compute credits / mo',
-                              'Commercial licensing & royalty-free',
-                              'Radiant VIP Member Badge in UI',
-                            ],
-                            buttonLabel: isCurrentVip ? 'Active Plan' : 'Subscribe (\$19.99)',
-                            onSubscribe: () => _startCheckout('vip', vipPermalink),
+                          child: Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(
+                                color: const Color(0xFF10B981),
+                                width: 1.8,
+                              ),
+                              color: dark ? const Color(0xFF12231D) : const Color(0xFFF1FBF6),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.22),
+                                  blurRadius: 20,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'Pro Member',
+                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                    ),
+                                    const Spacer(),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        gradient: const LinearGradient(colors: [Color(0xFF059669), Color(0xFF10B981)]),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Text(
+                                        'UNLIMITED • BEST VALUE',
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.white,
+                                          letterSpacing: 0.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                                  textBaseline: TextBaseline.alphabetic,
+                                  children: [
+                                    const Text(
+                                      '\$4.99',
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '/ month',
+                                      style: TextStyle(fontSize: 12, color: muted),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Unlimited local generations + 100 monthly credits',
+                                  style: TextStyle(fontSize: 11.5, color: muted),
+                                ),
+                                const SizedBox(height: 14),
+                                const Divider(height: 1),
+                                const SizedBox(height: 14),
+                                _buildFeatureRow('Unlimited high-speed local generation', true, dark, muted, highlight: true),
+                                _buildFeatureRow('100 monthly Cloud GPU compute credits', true, dark, muted, highlight: true),
+                                _buildFeatureRow('HD Live DeepFace webcam swap stream', true, dark, muted, highlight: true),
+                                _buildFeatureRow('4K Super-Resolution & Real-ESRGAN', true, dark, muted, highlight: true),
+                                _buildFeatureRow('Special PRO Member badge in studio UI', true, dark, muted, highlight: true),
+                                _buildFeatureRow('100% offline data privacy & security', true, dark, muted, highlight: true),
+                                const SizedBox(height: 14),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: _isSubscribed ? null : _startCheckout,
+                                    style: ElevatedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      backgroundColor: _isSubscribed ? Colors.grey.shade700 : const Color(0xFF10B981),
+                                      foregroundColor: Colors.white,
+                                      elevation: _isSubscribed ? 0 : 3,
+                                      shadowColor: const Color(0xFF10B981).withValues(alpha: 0.4),
+                                    ),
+                                    child: Text(
+                                      _isSubscribed ? 'Active (Pro Member)' : 'Subscribe to Pro (\$4.99)',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -459,7 +552,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '(Enter key to activate instantly)',
+                                '(Enter key to activate Pro instantly)',
                                 style: TextStyle(fontSize: 11.5, color: muted),
                               ),
                             ],
@@ -562,192 +655,29 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     );
   }
 
-  Widget _buildPlanCard({
-    required String title,
-    String? badge,
-    required String price,
-    required String period,
-    required String subtitle,
-    required bool isCurrent,
-    bool isHighlight = false,
-    bool isVipHighlight = false,
-    required Color accentColor,
-    required bool dark,
-    required Color border,
-    required Color muted,
-    required List<String> features,
-    required String buttonLabel,
-    required VoidCallback onSubscribe,
-  }) {
-    Color cardBorder = border;
-    List<BoxShadow>? shadows;
-    LinearGradient? bgGradient;
-
-    if (isVipHighlight) {
-      cardBorder = const Color(0xFFD946EF);
-      shadows = [
-        BoxShadow(
-          color: const Color(0xFFD946EF).withValues(alpha: 0.25),
-          blurRadius: 18,
-          offset: const Offset(0, 4),
-        ),
-      ];
-    } else if (isHighlight) {
-      cardBorder = const Color(0xFF10B981);
-      shadows = [
-        BoxShadow(
-          color: const Color(0xFF10B981).withValues(alpha: 0.2),
-          blurRadius: 16,
-          offset: const Offset(0, 4),
-        ),
-      ];
-    } else if (isCurrent) {
-      cardBorder = Colors.green;
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: cardBorder,
-          width: (isHighlight || isVipHighlight) ? 1.8 : 1,
-        ),
-        color: isVipHighlight
-            ? (dark ? const Color(0xFF1C1329) : const Color(0xFFF9F5FF))
-            : isHighlight
-                ? (dark ? const Color(0xFF13231E) : const Color(0xFFF2FBF7))
-                : (dark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
-        boxShadow: shadows,
-      ),
-      child: Column(
+  Widget _buildFeatureRow(String text, bool included, bool dark, Color muted, {bool highlight = false}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                title,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              if (badge != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    gradient: isVipHighlight
-                        ? const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFFF59E0B)])
-                        : const LinearGradient(colors: [Color(0xFF059669), Color(0xFF10B981)]),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    badge,
-                    style: const TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-              if (isCurrent && badge == null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
-                  ),
-                  child: const Text(
-                    'ACTIVE',
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.green,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
-                ),
-            ],
+          Icon(
+            included ? Icons.check_circle_rounded : Icons.cancel_outlined,
+            size: 14,
+            color: included
+                ? (highlight ? const Color(0xFF10B981) : Colors.green.shade600)
+                : Colors.grey.shade500,
           ),
-          const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                price,
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                  color: isVipHighlight
-                      ? const Color(0xFFD946EF)
-                      : isHighlight
-                          ? const Color(0xFF10B981)
-                          : null,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                period,
-                style: TextStyle(fontSize: 12, color: muted),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 11.5, color: muted),
-          ),
-          const SizedBox(height: 14),
-          const Divider(height: 1),
-          const SizedBox(height: 14),
-          ...features.map(
-            (f) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.check_circle_rounded,
-                    size: 14,
-                    color: isVipHighlight
-                        ? const Color(0xFFD946EF)
-                        : isHighlight
-                            ? const Color(0xFF10B981)
-                            : accentColor,
-                  ),
-                  const SizedBox(width: 7),
-                  Expanded(
-                    child: Text(
-                      f,
-                      style: TextStyle(fontSize: 11.5, color: dark ? Colors.white70 : Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: isCurrent ? null : onSubscribe,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                backgroundColor: isCurrent
-                    ? Colors.grey.shade700
-                    : isVipHighlight
-                        ? const Color(0xFF8B5CF6)
-                        : isHighlight
-                            ? const Color(0xFF10B981)
-                            : accentColor,
-                foregroundColor: Colors.white,
-                elevation: isCurrent ? 0 : 2,
-              ),
-              child: Text(
-                buttonLabel,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 11.5,
+                color: included
+                    ? (dark ? Colors.white70 : Colors.black87)
+                    : muted.withValues(alpha: 0.7),
+                decoration: included ? null : TextDecoration.lineThrough,
               ),
             ),
           ),

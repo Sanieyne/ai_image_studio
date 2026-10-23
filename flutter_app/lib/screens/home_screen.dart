@@ -561,14 +561,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleOpenSubscriptionDialog() {
     final user = AuthService.instance.currentUser;
     final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-    final plan = user?.subscriptionPlan ??
-        (_isLocallySubscribed
-            ? (_localSubscriptionTier == 'vip'
-                ? 'VIP'
-                : _localSubscriptionTier == 'starter'
-                    ? 'Starter'
-                    : 'Pro')
-            : 'Free Tier');
+    final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
 
     SubscriptionPlanDialog.show(
       context,
@@ -586,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!isSub) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🔒 Live DeepFace Webcam stream requires an active subscription. Upgrade to unlock.'),
+          content: Text('🔒 Live DeepFace Webcam streaming requires Cosmic-Gen Pro (\$4.99/mo). Upgrade to unlock.'),
           backgroundColor: LuminaColors.primaryEnd,
           duration: Duration(seconds: 4),
         ),
@@ -643,7 +636,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!isSub) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🔒 Cosmic-Gen subscription required. Please choose a plan (Starter, Pro, or VIP) to generate.'),
+          content: Text('🔒 Cosmic-Gen Pro subscription (\$4.99/mo) required to generate. Upgrade to unlock unlimited local generation + 100 credits.'),
           backgroundColor: LuminaColors.primaryEnd,
           duration: Duration(seconds: 4),
         ),
@@ -928,14 +921,7 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (context, _) {
             final user = AuthService.instance.currentUser;
             final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-            final plan = user?.subscriptionPlan ??
-                (_isLocallySubscribed
-                    ? (_localSubscriptionTier == 'vip'
-                        ? 'VIP'
-                        : _localSubscriptionTier == 'starter'
-                            ? 'Starter'
-                            : 'Pro')
-                    : 'Free Tier');
+            final plan = user?.subscriptionPlan ?? (_isLocallySubscribed ? 'Pro' : 'Free Tier');
             return TopBar(
               credits: user?.credits ?? 0,
               isSubscribed: isSub,
