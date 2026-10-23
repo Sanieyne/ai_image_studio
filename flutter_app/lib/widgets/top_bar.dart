@@ -394,7 +394,6 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
       ),
     );
   }
-  }
 
   static String _fmt(int n) =>
       n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
