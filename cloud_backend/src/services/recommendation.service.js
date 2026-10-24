@@ -53,7 +53,7 @@ class RecommendationService {
         { modelId: 'wan-2.1-t2v-1.3b', displayName: 'Wan 2.1 T2V 1.3B', sizeGB: 3.5, requiredVramGB: 12 },
         { modelId: 'wan-2.1-i2v-14b', displayName: 'Wan 2.1 I2V 14B', sizeGB: 28, requiredVramGB: 24 },
         { modelId: 'wan-2.2-animate-14b', displayName: 'Wan 2.2 Animate 14B', sizeGB: 28, requiredVramGB: 24 },
-        { modelId: 'minimax-h3', displayName: 'MiniMax-H3 Video+Audio', sizeGB: 33, requiredVramGB: 32 },
+        { modelId: 'minimax-h3', displayName: 'MiniMax-H3 Video+Audio', sizeGB: 144, requiredVramGB: 32 },
         { modelId: 'chatterbox-tts', displayName: 'Chatterbox TTS', sizeGB: 1.2, requiredVramGB: 4 },
         { modelId: 'breeze-tts-2', displayName: 'Breeze TTS 2', sizeGB: 4.8, requiredVramGB: 8 },
         { modelId: 'fashn-vton-1.5', displayName: 'FASHN VTON 1.5', sizeGB: 8.5, requiredVramGB: 16 },
