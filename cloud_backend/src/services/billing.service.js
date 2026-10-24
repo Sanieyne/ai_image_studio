@@ -124,15 +124,16 @@ export class BillingService {
         console.error(`[Billing] Vast.ai listing failed, skipping this cycle: ${err.message}`);
         return { skipped: 'provider_unavailable', charged: 0, instances: 0 };
       }
-      const running = new Set(vastList.filter(isRunningOnVast).map((v) => String(v.id)));
+      const runningMap = new Map(vastList.filter(isRunningOnVast).map((v) => [String(v.id), v]));
 
       let total = 0;
       let billed = 0;
       for (const { _id, providerInstanceId } of confirmed) {
         // Not listed (or exited): never charge. The poller decides whether it is gone.
-        if (!running.has(providerInstanceId)) continue;
+        const vastEntry = runningMap.get(String(providerInstanceId));
+        if (!vastEntry) continue;
         try {
-          const result = await this.chargeInstance(_id, now);
+          const result = await this.chargeInstance(_id, now, { vastEntry });
           if (!result) continue;
           billed += 1;
           total += result.charged;
@@ -165,9 +166,9 @@ export class BillingService {
    * @param {{ final?: boolean }} [options] final: settling a stop; status is not required to be active.
    * @returns {Promise<null|{ charged: number, amount: number, seconds: number, rate: number, shortfall: boolean, balanceAfter: number|null, started?: boolean }>}
    */
-  async chargeInstance(instanceId, until, { final = false } = {}) {
+  async chargeInstance(instanceId, until, { final = false, vastEntry = null } = {}) {
     const inst = await GpuInstance.findById(instanceId)
-      .select('user status gpuType pricing billedUntil billingStartedAt creditsCharged providerInstanceId')
+      .select('user status gpuType pricing billedUntil billingStartedAt creditsCharged bandwidthCreditsCharged bandwidthDownGBBilled bandwidthUpGBBilled providerInstanceId')
       .lean();
     if (!inst || !isConfirmedContractId(inst.providerInstanceId)) return null;
     if (!final && !ACTIVE_STATUSES.includes(inst.status)) return null;
@@ -197,7 +198,28 @@ export class BillingService {
       ? new Date(inst.billingStartedAt)
       : new Date(from.getTime() - Math.round((already / rate) * 3600 * 1000));
     const totalSeconds = (until.getTime() - startedAt.getTime()) / 1000;
-    const owed = round6((totalSeconds * rate) / 3600);
+    const timeOwed = round6((totalSeconds * rate) / 3600);
+
+    // Calculate actual network transfer consumed from Vast.ai metrics
+    let newBandwidthOwed = 0;
+    let nextDownGB = inst.bandwidthDownGBBilled || 0;
+    let nextUpGB = inst.bandwidthUpGBBilled || 0;
+    if (vastEntry) {
+      const downKB = Number(vastEntry.inet_down_billed) || 0;
+      const upKB = Number(vastEntry.inet_up_billed) || 0;
+      const currentDownGB = downKB / (1024 * 1024);
+      const currentUpGB = upKB / (1024 * 1024);
+      const unbilledDownGB = Math.max(0, currentDownGB - (inst.bandwidthDownGBBilled || 0));
+      const unbilledUpGB = Math.max(0, currentUpGB - (inst.bandwidthUpGBBilled || 0));
+      const downRate = inst.pricing?.bandwidthDownCreditsPerGB || 1.63;
+      const upRate = inst.pricing?.bandwidthUpCreditsPerGB || 1.63;
+      newBandwidthOwed = round6((unbilledDownGB * downRate) + (unbilledUpGB * upRate));
+      nextDownGB = round6(currentDownGB);
+      nextUpGB = round6(currentUpGB);
+    }
+
+    const currentBandwidthTotal = round6((inst.bandwidthCreditsCharged || 0) + newBandwidthOwed);
+    const owed = round6(timeOwed + currentBandwidthTotal);
     const amount = Math.max(0, round6(owed - already));
     const seconds = (until.getTime() - from.getTime()) / 1000;
 
@@ -209,7 +231,13 @@ export class BillingService {
       creditsCharged: inst.creditsCharged == null ? null : inst.creditsCharged,
     };
     if (!final) claimFilter.status = { $in: ACTIVE_STATUSES };
-    const claimSet = { billedUntil: until, billingStartedAt: startedAt };
+    const claimSet = {
+      billedUntil: until,
+      billingStartedAt: startedAt,
+      bandwidthDownGBBilled: nextDownGB,
+      bandwidthUpGBBilled: nextUpGB,
+      bandwidthCreditsCharged: currentBandwidthTotal,
+    };
     if (!final) claimSet.lastSeenOnVastAt = until;
     const claimed = await GpuInstance.findOneAndUpdate(
       claimFilter,
@@ -256,7 +284,7 @@ export class BillingService {
         type: TRANSACTION_TYPES.DEDUCTION,
         amount: -result.charged,
         balanceAfter: result.user?.credits ?? 0,
-        description: `GPU rental: ${inst.gpuType || 'GPU'}, ${formatMinutes(billedSeconds)} at ${rate} credits/hr`,
+        description: `GPU rental: ${inst.gpuType || 'GPU'}, ${formatMinutes(billedSeconds)} at ${rate} credits/hr${nextDownGB > 0 ? ` + ${nextDownGB.toFixed(1)}GB transfer` : ''}`,
         metadata: {
           gpuInstanceId: String(instanceId),
           gpuType: inst.gpuType || null,
@@ -264,6 +292,9 @@ export class BillingService {
           billedSeconds,
           minutes: round6(billedSeconds / 60),
           creditsCharged: round6(after?.creditsCharged ?? 0),
+          bandwidthDownGB: nextDownGB,
+          bandwidthUpGB: nextUpGB,
+          bandwidthCreditsCharged: currentBandwidthTotal,
           billedFrom: startedAt,
           billedUntil: until,
         },

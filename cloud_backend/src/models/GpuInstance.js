@@ -135,6 +135,9 @@ const gpuInstanceSchema = new mongoose.Schema(
     // minus creditsCharged, so per-cycle rounding never accumulates.
     billingStartedAt: { type: Date, default: null },
     creditsCharged: { type: Number, default: 0 },
+    bandwidthCreditsCharged: { type: Number, default: 0 },
+    bandwidthDownGBBilled: { type: Number, default: 0 },
+    bandwidthUpGBBilled: { type: Number, default: 0 },
     creditsRefunded: { type: Number, default: 0 },
     refundIssued: { type: Boolean, default: false },
     reachedReadyAt: { type: Date, default: null },
