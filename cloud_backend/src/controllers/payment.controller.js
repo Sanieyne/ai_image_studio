@@ -38,14 +38,34 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
   // Extract purchaser email
   const email = (body.email || body.purchaser_email || '').toLowerCase().trim();
 
-  // Extract user_id if passed via custom fields or url parameters
-  const customUserId =
+  // Parse custom_fields and url_params which Gumroad may send as an object, string, or bracketed form fields
+  let parsedCustomFields = {};
+  if (typeof body.custom_fields === 'string') {
+    try { parsedCustomFields = JSON.parse(body.custom_fields); } catch {}
+  } else if (body.custom_fields && typeof body.custom_fields === 'object') {
+    parsedCustomFields = body.custom_fields;
+  }
+
+  let parsedUrlParams = {};
+  if (typeof body.url_params === 'string') {
+    try { parsedUrlParams = JSON.parse(body.url_params); } catch {}
+  } else if (body.url_params && typeof body.url_params === 'object') {
+    parsedUrlParams = body.url_params;
+  }
+
+  // Extract user_id from all possible locations
+  const rawUserId =
+    parsedCustomFields.user_id ||
+    parsedCustomFields['user_id'] ||
+    parsedCustomFields.userId ||
+    parsedUrlParams.user_id ||
+    parsedUrlParams.userId ||
     body['custom_fields[user_id]'] ||
-    body?.custom_fields?.user_id ||
     body['url_params[user_id]'] ||
-    body?.url_params?.user_id ||
     body.user_id ||
     query.user_id;
+
+  const customUserId = rawUserId ? String(rawUserId).trim() : null;
 
   const licenseKey = (body.license_key || '').trim();
   const subscriptionId = body.subscription_id || null;
@@ -82,6 +102,13 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
   // 3. Find user by license key if provided
   if (!user && licenseKey) {
     user = await User.findOne({ gumroadLicenseKey: licenseKey });
+  }
+
+  // If user matched by ID or key, automatically link purchaser email as alias for future lookups
+  if (user && email && user.email !== email && user.gumroadPurchaserEmail !== email) {
+    user.gumroadPurchaserEmail = email;
+    await user.save();
+    console.log(`[Gumroad Webhook] Auto-linked gumroadPurchaserEmail="${email}" to user ${user.username} (${user._id})`);
   }
 
   const isCreditTopUp = permalink.includes('credit') || productName.toLowerCase().includes('credit');

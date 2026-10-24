@@ -581,6 +581,35 @@ class AuthService extends ChangeNotifier {
     return getCurrentUser(forceRefresh: true);
   }
 
+  /// Syncs credits from Gumroad (claims pending top-ups or pulls via Seller API)
+  Future<Map<String, dynamic>?> syncGumroadCredits({String? gumroadEmail, String? orderId}) async {
+    final token = await getValidAccessToken();
+    if (token == null) return null;
+
+    try {
+      final res = await _http.post(
+        Uri.parse('$baseUrl/payments/sync-credits'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          if (gumroadEmail != null && gumroadEmail.isNotEmpty) 'gumroadEmail': gumroadEmail,
+          if (orderId != null && orderId.isNotEmpty) 'orderId': orderId,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        await getCurrentUser(forceRefresh: true);
+        return data as Map<String, dynamic>;
+      }
+    } catch (e) {
+      debugPrint('[AuthService] syncGumroadCredits error: $e');
+    }
+    return null;
+  }
+
   /// Explicitly terminates the session and triggers a clean redirect to login.
   /// Called by transports (REST ApiClient, WebSocket clients) when authentication
   /// is expired/invalid and cannot be refreshed.

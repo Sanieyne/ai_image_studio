@@ -26,7 +26,94 @@ class CreditTopUpDialog extends StatefulWidget {
 class _CreditTopUpDialogState extends State<CreditTopUpDialog> {
   Timer? _pollingTimer;
   bool _isAwaitingPayment = false;
+  bool _isSyncing = false;
   int _lastKnownCredits = 0;
+
+  Future<void> _syncCredits() async {
+    setState(() => _isSyncing = true);
+    final res = await AuthService.instance.syncGumroadCredits();
+    if (!mounted) return;
+    setState(() => _isSyncing = false);
+
+    final added = res?['data']?['addedCredits'] as int? ?? 0;
+    if (added > 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('🎉 Synced +$added Cloud Credits to your account!'),
+            backgroundColor: const Color(0xFF10B981),
+          ),
+        );
+      }
+    } else {
+      _showCustomEmailSyncDialog();
+    }
+  }
+
+  void _showCustomEmailSyncDialog() {
+    final emailController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: widget.isDark ? const Color(0xFF1E293B) : Colors.white,
+        title: const Text('Sync Gumroad Purchase'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'If you entered a different email address on Gumroad (e.g. personal or PayPal email), enter it below to claim your credits:',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: emailController,
+              autofocus: true,
+              decoration: InputDecoration(
+                labelText: 'Gumroad Purchaser Email',
+                hintText: 'e.g. purchaser@gmail.com',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final email = emailController.text.trim();
+              Navigator.of(ctx).pop();
+              if (email.isNotEmpty) {
+                setState(() => _isSyncing = true);
+                final res = await AuthService.instance.syncGumroadCredits(gumroadEmail: email);
+                if (!mounted) return;
+                setState(() => _isSyncing = false);
+                final added = res?['data']?['addedCredits'] as int? ?? 0;
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(added > 0
+                          ? '🎉 Found and credited +$added Cloud Credits!'
+                          : 'No unclaimed purchases found for $email.'),
+                      backgroundColor: added > 0 ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                    ),
+                  );
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFA5544),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Sync'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -215,6 +302,20 @@ class _CreditTopUpDialogState extends State<CreditTopUpDialog> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   side: BorderSide(color: dark ? const Color(0xFF334155) : const Color(0xFFCBD5E1)),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Sync / Claim Button
+              TextButton.icon(
+                onPressed: _isSyncing ? null : _syncCredits,
+                icon: _isSyncing
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.sync_rounded, size: 16),
+                label: const Text('Bought with another email? Click here to sync'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFFA5544),
+                  textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                 ),
               ),
 
