@@ -222,9 +222,22 @@ class GpuProviderService {
       throw ApiError.badRequest('Offer specification is required for pricing estimation.');
     }
 
-    const numericStorage = Number(storageGB);
+    let numericStorage = Number(storageGB);
     if (isNaN(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
       throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+    }
+
+    // Auto-scale storage if selected models require more volume than requested
+    if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
+      try {
+        const rec = await recommendationService.calculateRequirement(selectedModelIds);
+        const requiredGB = rec?.recommendedStorage?.sizeGB;
+        if (requiredGB && requiredGB > numericStorage) {
+          numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);
+        }
+      } catch (err) {
+        // Fall back to provided numericStorage
+      }
     }
 
     const price = pricingService.repriceOffer(offer, numericStorage);
@@ -292,9 +305,22 @@ class GpuProviderService {
     if (!env.GPU_RENTALS_ENABLED) throw ApiError.serviceUnavailable(env.GPU_RENTALS_PAUSED_MESSAGE);
     if (!offerId) throw ApiError.badRequest('Vast.ai offer ID is required.');
 
-    const numericStorage = Number(storageGB);
+    let numericStorage = Number(storageGB);
     if (isNaN(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
       throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
+    }
+
+    // Auto-scale storage if selected models require more volume than requested
+    if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
+      try {
+        const rec = await recommendationService.calculateRequirement(selectedModelIds);
+        const requiredGB = rec?.recommendedStorage?.sizeGB;
+        if (requiredGB && requiredGB > numericStorage) {
+          numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);
+        }
+      } catch (err) {
+        // Fall back to provided numericStorage
+      }
     }
 
     // 1. Fetch offer details

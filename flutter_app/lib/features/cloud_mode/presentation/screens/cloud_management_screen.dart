@@ -95,7 +95,12 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
       setState(() {
         _backendOnline = online;
         if (models.isNotEmpty) _models = models;
-        if (rec != null) _recommendation = rec;
+        if (rec != null) {
+          _recommendation = rec;
+          if (rec.recommendedStorage.sizeGB > _selectedStorageGB) {
+            _selectedStorageGB = rec.recommendedStorage.sizeGB;
+          }
+        }
         if (market != null) {
           _applyMarket(market);
         }
@@ -126,7 +131,12 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
       final market = results[1] as MarketplaceRecommendedResult?;
 
       setState(() {
-        if (rec != null) _recommendation = rec;
+        if (rec != null) {
+          _recommendation = rec;
+          if (rec.recommendedStorage.sizeGB > _selectedStorageGB) {
+            _selectedStorageGB = rec.recommendedStorage.sizeGB;
+          }
+        }
         if (market != null) {
           _applyMarket(market);
         }
