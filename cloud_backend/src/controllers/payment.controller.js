@@ -261,7 +261,8 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
       const params = new URLSearchParams();
       params.append('license_key', cleanKey);
       params.append('increment_uses_count', 'false');
-      if (productId) params.append('product_id', productId);
+      const targetProductId = productId || 'P_uhVlz366OzcZdNsU5awg==';
+      params.append('product_id', targetProductId);
       if (permalink) params.append('product_permalink', permalink);
 
       gumroadRes = await axios.post('https://api.gumroad.com/v2/licenses/verify', params, {

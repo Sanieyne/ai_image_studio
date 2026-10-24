@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
@@ -60,6 +61,31 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
     }
   }
 
+  Future<void> _openBuyLicenseUrl() async {
+    final user = AuthService.instance.currentUser;
+    final email = user?.email ?? '';
+    final userId = user?.id ?? '';
+    final uri = Uri.parse('https://cosmicgen.gumroad.com/l/cosmicgen').replace(
+      queryParameters: {
+        'wanted': 'true',
+        if (email.isNotEmpty) 'email': email,
+        if (userId.isNotEmpty) 'user_id': userId,
+      },
+    );
+    final url = uri.toString();
+    try {
+      if (Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '', url]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [url]);
+      } else if (Platform.isLinux) {
+        await Process.run('xdg-open', [url]);
+      }
+    } catch (e) {
+      debugPrint('[LicenseActivationGate] Failed to open URL: $e');
+    }
+  }
+
   Future<void> _activateLicense() async {
     final key = _keyController.text.trim();
     if (key.isEmpty) {
@@ -77,7 +103,10 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
       final client = ApiClient();
       final res = await client.post(
         '/payments/verify-license',
-        jsonBody: {'licenseKey': key},
+        jsonBody: {
+          'licenseKey': key,
+          'productId': 'P_uhVlz366OzcZdNsU5awg==',
+        },
       );
 
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -280,6 +309,38 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
                               'Unlock Software',
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                             ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: dark ? Colors.white12 : Colors.black12)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text(
+                          'Don\'t have a license key?',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: dark ? Colors.white54 : Colors.black45,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: dark ? Colors.white12 : Colors.black12)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openBuyLicenseUrl,
+                      icon: const Icon(Icons.shopping_bag_outlined, size: 16),
+                      label: const Text('Buy Lifetime License (\$35 USD)'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: const BorderSide(color: Color(0xFF10B981)),
+                        foregroundColor: const Color(0xFF10B981),
+                      ),
                     ),
                   ),
                 ],

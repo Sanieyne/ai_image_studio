@@ -58,7 +58,7 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
   String? _licenseSuccess;
 
   // Gumroad Product Permalink
-  static const String proPermalink = 'pro';
+  static const String proPermalink = 'cosmicgen';
 
   @override
   void initState() {
@@ -94,11 +94,9 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
     final userId = user?.id ?? '';
 
     // Build Gumroad checkout URL prefilled with email and user_id for webhook attribution
-    final uri = Uri(
-      scheme: 'https',
-      host: 'gumroad.com',
-      path: '/l/$proPermalink',
+    final uri = Uri.parse('https://cosmicgen.gumroad.com/l/cosmicgen').replace(
       queryParameters: {
+        'wanted': 'true',
         if (email.isNotEmpty) 'email': email,
         if (userId.isNotEmpty) 'user_id': userId,
       },
@@ -163,7 +161,10 @@ class _SubscriptionPlanDialogState extends State<SubscriptionPlanDialog> {
       final client = ApiClient();
       final response = await client.post(
         '/payments/verify-license',
-        jsonBody: {'licenseKey': key},
+        jsonBody: {
+          'licenseKey': key,
+          'productId': 'P_uhVlz366OzcZdNsU5awg==',
+        },
       );
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
