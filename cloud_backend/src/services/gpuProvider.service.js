@@ -230,7 +230,7 @@ class GpuProviderService {
     // Auto-scale storage if selected models require more volume than requested
     if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
       try {
-        const rec = await recommendationService.calculateRequirement(selectedModelIds);
+        const rec = await recommendationService.calculateRequirements(selectedModelIds);
         const requiredGB = rec?.recommendedStorage?.sizeGB;
         if (requiredGB && requiredGB > numericStorage) {
           numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);
@@ -313,7 +313,7 @@ class GpuProviderService {
     // Auto-scale storage if selected models require more volume than requested
     if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
       try {
-        const rec = await recommendationService.calculateRequirement(selectedModelIds);
+        const rec = await recommendationService.calculateRequirements(selectedModelIds);
         const requiredGB = rec?.recommendedStorage?.sizeGB;
         if (requiredGB && requiredGB > numericStorage) {
           numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);

@@ -12,6 +12,7 @@ import {
   STORAGE_MAX_GB,
   BASE_OVERHEAD_GB,
   OUTPUT_BUFFER_PERCENT,
+  EXTRA_FREE_HEADROOM_GB,
 } from '../config/constants.js';
 import { pricingService } from './pricing.service.js';
 import { ApiError } from '../utils/ApiError.js';
@@ -45,7 +46,7 @@ class RecommendationService {
 
     if (!models || models.length === 0) {
       const STATIC_CATALOG = [
-        { modelId: 'qwen-image-2.1', displayName: 'Qwen-Image 2.1', sizeGB: 15, requiredVramGB: 16 },
+        { modelId: 'qwen-image-2.1', displayName: 'Qwen-Image 2.1', sizeGB: 33, requiredVramGB: 16 },
         { modelId: 'flux-1-kontext-dev', displayName: 'FLUX.1 Kontext [dev]', sizeGB: 24, requiredVramGB: 24 },
         { modelId: 'sdxl-base-1.0', displayName: 'SDXL Base 1.0', sizeGB: 6.9, requiredVramGB: 12 },
         { modelId: 'z-image-turbo', displayName: 'Z-Image Turbo', sizeGB: 6.2, requiredVramGB: 12 },
@@ -78,13 +79,13 @@ class RecommendationService {
     const bufferGB =
       Math.round(totalModelSizeGB * OUTPUT_BUFFER_PERCENT * 100) / 100;
 
-    // 5. Total disk requirement (Weights + 7GB OS/Python/Diffusers + 30% Output Buffer)
+    // 5. Total disk requirement (Weights + 25GB OS/CUDA/Python + 35% Buffer + 25GB Free Headroom)
     const totalWithBufferGB =
-      Math.round((totalModelSizeGB + BASE_OVERHEAD_GB + bufferGB) * 100) / 100;
+      Math.round((totalModelSizeGB + BASE_OVERHEAD_GB + bufferGB + EXTRA_FREE_HEADROOM_GB) * 100) / 100;
 
-    // 6. Continuous storage allocation (clamped to 10GB - 1000GB)
+    // 6. Continuous storage allocation (clamped to 80GB min - 1000GB max)
     const continuousStorageGB = Math.max(
-      STORAGE_MIN_GB,
+      80,
       Math.min(STORAGE_MAX_GB, Math.ceil(totalWithBufferGB))
     );
     const storagePricing = pricingService.calculateStoragePricing(continuousStorageGB);

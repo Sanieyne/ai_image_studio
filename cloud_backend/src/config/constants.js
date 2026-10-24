@@ -63,9 +63,10 @@ export const STORAGE_STATUS = Object.freeze({
 export const CREDITS_PER_USD = 100;
 export const VASTAI_PRICE_MARKUP = 1.25;
 
-// System overheads
-export const BASE_OVERHEAD_GB = 7; // OS + Python virtualenv + Diffusers libraries
-export const OUTPUT_BUFFER_PERCENT = 0.3; // 30% storage headroom for generated high-res media
+// System overheads: generous base OS/PyTorch/CUDA overhead and headroom
+export const BASE_OVERHEAD_GB = 25; // OS + Docker + PyTorch + CUDA + Diffusers + decompression cache
+export const OUTPUT_BUFFER_PERCENT = 0.35; // 35% storage headroom for generated high-res media & checkpoints
+export const EXTRA_FREE_HEADROOM_GB = 25; // 25 GB free buffer to guarantee complete reliability
 
 // GPU Hardware Tiers for Cloud Provisioning (Raw provider baseline costs)
 export const GPU_TIERS = Object.freeze([
