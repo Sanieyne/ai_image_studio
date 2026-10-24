@@ -15,6 +15,7 @@ import '../services/auth_service.dart';
 import '../services/database_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_sidebar.dart';
+import '../widgets/credit_topup_dialog.dart';
 import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
 import '../widgets/top_bar.dart';
@@ -921,7 +922,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onMenuToggle: () => setState(
                   () => _isSidebarCollapsed = !_isSidebarCollapsed),
               onBuyCredits: () {
-                setState(() => _currentSidebarTab = SidebarTab.cloud);
+                CreditTopUpDialog.show(context, isDark: widget.isDark);
               },
             );
           },
