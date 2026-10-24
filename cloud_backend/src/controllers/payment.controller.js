@@ -110,7 +110,39 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
     });
   }
 
-  // Resolve tier
+  // Distinguish between Software License purchase and Credit Top-Up purchase
+  const isCreditTopUp = permalink.includes('credit') || productName.toLowerCase().includes('credit');
+
+  if (isCreditTopUp) {
+    // 1 USD (100 cents) = 100 credits -> 1 cent = 1 credit
+    const creditsToDeposit = priceCents > 0 ? priceCents : 500;
+    user.credits = (user.credits || 0) + creditsToDeposit;
+    user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + creditsToDeposit;
+    await user.save();
+
+    await Transaction.create({
+      user: user._id,
+      type: TRANSACTION_TYPES.PURCHASE,
+      amount: creditsToDeposit,
+      balanceAfter: user.credits,
+      description: `Cloud Credits Top-Up: +${creditsToDeposit} credits ($${(priceCents / 100).toFixed(2)})`,
+      metadata: {
+        permalink,
+        productName,
+        priceCents,
+        email,
+      },
+    });
+
+    console.log(`[Gumroad Webhook] Deposited +${creditsToDeposit} credits to user ${user.username} (${user._id}) for $${(priceCents / 100).toFixed(2)} purchase.`);
+    return res.status(200).json({
+      success: true,
+      message: `Deposited ${creditsToDeposit} credits to ${user.username}`,
+      credits: user.credits,
+    });
+  }
+
+  // Otherwise: Software License Purchase
   const tier = resolveTier({ permalink, productName, priceCents });
   const planInfo = PLANS[tier] || PLANS.pro;
 
@@ -120,19 +152,15 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
   if (licenseKey) user.gumroadLicenseKey = licenseKey;
   if (email) user.gumroadPurchaserEmail = email;
 
-  // Grant monthly plan credits
-  const creditsToAdd = planInfo.monthlyCredits;
-  user.credits = (user.credits || 0) + creditsToAdd;
-  user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + creditsToAdd;
   await user.save();
 
   // Audit transaction record
   await Transaction.create({
     user: user._id,
     type: TRANSACTION_TYPES.PURCHASE,
-    amount: creditsToAdd,
-    balanceAfter: user.credits,
-    description: `Gumroad Subscription Activated: ${planInfo.name} Tier (+${creditsToAdd} credits)`,
+    amount: 0,
+    balanceAfter: user.credits || 0,
+    description: `Software License Activated: ${planInfo.name} ($${(priceCents / 100).toFixed(2)})`,
     metadata: {
       tier,
       permalink,
@@ -143,7 +171,7 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
     },
   });
 
-  console.log(`[Gumroad Webhook] Activated ${tier.toUpperCase()} for ${user.username} (${user._id}), credited +${creditsToAdd}`);
+  console.log(`[Gumroad Webhook] Activated ${tier.toUpperCase()} Software License for ${user.username} (${user._id})`);
 
   return res.status(200).json({
     success: true,
@@ -229,12 +257,6 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
   if (!user) {
     throw ApiError.notFound('User not found');
   }
-
-  const tier = resolveTier({
-    permalink: purchase.permalink || permalink,
-    productName: purchase.product_name,
-    priceCents: purchase.price,
-  });
 
   const planInfo = PLANS[tier] || PLANS.pro;
 
