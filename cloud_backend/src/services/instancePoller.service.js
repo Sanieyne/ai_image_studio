@@ -198,18 +198,6 @@ export class InstancePollerService {
     }
   }
 
-  _timeoutMsFor(instance) {
-    const models = instance.modelsRequested || [];
-    const hasLargeModels = models.some((m) =>
-      ['wan-2.1-i2v-14b', 'wan-2.2-animate-14b', 'wan-2.1-t2v-1.3b', 'qwen-image-2.1', 'flux-1-schnell', 'flux-1-dev', 'flux-kontext-dev', 'minimax-h3', 'sd3-medium'].includes(m)
-    );
-    const count = Math.max(1, models.length);
-    if (hasLargeModels) {
-      return Math.max(60 * 60 * 1000, count * 25 * 60 * 1000); // 60 min to 75 min
-    }
-    return Math.max(35 * 60 * 1000, count * 15 * 60 * 1000);
-  }
-
   /**
    * Poll and update status for a single instance.
    * Every status change is a conditional update, so a stop made meanwhile by
@@ -223,20 +211,50 @@ export class InstancePollerService {
     const confirmed = isConfirmedContractId(instance.providerInstanceId);
     const vastEntry = confirmed && vastById ? vastById.get(instance.providerInstanceId) : undefined;
 
-    // 1. Provisioning timeout (never-ready instances only): destroy, fail, refund.
+    // 1. Provisioning watchdog (never-ready instances only):
+    // Do NOT impose an arbitrary elapsed time limit once the engine is connected!
+    // Users can select huge models (like Minimax H3 at 400+ GB, Wan 2.1, Qwen, Flux)
+    // or hosts with moderate network speed. Downloads must be allowed to run until
+    // 100% complete as long as the engine is actively progressing.
     if (!READY_STATUSES.includes(instance.status)) {
       const startedAt = instance.startedAt || instance.createdAt || now;
       const elapsedMs = now.getTime() - new Date(startedAt).getTime();
-      const timeoutMs = this._timeoutMsFor(instance);
 
-      // Check if instance is actively making download progress
-      const lastProgressAt = instance.progress?.updatedAt ? new Date(instance.progress.updatedAt).getTime() : new Date(startedAt).getTime();
-      const stallMs = now.getTime() - lastProgressAt;
-      const isActivelyProgressing = stallMs < 10 * 60 * 1000 && instance.progress?.stage === 'downloading_models';
+      let shouldTerminate = false;
+      let failureMessage = '';
 
-      // Terminate only if truly timed out and NOT actively progressing, or absolute safety limit (90m) hit
-      if ((elapsedMs > timeoutMs && !isActivelyProgressing) || elapsedMs > 90 * 60 * 1000) {
-        console.warn(`[InstancePoller] Instance ${id} (${instance.providerInstanceId}) timed out after ${Math.round(elapsedMs / 1000)}s.`);
+      if (!instance.pythonEngineUrl) {
+        // Stage A: Waiting for Vast.ai host to boot container & expose network ports.
+        // If the host fails to bind a port after 25 minutes, the host is unresponsive/dead.
+        const HOST_BOOT_TIMEOUT_MS = 25 * 60 * 1000;
+        if (elapsedMs > HOST_BOOT_TIMEOUT_MS) {
+          shouldTerminate = true;
+          failureMessage =
+            `The GPU did not become ready within 25 minutes` +
+            (instance.progress?.message ? ` (last step: ${instance.progress.message})` : '') +
+            '. The instance was stopped and everything charged was refunded.';
+        }
+      } else {
+        // Stage B: Python engine is reachable & streaming model weights.
+        // No total elapsed time limit: let 10GB, 50GB, or 400+ GB downloads run to completion.
+        // We only terminate if the download is completely frozen (no progress updates for > 30 minutes).
+        const lastProgressAt = instance.progress?.updatedAt
+          ? new Date(instance.progress.updatedAt).getTime()
+          : new Date(startedAt).getTime();
+        const stallMs = now.getTime() - lastProgressAt;
+        const STALL_TIMEOUT_MS = 30 * 60 * 1000;
+
+        if (stallMs > STALL_TIMEOUT_MS) {
+          shouldTerminate = true;
+          failureMessage =
+            'Model streaming stalled with no progress for over 30 minutes' +
+            (instance.progress?.message ? ` (last step: ${instance.progress.message})` : '') +
+            '. The instance was stopped and everything charged was refunded.';
+        }
+      }
+
+      if (shouldTerminate) {
+        console.warn(`[InstancePoller] Instance ${id} (${instance.providerInstanceId}) timed out: ${failureMessage}`);
         if (confirmed && instance.provider === GPU_PROVIDERS.VASTAI) {
           try {
             await vastaiService.destroyInstance(instance.providerInstanceId);
@@ -258,10 +276,7 @@ export class InstancePollerService {
           stopReason: STOP_REASONS.PROVISIONING_TIMEOUT,
           until: now,
           refundIfNeverReady: true,
-          message:
-            `The GPU did not become ready within ${Math.round(timeoutMs / 60000)} minutes` +
-            (instance.progress?.message ? ` (last step: ${instance.progress.message})` : '') +
-            '. The instance was stopped and everything charged was refunded.',
+          message: failureMessage,
           level: LOG_LEVELS.ERROR,
           emitReason: 'PROVISIONING_TIMEOUT',
         });
