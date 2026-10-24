@@ -146,7 +146,7 @@ class _CreditTopUpDialogState extends State<CreditTopUpDialog> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Current Balance: $currentCredits Credits ($1.00 USD = 100 Credits)',
+                          'Current Balance: $currentCredits Credits (\$1.00 USD = 100 Credits)',
                           style: TextStyle(
                             fontSize: 12,
                             color: dark ? Colors.white60 : Colors.black54,
@@ -210,7 +210,7 @@ class _CreditTopUpDialogState extends State<CreditTopUpDialog> {
               OutlinedButton.icon(
                 onPressed: () => _launchCheckout(0),
                 icon: const Icon(Icons.tune_rounded, size: 16),
-                label: const Text('Enter Custom Amount ($5+ on Gumroad)'),
+                label: const Text('Enter Custom Amount (\$5+ on Gumroad)'),
                 style: OutlinedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
