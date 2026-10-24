@@ -304,9 +304,9 @@ def download_single_model(
 
     from boto3.s3.transfer import TransferConfig
     transfer_config = TransferConfig(
-        multipart_threshold=50 * 1024 * 1024,
-        multipart_chunksize=50 * 1024 * 1024,
-        max_concurrency=4,
+        multipart_threshold=32 * 1024 * 1024,
+        multipart_chunksize=64 * 1024 * 1024,
+        max_concurrency=16,
         use_threads=True,
     )
 
