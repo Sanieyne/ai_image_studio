@@ -623,11 +623,14 @@ class _HomeScreenState extends State<HomeScreen> {
       bool? faceEnhance,
   }) async {
     final user = AuthService.instance.currentUser;
+    final isCloudMode = _executionMode == StudioExecutionMode.cloud;
     final isSub = user?.isSubscribed ?? _isLocallySubscribed;
-    if (!isSub) {
+    // Cloud GPU execution uses cloud credits (no software license required).
+    // Only local offline execution on the user's PC requires the $35 lifetime license.
+    if (!isCloudMode && !isSub) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('🔒 Lifetime License key required (\$35 one-time purchase). Unlock software to enable unlimited generation.'),
+          content: Text('🔒 Lifetime License key required (\$35 one-time purchase) for local generation. Switch to Cloud GPU or unlock software.'),
           backgroundColor: LuminaColors.primaryEnd,
           duration: Duration(seconds: 4),
         ),

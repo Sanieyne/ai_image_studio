@@ -45,8 +45,12 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
   Future<void> _checkStoredLicense() async {
     final user = AuthService.instance.currentUser;
     final dbStatus = await DatabaseService.instance.getSetting('user_subscription_status');
+    final cloudModeUnlocked = await DatabaseService.instance.getSetting('cloud_mode_unlocked');
     
-    if ((user != null && user.isSubscribed) || (dbStatus == 'pro' || dbStatus == 'lifetime')) {
+    // Cloud GPU users (with credits or active GPU rentals) or licensed users enter directly
+    if ((user != null && (user.isSubscribed || user.credits > 0 || (user.activeGpuInstances ?? 0) > 0)) ||
+        (dbStatus == 'pro' || dbStatus == 'lifetime') ||
+        cloudModeUnlocked == 'true') {
       if (mounted) {
         setState(() {
           _isUnlocked = true;
@@ -340,6 +344,24 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         side: const BorderSide(color: Color(0xFF10B981)),
                         foregroundColor: const Color(0xFF10B981),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton.icon(
+                      onPressed: () async {
+                        await DatabaseService.instance.setSetting('cloud_mode_unlocked', 'true');
+                        if (mounted) {
+                          setState(() => _isUnlocked = true);
+                        }
+                      },
+                      icon: const Icon(Icons.cloud_outlined, size: 18),
+                      label: const Text('Continue with Cloud GPU (Use Credits)'),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        foregroundColor: dark ? Colors.white70 : const Color(0xFF334155),
                       ),
                     ),
                   ),
