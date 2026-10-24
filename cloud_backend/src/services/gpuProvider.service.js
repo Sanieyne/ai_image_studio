@@ -222,22 +222,9 @@ class GpuProviderService {
       throw ApiError.badRequest('Offer specification is required for pricing estimation.');
     }
 
-    let numericStorage = Number(storageGB);
+    const numericStorage = Number(storageGB);
     if (isNaN(numericStorage) || numericStorage < STORAGE_MIN_GB || numericStorage > STORAGE_MAX_GB) {
       throw ApiError.badRequest(`storageGB must be between ${STORAGE_MIN_GB} and ${STORAGE_MAX_GB} GB.`);
-    }
-
-    // Auto-scale storage if selected models require more volume than requested
-    if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
-      try {
-        const rec = await recommendationService.calculateRequirements(selectedModelIds);
-        const requiredGB = rec?.recommendedStorage?.sizeGB;
-        if (requiredGB && requiredGB > numericStorage) {
-          numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);
-        }
-      } catch (err) {
-        // Fall back to provided numericStorage
-      }
     }
 
     const price = pricingService.repriceOffer(offer, numericStorage);
