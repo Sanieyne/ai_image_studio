@@ -199,11 +199,15 @@ export class InstancePollerService {
   }
 
   _timeoutMsFor(instance) {
-    // Scale timeout dynamically: 25 min base, 40 min for large models (e.g. Qwen-Image 33GB, Flux, Minimax)
-    const hasLargeModels = (instance.modelsRequested || []).some((m) =>
-      ['qwen-image-2.1', 'flux-1-schnell', 'flux-1-dev', 'minimax-h3', 'sd3-medium'].includes(m)
+    const models = instance.modelsRequested || [];
+    const hasLargeModels = models.some((m) =>
+      ['wan-2.1-i2v-14b', 'wan-2.2-animate-14b', 'wan-2.1-t2v-1.3b', 'qwen-image-2.1', 'flux-1-schnell', 'flux-1-dev', 'flux-kontext-dev', 'minimax-h3', 'sd3-medium'].includes(m)
     );
-    return hasLargeModels ? 40 * 60 * 1000 : 25 * 60 * 1000;
+    const count = Math.max(1, models.length);
+    if (hasLargeModels) {
+      return Math.max(60 * 60 * 1000, count * 25 * 60 * 1000); // 60 min to 75 min
+    }
+    return Math.max(35 * 60 * 1000, count * 15 * 60 * 1000);
   }
 
   /**
@@ -224,7 +228,14 @@ export class InstancePollerService {
       const startedAt = instance.startedAt || instance.createdAt || now;
       const elapsedMs = now.getTime() - new Date(startedAt).getTime();
       const timeoutMs = this._timeoutMsFor(instance);
-      if (elapsedMs > timeoutMs) {
+
+      // Check if instance is actively making download progress
+      const lastProgressAt = instance.progress?.updatedAt ? new Date(instance.progress.updatedAt).getTime() : new Date(startedAt).getTime();
+      const stallMs = now.getTime() - lastProgressAt;
+      const isActivelyProgressing = stallMs < 10 * 60 * 1000 && instance.progress?.stage === 'downloading_models';
+
+      // Terminate only if truly timed out and NOT actively progressing, or absolute safety limit (90m) hit
+      if ((elapsedMs > timeoutMs && !isActivelyProgressing) || elapsedMs > 90 * 60 * 1000) {
         console.warn(`[InstancePoller] Instance ${id} (${instance.providerInstanceId}) timed out after ${Math.round(elapsedMs / 1000)}s.`);
         if (confirmed && instance.provider === GPU_PROVIDERS.VASTAI) {
           try {
