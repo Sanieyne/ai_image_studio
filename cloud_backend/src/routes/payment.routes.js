@@ -8,6 +8,7 @@ import {
   getPlans,
   handleGumroadWebhook,
   verifyLicenseKey,
+  syncCredits,
 } from '../controllers/payment.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 
@@ -21,5 +22,8 @@ router.post('/gumroad-webhook', handleGumroadWebhook);
 
 // Authenticated: user verifies their Gumroad license key
 router.post('/verify-license', protect, verifyLicenseKey);
+
+// Authenticated: user syncs/claims credits from Gumroad purchase
+router.post('/sync-credits', protect, syncCredits);
 
 export default router;

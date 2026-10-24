@@ -7,6 +7,7 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Transaction } from '../models/Transaction.js';
+import { PendingCreditPurchase } from '../models/PendingCreditPurchase.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PLANS, SUBSCRIPTION_TIERS, SUBSCRIPTION_STATUS, resolveTier } from '../config/subscriptions.js';
@@ -83,13 +84,34 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
     user = await User.findOne({ gumroadLicenseKey: licenseKey });
   }
 
+  const isCreditTopUp = permalink.includes('credit') || productName.toLowerCase().includes('credit');
+
   if (!user) {
-    // If user is not yet found, log and return 200 so Gumroad does not keep retrying unnecessarily.
-    // The user can still claim via license key in the app later.
-    console.warn(`[Gumroad Webhook] No matching user found for email="${email}", userId="${customUserId}", license="${licenseKey}"`);
+    if (isCreditTopUp) {
+      const creditsToDeposit = priceCents > 0 ? priceCents : 500;
+      const saleId = body.sale_id || body.id || String(body.order_number || body.order_id || Date.now());
+      await PendingCreditPurchase.findOneAndUpdate(
+        { saleId },
+        {
+          email,
+          saleId,
+          orderId: String(body.order_number || body.order_id || ''),
+          credits: creditsToDeposit,
+          priceCents,
+          productName,
+          permalink,
+          isClaimed: false,
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+      console.warn(`[Gumroad Webhook] Stored pending credit top-up (+${creditsToDeposit} credits) for unmapped email="${email}", order="${body.order_number || body.order_id}". User can claim via sync.`);
+    } else {
+      console.warn(`[Gumroad Webhook] No matching user found for email="${email}", userId="${customUserId}", license="${licenseKey}"`);
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'Webhook received but user could not be mapped yet. User can activate via license key.',
+      message: 'Webhook received. Stored for user mapping.',
     });
   }
 
@@ -111,8 +133,6 @@ export const handleGumroadWebhook = asyncHandler(async (req, res) => {
   }
 
   // Distinguish between Software License purchase and Credit Top-Up purchase
-  const isCreditTopUp = permalink.includes('credit') || productName.toLowerCase().includes('credit');
-
   if (isCreditTopUp) {
     // 1 USD (100 cents) = 100 credits -> 1 cent = 1 credit
     const creditsToDeposit = priceCents > 0 ? priceCents : 500;
@@ -313,6 +333,146 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
       subscriptionStatus: user.subscriptionStatus,
       credits: user.credits,
       plan: planInfo,
+    },
+  });
+});
+
+/**
+ * Sync / Claim Gumroad Credit Top-Up
+ * POST /api/v1/payments/sync-credits
+ * Authenticated
+ */
+export const syncCredits = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) throw ApiError.notFound('User not found');
+
+  const { gumroadEmail, orderId } = req.body || {};
+  const searchEmails = Array.from(new Set([
+    user.email?.toLowerCase().trim(),
+    user.gumroadPurchaserEmail?.toLowerCase().trim(),
+    gumroadEmail ? String(gumroadEmail).toLowerCase().trim() : null,
+  ].filter(Boolean)));
+
+  let totalCredited = 0;
+  const claimedSales = [];
+
+  // 1. Check PendingCreditPurchase collection
+  const pendingQuery = {
+    isClaimed: false,
+    $or: [
+      { email: { $in: searchEmails } },
+      ...(orderId ? [{ orderId: String(orderId).trim() }] : []),
+    ],
+  };
+
+  const pendingList = await PendingCreditPurchase.find(pendingQuery);
+  for (const pending of pendingList) {
+    const existingTx = await Transaction.findOne({
+      $or: [
+        { 'metadata.saleId': pending.saleId },
+        { 'metadata.orderId': pending.orderId },
+      ],
+    });
+
+    if (!existingTx) {
+      user.credits = (user.credits || 0) + pending.credits;
+      user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + pending.credits;
+      if (pending.email) user.gumroadPurchaserEmail = pending.email;
+
+      await Transaction.create({
+        user: user._id,
+        type: TRANSACTION_TYPES.PURCHASE,
+        amount: pending.credits,
+        balanceAfter: user.credits,
+        description: `Cloud Credits Claimed: +${pending.credits} credits [Order #${pending.orderId || pending.saleId}]`,
+        metadata: {
+          saleId: pending.saleId,
+          orderId: pending.orderId,
+          priceCents: pending.priceCents,
+          email: pending.email,
+        },
+      });
+
+      totalCredited += pending.credits;
+      claimedSales.push(pending.saleId);
+    }
+    pending.isClaimed = true;
+    pending.claimedBy = user._id;
+    pending.claimedAt = new Date();
+    await pending.save();
+  }
+
+  // 2. Query Gumroad API directly using our seller access token
+  const gumroadToken = process.env.GUMROAD_ACCESS_TOKEN;
+  if (gumroadToken && searchEmails.length > 0) {
+    for (const emailToSearch of searchEmails) {
+      try {
+        const gumroadRes = await axios.get('https://api.gumroad.com/v2/sales', {
+          params: { email: emailToSearch },
+          headers: { Authorization: `Bearer ${gumroadToken}` },
+          timeout: 10000,
+        });
+
+        const sales = gumroadRes.data?.sales || [];
+        for (const sale of sales) {
+          if (sale.refunded || sale.chargedback) continue;
+          const permalink = sale.product_permalink || '';
+          const pName = (sale.product_name || '').toLowerCase();
+          const isCredit = permalink.includes('credit') || pName.includes('credit');
+          if (!isCredit) continue;
+
+          // Check if already credited in transactions
+          const alreadyCredited = await Transaction.findOne({
+            $or: [
+              { 'metadata.saleId': sale.id },
+              { 'metadata.orderId': String(sale.order_id) },
+              { 'metadata.orderId': sale.order_id },
+            ],
+          });
+          if (alreadyCredited) continue;
+
+          const priceCents = parseInt(sale.price || '0', 10);
+          const creditsToDeposit = priceCents > 0 ? priceCents : 500;
+
+          user.credits = (user.credits || 0) + creditsToDeposit;
+          user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + creditsToDeposit;
+          user.gumroadPurchaserEmail = emailToSearch;
+
+          await Transaction.create({
+            user: user._id,
+            type: TRANSACTION_TYPES.PURCHASE,
+            amount: creditsToDeposit,
+            balanceAfter: user.credits,
+            description: `Cloud Credits Auto-Synced: +${creditsToDeposit} credits ($${(priceCents / 100).toFixed(2)}) [Order #${sale.order_id}]`,
+            metadata: {
+              saleId: sale.id,
+              orderId: sale.order_id,
+              priceCents,
+              email: emailToSearch,
+            },
+          });
+
+          totalCredited += creditsToDeposit;
+          claimedSales.push(sale.id);
+        }
+      } catch (err) {
+        console.warn(`[Gumroad Sync] Error querying Gumroad API for ${emailToSearch}:`, err.message);
+      }
+    }
+  }
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: totalCredited > 0
+      ? `Successfully synced +${totalCredited} Cloud Credits!`
+      : 'Your credit balance is already up to date.',
+    data: {
+      credits: user.credits,
+      addedCredits: totalCredited,
+      claimedSalesCount: claimedSales.length,
+      linkedGumroadEmail: user.gumroadPurchaserEmail,
     },
   });
 });
