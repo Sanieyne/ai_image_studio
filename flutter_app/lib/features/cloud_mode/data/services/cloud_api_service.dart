@@ -418,7 +418,7 @@ class CloudApiService {
       displayName: 'Qwen-Image 2.1',
       mode: 'image',
       hfRepoId: 'Qwen/Qwen-Image-2.1',
-      sizeGB: 15.0,
+      sizeGB: 33.0,
       requiredVramGB: 16,
     ),
     CloudModel(
@@ -458,7 +458,7 @@ class CloudApiService {
       displayName: 'MiniMax-H3 Video+Audio',
       mode: 'motion',
       hfRepoId: 'MiniMaxAI/MiniMax-H3',
-      sizeGB: 33.0,
+      sizeGB: 144.0,
       requiredVramGB: 32,
     ),
     CloudModel(

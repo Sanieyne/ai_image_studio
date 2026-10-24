@@ -261,7 +261,7 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     {
       'id': 'MiniMax-H3 Video+Audio',
       'name': 'MiniMax-H3 Video+Audio',
-      'tag': 'Omni 33B',
+      'tag': 'Omni 33B (144GB)',
       'desc': 'Joint multimodal diffusion generating synchronized soundscapes & video',
       'resolution': '720p + Audio',
       'speed': 'Full Production',

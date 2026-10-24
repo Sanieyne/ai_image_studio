@@ -293,11 +293,11 @@ class PromptInputBarState extends State<PromptInputBar> {
     _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
     _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
     _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
-    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B params)', Icons.movie_filter_rounded),
   ];
   static const _motionAnimateModels = [
     _MenuOption('Wan 2.2 Animate 14B', 'Character Animation (14B)', Icons.animation),
-    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B)', Icons.movie_filter_rounded),
+    _MenuOption('MiniMax-H3 Video+Audio', 'Omni Video+Audio (33B params)', Icons.movie_filter_rounded),
     _MenuOption('Wan 2.1 T2V 1.3B', 'Fast Text-to-Video (1.3B)', Icons.videocam_rounded),
     _MenuOption('Wan 2.1 I2V 14B', 'Image-to-Video (14B)', Icons.movie_creation_rounded),
     _MenuOption('Wan 2.1 FLF2V 14B', 'First & Last Frame (14B)', Icons.auto_awesome_motion_rounded),
