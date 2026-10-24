@@ -84,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ProjectItem? _activeProject;
   List<GenerationItem> _messages = [];
   final ScrollController _scrollController = ScrollController();
+  int _healthTicks = 0;
 
   @override
   void initState() {
@@ -103,6 +104,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     if (cloudOk != _cloudOnline) {
       setState(() => _cloudOnline = cloudOk);
+    }
+
+    _healthTicks++;
+    if (_healthTicks % 3 == 0 && cloudOk && AuthService.instance.isAuthenticated) {
+      unawaited(AuthService.instance.refreshProfile());
     }
 
     if (ok) {
@@ -201,6 +207,8 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (_) {}
+
+    unawaited(AuthService.instance.refreshProfile());
 
     var projects = await _db.getAllProjects();
     if (projects.isEmpty) {

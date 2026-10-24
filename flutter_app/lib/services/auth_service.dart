@@ -307,7 +307,7 @@ class AuthService extends ChangeNotifier {
       return true;
     }
     try {
-      await getCurrentUser();
+      await getCurrentUser(forceRefresh: true);
     } catch (_) {
       // Profile load is best-effort here; tokens are valid regardless.
     }
@@ -420,8 +420,9 @@ class AuthService extends ChangeNotifier {
           return false;
         }
         await _persistTokens(access: newAccess, refresh: newRefresh);
-        // NOTE: refresh responses carry no `user` object; the in-memory
-        // profile from login/register is intentionally preserved.
+        if (data?['user'] is Map<String, dynamic>) {
+          _user = CloudUserProfile.fromJson(data!['user'] as Map<String, dynamic>);
+        }
         _setStatus(AuthStatus.authenticated);
         return true;
       } catch (e) {

@@ -288,7 +288,7 @@ class AuthService {
           },
           { returnDocument: 'after' }
         );
-        if (rotated) return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+        if (rotated) return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, user };
         continue; // someone rotated first; re-read
       }
 
@@ -296,7 +296,7 @@ class AuthService {
         // Parallel request with the token just rotated: same generation as the winner.
         await Session.updateOne({ _id: session._id }, { $set: { lastUsedAt: now } });
         const tokens = this._issueTokens(user, session._id, session.generation);
-        return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+        return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, user };
       }
 
       // An old token was replayed: end this session only.
@@ -329,7 +329,7 @@ class AuthService {
         if (!session || session.revokedAt || session.expiresAt <= now) throw sessionEnded();
         if (graceEnds >= now) {
           const tokens = this._issueTokens(user, session._id, session.generation);
-          return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+          return { accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, user };
         }
         await Session.updateOne(
           { _id: session._id, revokedAt: null },
@@ -353,7 +353,7 @@ class AuthService {
         { _id: user._id, refreshTokenHash: doc.refreshTokenHash },
         { $set: { refreshTokenHash: null, legacySession: { sessionId: session._id, tokenSha256, at: now } } }
       );
-      if (claimed.modifiedCount === 1) return { accessToken, refreshToken: newRefresh };
+      if (claimed.modifiedCount === 1) return { accessToken, refreshToken: newRefresh, user };
       await Session.deleteOne({ _id: session._id });
     }
     throw ApiError.conflict('Session is being refreshed. Please retry.');
