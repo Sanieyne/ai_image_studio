@@ -121,6 +121,21 @@ class GpuProviderService {
       };
     });
 
+    // Bandwidth cost tier classification:
+    // Tier 0: Free ($0/TB)
+    // Tier 1: Low (<= ~$2.50/TB)
+    // Tier 2: Medium (<= ~$4.50/TB)
+    // Tier 3: Moderate (<= ~$8.00/TB)
+    // Tier 4: Expensive (> $8.00/TB, e.g. $13/TB, $26/TB)
+    const getBandwidthTier = (o) => {
+      const creditsPerGB = o.bandwidthDownCreditsPerGB ?? o.bandwidthCreditsPerGB ?? 0;
+      if (creditsPerGB <= 0.01) return 0;
+      if (creditsPerGB <= 0.35) return 1;
+      if (creditsPerGB <= 0.60) return 2;
+      if (creditsPerGB <= 1.05) return 3;
+      return 4;
+    };
+
     // 5. Sorting
     enrichedOffers.sort((a, b) => {
       if (orderBy === 'dlperf') {
@@ -129,7 +144,11 @@ class GpuProviderService {
       if (orderBy === 'reliability') {
         return b.reliability - a.reliability;
       }
-      // Offers without a price go last.
+      // Prioritize lower bandwidth cost tiers first (Free -> $2 -> $4 -> others)
+      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
+      if (tierDiff !== 0) return tierDiff;
+
+      // Within the same bandwidth tier, sort by total hourly price
       return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     });
 
@@ -177,20 +196,35 @@ class GpuProviderService {
       };
     }
 
-    // 1. Cheapest offer
-    const byTotal = (a, b) => (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
-    const cheapestOffer = [...offers].sort(byTotal)[0];
+    const getBandwidthTier = (o) => {
+      const creditsPerGB = o.bandwidthDownCreditsPerGB ?? o.bandwidthCreditsPerGB ?? 0;
+      if (creditsPerGB <= 0.01) return 0;
+      if (creditsPerGB <= 0.35) return 1;
+      if (creditsPerGB <= 0.60) return 2;
+      if (creditsPerGB <= 1.05) return 3;
+      return 4;
+    };
+
+    // 1. Cheapest offer (prioritizing lowest bandwidth tier first, then lowest hourly credits)
+    const byTierAndTotal = (a, b) => {
+      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
+      if (tierDiff !== 0) return tierDiff;
+      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+    };
+    const cheapestOffer = [...offers].sort(byTierAndTotal)[0];
 
     // 2. Fastest offer by dlperf compute score
     const fastestOffer = [...offers].sort((a, b) => b.dlperf - a.dlperf)[0];
 
-    // 3. Most reliable offer (reliability >= 0.98 priority)
+    // 3. Most reliable offer (reliability >= 0.98 priority, low bandwidth preferred)
     const mostReliableOffer = [...offers]
       .filter((o) => o.reliability >= 0.95)
-      .sort((a, b) => b.reliability - a.reliability || byTotal(a, b))[0] || offers[0];
+      .sort((a, b) => b.reliability - a.reliability || byTierAndTotal(a, b))[0] || offers[0];
 
-    // 4. Balanced offer (Optimal fit, competitive price, high speed)
+    // 4. Balanced offer (Optimal fit, competitive price, high speed, reasonable bandwidth)
     const balancedOffer =
+      offers.find((o) => getBandwidthTier(o) <= 2 && o.fit === 'optimal' && o.reliability >= 0.98) ||
+      offers.find((o) => getBandwidthTier(o) <= 2 && o.fit === 'tight') ||
       offers.find((o) => o.fit === 'optimal' && o.reliability >= 0.98) ||
       offers.find((o) => o.fit === 'tight') ||
       offers[0];
