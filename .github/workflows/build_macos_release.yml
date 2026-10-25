@@ -53,6 +53,8 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip install -r python_engine/requirements.txt
+          # chatterbox-tts pins torch 2.6 / diffusers 0.29; its imports work with the versions above
+          pip install --no-deps chatterbox-tts==0.1.7
           # setuptools 81+ breaks pkg_resources, which crashes PyInstaller's pyi_rth_pkgres
           # runtime hook at launch ("module 'pkg_resources' has no attribute 'NullProvider'").
           # Same PyInstaller as the Windows build.
