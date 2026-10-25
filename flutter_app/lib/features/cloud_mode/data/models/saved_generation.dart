@@ -147,6 +147,7 @@ class CloudUserProfile {
   final String subscriptionTier;
   final String subscriptionStatus;
   final String? gumroadLicenseKey;
+  final int? activeGpuInstances;
 
   const CloudUserProfile({
     required this.id,
@@ -164,6 +165,7 @@ class CloudUserProfile {
     this.subscriptionTier = 'free',
     this.subscriptionStatus = 'none',
     this.gumroadLicenseKey,
+    this.activeGpuInstances,
   });
 
   bool get isStarter => (subscriptionTier.toLowerCase() == 'starter' || subscriptionPlan.toLowerCase() == 'starter') && isSubscribed;
@@ -224,6 +226,7 @@ class CloudUserProfile {
       subscriptionTier: tier,
       subscriptionStatus: rawStatus.isNotEmpty ? rawStatus : (isSub ? 'active' : 'none'),
       gumroadLicenseKey: json['gumroadLicenseKey'] as String?,
+      activeGpuInstances: (json['activeGpuInstances'] as num?)?.toInt(),
     );
   }
 }
