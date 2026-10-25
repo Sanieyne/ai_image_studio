@@ -55,8 +55,6 @@ jobs:
           # Same torch as the Windows build (torchvision for transformers' image processors)
           pip install torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0
           pip install -r python_engine/requirements.txt
-          # Face analysis for the camera service (imported lazily, so --self-test does not see it)
-          pip install "onnxruntime>=1.19.0" "insightface>=0.7.3"
           # chatterbox-tts pins torch 2.6 / diffusers 0.29; its imports work with the versions above
           pip install --no-deps chatterbox-tts==0.1.7
           # setuptools 81+ breaks pkg_resources, which crashes PyInstaller's pyi_rth_pkgres
@@ -74,7 +72,7 @@ jobs:
         run: |
           ./dist/engine/engine --self-test
           # Lazily imported packages the self-test does not import
-          for m in insightface onnxruntime torchvision; do
+          for m in torchvision; do
             find dist/engine/_internal -maxdepth 1 -name "$m*" | grep -q . || { echo "::error::$m missing from frozen engine"; exit 1; }
           done
 
