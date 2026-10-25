@@ -53,12 +53,20 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip install -r python_engine/requirements.txt
-          pip install pyinstaller cryptography
+          # setuptools 81+ breaks pkg_resources, which crashes PyInstaller's pyi_rth_pkgres
+          # runtime hook at launch ("module 'pkg_resources' has no attribute 'NullProvider'").
+          # Same PyInstaller as the Windows build.
+          pip install "setuptools<81" pyinstaller==6.22.3 cryptography
 
       - name: Freeze Python Engine with PyInstaller
         working-directory: ./python_engine
         run: |
           pyinstaller --noconfirm --clean engine.spec
+
+      - name: Self-test frozen engine
+        working-directory: ./python_engine
+        run: |
+          ./dist/engine/engine --self-test
 
       - name: Build Flutter macOS Desktop
         working-directory: ./flutter_app
@@ -99,6 +107,9 @@ jobs:
 
           echo "Verifying signature..."
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          # The engine must still start under the hardened runtime after signing
+          "$APP_PATH/Contents/Resources/engine/engine" --self-test
 
       - name: Notarize & Staple (Apple notary service)
         env:
