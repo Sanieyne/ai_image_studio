@@ -159,8 +159,11 @@ jobs:
 
           Get-ChildItem dist\installer | Format-Table Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
 
-          # Store only: the .bin parts are already LZMA-compressed
-          Compress-Archive -Path dist\installer\* -DestinationPath dist\AI_Image_Studio_Windows_Setup.zip -CompressionLevel NoCompression
+          # Store only: the .bin parts are already LZMA-compressed.
+          # Use 7z instead of Compress-Archive because Compress-Archive fails with
+          # "Stream was too long" on single files > 2 GB (AI_Image_Studio_Setup-1.bin is ~2.8 GB).
+          7z a -tzip -mx=0 dist\AI_Image_Studio_Windows_Setup.zip .\dist\installer\*
+          if ($LASTEXITCODE -ne 0) { throw "7z archive creation failed (exit $LASTEXITCODE)" }
           $zipSizeMB = [math]::Round((Get-Item dist\AI_Image_Studio_Windows_Setup.zip).Length / 1MB, 1)
           Write-Host "Installer zip size: $zipSizeMB MB"
 
