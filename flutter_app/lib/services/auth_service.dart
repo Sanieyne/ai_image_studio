@@ -584,8 +584,9 @@ class AuthService extends ChangeNotifier {
 
   /// Syncs credits from Gumroad (claims pending top-ups or pulls via Seller API)
   Future<Map<String, dynamic>?> syncGumroadCredits({String? gumroadEmail, String? orderId}) async {
-    final token = await getValidAccessToken();
-    if (token == null) return null;
+    await init();
+    final token = _accessToken;
+    if (token == null || token.isEmpty) return null;
 
     try {
       final res = await _http.post(
