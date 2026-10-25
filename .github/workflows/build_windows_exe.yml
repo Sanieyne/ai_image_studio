@@ -14,7 +14,7 @@ jobs:
   build-windows:
     name: Build Flutter + Python GPU Windows Bundle
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
@@ -123,31 +123,46 @@ jobs:
             -CertStoreLocation "Cert:\CurrentUser\My" `
             -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3")
 
-          # Export public cert to dist folder for 1-click customer trust
-          $certPath = "dist\AI_Image_Studio\CosmicGen_Publisher.cer"
-          Export-Certificate -Cert $cert -FilePath $certPath
-
           # Sign all executable binaries with Timestamping (SHA256)
           Write-Host "Digitally signing application executables and engine..."
           Set-AuthenticodeSignature -FilePath "dist\AI_Image_Studio\ai_image_studio.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
           Set-AuthenticodeSignature -FilePath "dist\AI_Image_Studio\engine\engine.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
-
-          # Create 1-Click Trusted Launcher / Installer
-          $installerScript = "@echo off`r`ntitle Installing Cosmic-Gen AI Studio Certificate...`r`necho ========================================================`r`necho   Cosmic-Gen AI Studio - Trusted Publisher Setup`r`necho ========================================================`r`necho.`r`necho Installing trusted publisher certificate to prevent Windows SmartScreen warnings...`r`ncertutil -addstore -f `"Root`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`ncertutil -addstore -f `"TrustedPublisher`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`necho.`r`necho [OK] Verified Publisher installed successfully!`r`necho Starting Cosmic-Gen AI Studio...`r`nstart `"`" `"%~dp0ai_image_studio.exe`"`r`nexit`r`n"
-          [System.IO.File]::WriteAllText("dist\AI_Image_Studio\1-Click_Launch.bat", $installerScript)
 
           # Show bundle size summary
           $size = (Get-ChildItem -Recurse dist\AI_Image_Studio | Measure-Object -Property Length -Sum).Sum
           $sizeMB = [math]::Round($size / 1MB, 1)
           Write-Host "Bundle size: $sizeMB MB"
 
-          # Create zip archive
-          Compress-Archive -Path dist\AI_Image_Studio\* -DestinationPath dist\AI_Image_Studio_Windows_x64_GPU.zip
+          # Keep the cert for signing the installer in the next step
+          "CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          # Show zip size
-          $zipSize = (Get-Item dist\AI_Image_Studio_Windows_x64_GPU.zip).Length
-          $zipSizeMB = [math]::Round($zipSize / 1MB, 1)
-          Write-Host "Zip size: $zipSizeMB MB"
+      # One installer instead of a folder of ~10k files: Start menu + desktop
+      # shortcut, uninstaller in Settings > Apps. Split into Setup.exe + .bin
+      # parts (the bundle is bigger than one .exe can hold), shipped as one zip.
+      - name: Build Windows Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup install failed" }
+          }
+
+          $version = ((Select-String -Path flutter_app\pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value)
+          Write-Host "Installer version: $version"
+          & $iscc "/DAppVersion=$version" "/DSourceDir=$PWD\dist\AI_Image_Studio" installer\windows\ai_image_studio.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed (exit $LASTEXITCODE)" }
+
+          $cert = Get-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT"
+          Set-AuthenticodeSignature -FilePath dist\installer\AI_Image_Studio_Setup.exe -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
+
+          Get-ChildItem dist\installer | Format-Table Name, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+          # Store only: the .bin parts are already LZMA-compressed
+          Compress-Archive -Path dist\installer\* -DestinationPath dist\AI_Image_Studio_Windows_Setup.zip -CompressionLevel NoCompression
+          $zipSizeMB = [math]::Round((Get-Item dist\AI_Image_Studio_Windows_Setup.zip).Length / 1MB, 1)
+          Write-Host "Installer zip size: $zipSizeMB MB"
 
       # Artifact handoff: deploy job downloads this (lets deploy retry
       # in minutes via re-run instead of another full 20-min rebuild).
@@ -155,7 +170,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gpu-zip
-          path: dist/AI_Image_Studio_Windows_x64_GPU.zip
+          path: dist/AI_Image_Studio_Windows_Setup.zip
           retention-days: 3
 
   deploy:
@@ -208,10 +223,10 @@ jobs:
           $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
           $sshOpts = @('-i', $keyPath, '-o', "UserKnownHostsFile=$knownHostsPath", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=30')
 
-          & $scp @sshOpts 'dist\AI_Image_Studio_Windows_x64_GPU.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
+          & $scp @sshOpts 'dist\AI_Image_Studio_Windows_Setup.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
           if ($LASTEXITCODE -ne 0) { throw "scp upload failed (exit $LASTEXITCODE)" }
 
-          & $ssh @sshOpts "root@$($env:CONTABO_IP)" 'cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ls -lah && echo Deploy complete: $(date)'
+          & $ssh @sshOpts "root@$($env:CONTABO_IP)" 'cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_Setup.zip latest_release.zip && ls -lah && echo Deploy complete: $(date)'
           if ($LASTEXITCODE -ne 0) { throw "remote symlink update failed (exit $LASTEXITCODE)" }
 
       # -------------------------------------------------------------
