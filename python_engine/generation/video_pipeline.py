@@ -292,7 +292,15 @@ def get_wan_engine() -> WanAnimateEngine:
     return _wan_engine
 
 
-MINIMAX_REPO = os.environ.get("MINIMAX_MODEL_PATH", "MiniMaxAI/MiniMax-H3")
+MINIMAX_REPO = os.environ.get("MINIMAX_MODEL_PATH")
+if not MINIMAX_REPO:
+    if os.path.exists("/workspace/models/minimax-h3"):
+        MINIMAX_REPO = "/workspace/models/minimax-h3"
+    elif os.path.exists("/workspace/models/minimax-h3/FL2VA"):
+        MINIMAX_REPO = "/workspace/models/minimax-h3/FL2VA"
+    else:
+        MINIMAX_REPO = "MiniMaxAI/MiniMax-H3"
+
 MINIMAX_SGLANG_URL = os.environ.get("SGLANG_DEPLOYMENT_URL", "")
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 

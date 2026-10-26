@@ -83,6 +83,7 @@ apt-get install -y -qq --no-install-recommends libgl1 libglib2.0-0 libsm6 libxex
 python3 -m pip install --no-cache-dir -r requirements-cloud.lock -c constraints-cloud.txt \
     --extra-index-url https://download.pytorch.org/whl/cu128 > /var/log/pip_engine.log 2>&1 \
   || fail "Installing engine packages failed: $(last_lines /var/log/pip_engine.log 8)"
+python3 -m pip install --no-cache-dir torchao >> /var/log/pip_engine.log 2>&1 || true
 python3 -m pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7 >> /var/log/pip_engine.log 2>&1 \
   || fail "Installing the voice package failed: $(last_lines /var/log/pip_engine.log)"
 python3 -m pip install --no-cache-dir opencv-python-headless "onnxruntime-gpu<1.21" scikit-image >> /var/log/pip_engine.log 2>&1 \

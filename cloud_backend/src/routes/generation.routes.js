@@ -13,11 +13,15 @@ import {
   deleteGeneration,
   publishGeneration,
   unpublishGeneration,
+  autoSyncGeneration,
 } from '../controllers/generation.controller.js';
 
 const router = Router();
 
-// All generation routes require authentication
+// Auto-sync endpoint can be called by GPU engines or background client sync
+router.post('/auto-sync', autoSyncGeneration);
+
+// All other generation routes require authentication
 router.use(protect);
 
 router.post('/', validate(createGenerationSchema), saveGeneration);

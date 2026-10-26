@@ -461,6 +461,7 @@ class GpuProviderService {
           AI_STUDIO_USER_ID: String(userId),
           AI_STUDIO_INSTANCE_ID: String(instance._id),
           AI_STUDIO_SELECTED_MODELS: selectedModelIds.join(','),
+          AI_STUDIO_BACKEND_URL: 'https://cosmic-gen.com/ai-api/api/v1',
           R2_ENDPOINT: env.R2_ENDPOINT,
           R2_BUCKET_NAME: env.R2_BUCKET_NAME,
           R2_ACCESS_KEY_ID: env.R2_READONLY_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,

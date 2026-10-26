@@ -30,6 +30,17 @@ class _GenerationBubbleState extends State<GenerationBubble> {
   Process? _activeAudioProcess;
 
   @override
+  void initState() {
+    super.initState();
+    // Auto-sync generation to cloud library if in cloud mode and not yet saved
+    if (widget.item.isCloud && !widget.item.isSaved && !widget.item.isLoading) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _handleSaveToCloud(context, silent: true);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     try {
       _activeAudioProcess?.kill();
@@ -37,24 +48,28 @@ class _GenerationBubbleState extends State<GenerationBubble> {
     super.dispose();
   }
 
-  Future<bool> _handleSaveToCloud(BuildContext context) async {
+  Future<bool> _handleSaveToCloud(BuildContext context, {bool silent = false}) async {
     if (!widget.item.isCloud) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Save is only available for Cloud Mode generations. Switch to Cloud Mode to save and share.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Save is only available for Cloud Mode generations. Switch to Cloud Mode to save and share.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return false;
     }
 
     if (widget.item.isSaved) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('This creation is already saved in your library ✓'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This creation is already saved in your library ✓'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return true;
     }
 
@@ -66,13 +81,15 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       await cloudApi.initAuth();
       if (!cloudApi.isAuthenticated) {
         if (!context.mounted) return false;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please sign in to Cloud Mode to save generations.'),
-            backgroundColor: Colors.amber,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please sign in to Cloud Mode to save generations.'),
+              backgroundColor: Colors.amber,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
         return false;
       }
 
@@ -149,31 +166,33 @@ class _GenerationBubbleState extends State<GenerationBubble> {
       if (!context.mounted) return false;
 
       if (res.isQuotaExceeded) {
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: isDark ? LuminaColors.darkCard : Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            title: const Row(
-              children: [
-                Icon(Icons.disc_full_rounded, color: Colors.orangeAccent),
-                SizedBox(width: 8),
-                Text('Storage Full', style: TextStyle(fontSize: 16)),
+        if (!silent) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: isDark ? LuminaColors.darkCard : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.disc_full_rounded, color: Colors.orangeAccent),
+                  SizedBox(width: 8),
+                  Text('Storage Full', style: TextStyle(fontSize: 16)),
+                ],
+              ),
+              content: Text(
+                res.quotaMessage ?? 'Storage full — free up space or delete old saves',
+                style: const TextStyle(fontSize: 13),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Dismiss'),
+                ),
               ],
             ),
-            content: Text(
-              res.quotaMessage ?? 'Storage full — free up space or delete old saves',
-              style: const TextStyle(fontSize: 13),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Dismiss'),
-              ),
-            ],
-          ),
-        );
+          );
+        }
         return false;
       }
 
@@ -187,32 +206,36 @@ class _GenerationBubbleState extends State<GenerationBubble> {
           }
         });
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
-                SizedBox(width: 8),
-                Text('Saved to your library'),
-              ],
+        if (!silent) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+                  SizedBox(width: 8),
+                  Text('Saved to your library'),
+                ],
+              ),
+              duration: Duration(seconds: 3),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: Color(0xFF1E293B),
             ),
-            duration: Duration(seconds: 3),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: Color(0xFF1E293B),
-          ),
-        );
+          );
+        }
         return true;
       } else {
-        final failureMessage = res.message;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(failureMessage != null && failureMessage.isNotEmpty
-                ? failureMessage
-                : 'Failed to save generation.'),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        if (!silent) {
+          final failureMessage = res.message;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(failureMessage != null && failureMessage.isNotEmpty
+                  ? failureMessage
+                  : 'Failed to save generation.'),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
         return false;
       }
     } catch (e) {

@@ -413,3 +413,63 @@ export const unpublishGeneration = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Automatically persists any generation from either Python Engine or Flutter client.
+ * POST /api/v1/generations/auto-sync
+ */
+export const autoSyncGeneration = asyncHandler(async (req, res) => {
+  const {
+    userId,
+    mediaBase64,
+    mediaType = 'image',
+    extension = 'png',
+    prompt = 'Untitled generation',
+    negativePrompt = '',
+    modelId = 'unknown',
+    settings = {},
+  } = req.body;
+
+  let targetUserId = req.user?._id || userId;
+  if (!targetUserId) {
+    const admin = await User.findOne({ role: 'admin' });
+    targetUserId = admin?._id;
+  }
+
+  if (!targetUserId) {
+    throw ApiError.badRequest('userId is required for auto-sync');
+  }
+
+  const { buffer, detectedExt } = parseBase64Media(mediaBase64, extension);
+  if (!buffer || buffer.length === 0) {
+    throw ApiError.badRequest('Invalid or empty media data provided');
+  }
+
+  const fileSizeBytes = buffer.length;
+
+  const uploadResult = await storageService.uploadMedia(buffer, {
+    userId: targetUserId,
+    mediaType,
+    extension: detectedExt || extension,
+  });
+
+  const generation = await Generation.create({
+    userId: targetUserId,
+    mediaType,
+    storageKey: uploadResult.storageKey,
+    prompt: prompt || 'AI Studio Creation',
+    negativePrompt: negativePrompt || '',
+    modelId: modelId || 'ai-model',
+    settings: settings || {},
+    fileSizeBytes,
+    isPublic: false,
+    moderationStatus: MODERATION_STATUS.APPROVED,
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Generation auto-synced successfully',
+    data: generation,
+  });
+});
+
+

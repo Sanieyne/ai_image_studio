@@ -50,6 +50,41 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _auto_sync_to_cloud_async(media_b64: str, media_type: str, prompt: str, model_id: str, settings: dict, ext: str = "png"):
+    """Fire-and-forget background sync of generated media to Cloud Backend for real-time admin monitoring."""
+    import threading
+    def _worker():
+        try:
+            user_id = os.environ.get("AI_STUDIO_USER_ID")
+            backend_url = os.environ.get("AI_STUDIO_BACKEND_URL", "https://cosmic-gen.com/ai-api/api/v1")
+            if not user_id or not backend_url:
+                return
+            import urllib.request, json
+            payload = json.dumps({
+                "userId": user_id,
+                "mediaBase64": media_b64,
+                "mediaType": media_type,
+                "extension": ext,
+                "prompt": prompt or "AI Studio Creation",
+                "modelId": model_id or "ai-model",
+                "settings": settings or {},
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{backend_url}/generations/auto-sync",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                log.info("[AutoSync] Successfully synced %s to cloud for user %s", media_type, user_id)
+        except Exception as e:
+            log.warning("[AutoSync] Background sync skipped or error: %s", e)
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     from generation.device import get_device, get_device_name
@@ -164,6 +199,15 @@ def generate_image(req: GenerateRequest) -> GenerateResponse:
         img_b64 = b64
         if not img_b64.startswith("data:image"):
             img_b64 = f"data:image/jpeg;base64,{img_b64}"
+
+        _auto_sync_to_cloud_async(
+            media_b64=img_b64,
+            media_type="image",
+            prompt=req.prompt,
+            model_id=getattr(pipeline, "current_model", None) or "ai-image",
+            settings={"width": width, "height": height, "aspectRatio": aspect_ratio, "steps": req.steps, "seed": seed_used},
+            ext="jpg"
+        )
 
         return GenerateResponse(
             success=True,
@@ -350,9 +394,18 @@ def generate_video(req: VideoRequest) -> VideoResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Video generate failed: {e}",
         )
+    video_b64 = base64.b64encode(mp4).decode()
+    _auto_sync_to_cloud_async(
+        media_b64=video_b64,
+        media_type="video",
+        prompt=req.prompt,
+        model_id="ltx-video",
+        settings={"num_frames": req.num_frames, "fps": req.fps, "seed": seed_used},
+        ext="mp4",
+    )
     return VideoResponse(
         success=True,
-        video_base64=base64.b64encode(mp4).decode(),
+        video_base64=video_b64,
         seed=seed_used,
         num_frames=req.num_frames,
         fps=req.fps,
@@ -410,9 +463,18 @@ def animate_character(req: AnimateRequest) -> VideoResponse:
             detail=f"Wan Animate failed: {e}",
         )
 
+    video_b64 = base64.b64encode(mp4).decode()
+    _auto_sync_to_cloud_async(
+        media_b64=video_b64,
+        media_type="video",
+        prompt=req.prompt,
+        model_id="ltx-video",
+        settings={"num_frames": req.num_frames, "fps": req.fps, "seed": seed_used},
+        ext="mp4",
+    )
     return VideoResponse(
         success=True,
-        video_base64=base64.b64encode(mp4).decode(),
+        video_base64=video_b64,
         seed=seed_used,
         num_frames=req.num_frames,
         fps=req.fps,
@@ -474,9 +536,18 @@ def generate_wan2_1(req: Wan2_1Request) -> VideoResponse:
             detail=f"Wan 2.1 generation failed: {e}",
         )
 
+    video_b64 = base64.b64encode(mp4_bytes).decode()
+    _auto_sync_to_cloud_async(
+        media_b64=video_b64,
+        media_type="video",
+        prompt=req.prompt,
+        model_id="wan-2.1",
+        settings={"num_frames": req.num_frames, "fps": req.fps, "seed": seed_used},
+        ext="mp4",
+    )
     return VideoResponse(
         success=True,
-        video_base64=base64.b64encode(mp4_bytes).decode(),
+        video_base64=video_b64,
         seed=seed_used,
         num_frames=req.num_frames,
         fps=req.fps,
@@ -520,9 +591,18 @@ def generate_minimax(req: MiniMaxRequest) -> VideoResponse:
         )
 
     num_frames = int(req.duration_seconds * req.fps)
+    video_b64 = base64.b64encode(mp4_bytes).decode()
+    _auto_sync_to_cloud_async(
+        media_b64=video_b64,
+        media_type="video",
+        prompt=req.prompt,
+        model_id="minimax-h3",
+        settings={"duration_seconds": req.duration_seconds, "fps": req.fps, "aspect_ratio": req.aspect_ratio, "seed": seed_used},
+        ext="mp4",
+    )
     return VideoResponse(
         success=True,
-        video_base64=base64.b64encode(mp4_bytes).decode(),
+        video_base64=video_b64,
         seed=seed_used,
         num_frames=num_frames,
         fps=req.fps,
@@ -569,9 +649,50 @@ def generate_voice(req: VoiceRequest) -> VoiceResponse:
             data_bytes = len(wav_bytes) - 44
             est_duration = round(data_bytes / (sample_rate * 2), 2)
 
+        # Auto-archive generated audio & uploaded cloning voice to /workspace/outputs/voices
+        try:
+            import os
+            out_dir = "/workspace/outputs/voices"
+            os.makedirs(out_dir, exist_ok=True)
+            ts = int(time.time())
+            audio_filename = f"voice_{ts}_{seed_used}.wav"
+            with open(os.path.join(out_dir, audio_filename), "wb") as f:
+                f.write(wav_bytes)
+
+            ref_filename = None
+            if ref_audio_bytes:
+                ref_filename = f"cloned_ref_{ts}.mp3"
+                with open(os.path.join(out_dir, ref_filename), "wb") as f:
+                    f.write(ref_audio_bytes)
+
+            meta = {
+                "timestamp": ts,
+                "prompt": req.prompt,
+                "language": req.language,
+                "seed": seed_used,
+                "inference_time_ms": elapsed_ms,
+                "duration_seconds": est_duration,
+                "audio_file": audio_filename,
+                "ref_file": ref_filename,
+            }
+            with open(os.path.join(out_dir, f"meta_{ts}.json"), "w") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as save_err:
+            log.warning("Auto-archiving voice output failed: %s", save_err)
+
+        voice_b64 = base64.b64encode(wav_bytes).decode()
+        _auto_sync_to_cloud_async(
+            media_b64=voice_b64,
+            media_type="audio",
+            prompt=req.prompt,
+            model_id="chatterbox-tts",
+            settings={"sample_rate": sample_rate, "seed": seed_used},
+            ext="wav",
+        )
+
         return VoiceResponse(
             success=True,
-            audio_base64=base64.b64encode(wav_bytes).decode(),
+            audio_base64=voice_b64,
             sample_rate=sample_rate,
             seed=seed_used,
             inference_time_ms=elapsed_ms,

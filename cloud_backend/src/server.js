@@ -92,7 +92,7 @@ const INITIAL_MODELS = [
   {
     modelId: 'minimax-h3',
     displayName: 'MiniMax-H3 Video+Audio',
-    mode: MODEL_MODES.MOTION,
+    mode: MODEL_MODES.VIDEO,
     hfRepoId: 'MiniMaxAI/MiniMax-H3',
     sizeGB: 144,
     requiredVramGB: 32,

@@ -456,7 +456,7 @@ class CloudApiService {
     CloudModel(
       modelId: 'minimax-h3',
       displayName: 'MiniMax-H3 Video+Audio',
-      mode: 'motion',
+      mode: 'video',
       hfRepoId: 'MiniMaxAI/MiniMax-H3',
       sizeGB: 144.0,
       requiredVramGB: 32,

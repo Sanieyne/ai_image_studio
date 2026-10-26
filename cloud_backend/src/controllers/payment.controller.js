@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 import { User } from '../models/User.js';
 import { Transaction } from '../models/Transaction.js';
 import { PendingCreditPurchase } from '../models/PendingCreditPurchase.js';
+import { License } from '../models/License.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { PLANS, SUBSCRIPTION_TIERS, SUBSCRIPTION_STATUS, resolveTier } from '../config/subscriptions.js';
@@ -239,6 +240,83 @@ export const verifyLicenseKey = asyncHandler(async (req, res) => {
   }
 
   const cleanKey = licenseKey.trim();
+  const upperKey = cleanKey.toUpperCase();
+
+  // 0. Check database-managed License collection first (Admin Portal issued keys)
+  const dbLicense = await License.findOne({ code: upperKey });
+  if (dbLicense) {
+    if (!dbLicense.isActive) {
+      throw ApiError.badRequest('This license key has been deactivated.');
+    }
+    if (dbLicense.expiresAt && new Date() > new Date(dbLicense.expiresAt)) {
+      throw ApiError.badRequest('This license key has expired.');
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    const alreadyRedeemedByUser = dbLicense.redeemedBy.some(
+      (entry) => String(entry.user) === String(user._id)
+    );
+
+    if (!alreadyRedeemedByUser && dbLicense.redemptionsCount >= dbLicense.maxRedemptions) {
+      throw ApiError.badRequest('This license key has reached its maximum number of redemptions.');
+    }
+
+    const tier = dbLicense.tier || SUBSCRIPTION_TIERS.PRO;
+    const planInfo = PLANS[tier] || PLANS.pro;
+
+    user.subscriptionTier = tier;
+    user.subscriptionStatus = SUBSCRIPTION_STATUS.ACTIVE;
+    user.gumroadLicenseKey = upperKey;
+    if (dbLicense.expiresAt) {
+      user.subscriptionExpiresAt = dbLicense.expiresAt;
+    }
+
+    if (!alreadyRedeemedByUser) {
+      const bonus = dbLicense.creditsGranted ?? planInfo.monthlyCredits ?? 0;
+      if (bonus > 0) {
+        user.credits = (user.credits || 0) + bonus;
+        user.totalCreditsPurchased = (user.totalCreditsPurchased || 0) + bonus;
+      }
+
+      dbLicense.redemptionsCount += 1;
+      dbLicense.redeemedBy.push({
+        user: user._id,
+        email: user.email,
+        redeemedAt: new Date(),
+      });
+      await dbLicense.save();
+
+      await Transaction.create({
+        user: user._id,
+        type: TRANSACTION_TYPES.BONUS,
+        amount: bonus,
+        balanceAfter: user.credits,
+        description: `VIP/Admin License Activated: ${upperKey} (+${bonus} credits)`,
+        metadata: {
+          tier,
+          licenseKey: upperKey,
+          licenseId: dbLicense._id,
+        },
+      });
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `License key verified! You are now on the ${planInfo.name} plan.`,
+      data: {
+        subscriptionTier: user.subscriptionTier,
+        subscriptionStatus: user.subscriptionStatus,
+        credits: user.credits,
+        plan: planInfo,
+      },
+    });
+  }
 
   // 1. Owner & Developer VIP Master Bypass
   const isMasterKey = cleanKey === 'COSMIC-MASTER-LIFETIME-DEV' ||

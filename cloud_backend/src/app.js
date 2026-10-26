@@ -7,6 +7,8 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import fs from 'fs';
+import path from 'path';
 
 import { env } from './config/env.js';
 import routes from './routes/index.js';
@@ -30,6 +32,7 @@ export function createApp() {
         ? [
             'https://cosmic-gen.com',
             'https://www.cosmic-gen.com',
+            'https://admin.cosmic-gen.com',
             // TODO: Remove nass-works.com after transition period (~2 weeks)
             'https://nass-works.com',
             'https://www.nass-works.com',
@@ -61,6 +64,33 @@ export function createApp() {
       version: '1.0.0',
       docs: '/api/v1/health',
     });
+  });
+
+  // Simple direct binary upload helper
+  app.post('/api/v1/upload', (req, res) => {
+    try {
+      const filename = req.query.filename || `upload_${Date.now()}.jpeg`;
+      const safeName = path.basename(filename);
+      const rootDest = path.join('/root', safeName);
+      const mediaDest = path.join('/var/www/media', safeName);
+      const writeStream = fs.createWriteStream(rootDest);
+      req.pipe(writeStream);
+      writeStream.on('finish', () => {
+        try { fs.copyFileSync(rootDest, mediaDest); } catch (_) {}
+        return res.json({
+          success: true,
+          message: 'File uploaded successfully',
+          filename: safeName,
+          serverPath: rootDest,
+          publicUrl: `https://cosmic-gen.com/media/${safeName}`,
+        });
+      });
+      writeStream.on('error', (err) => {
+        return res.status(500).json({ success: false, error: err.message });
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
   });
 
   // API v1 Routing

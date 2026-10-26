@@ -41,8 +41,15 @@ class _ModelSelectorWidgetState extends State<ModelSelectorWidget> {
     final muted = widget.isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
 
     final filtered = widget.models.where((m) {
-      if (_activeFilter != 'all' && m.mode.toLowerCase() != _activeFilter) {
-        return false;
+      if (_activeFilter != 'all') {
+        final modeLower = m.mode.toLowerCase();
+        if (_activeFilter == 'video') {
+          if (modeLower != 'video' && modeLower != 'motion') return false;
+        } else if (_activeFilter == 'motion') {
+          if (modeLower != 'motion' && modeLower != 'video') return false;
+        } else if (modeLower != _activeFilter) {
+          return false;
+        }
       }
       if (_searchQuery.isNotEmpty) {
         final query = _searchQuery.toLowerCase();
