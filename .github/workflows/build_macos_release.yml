@@ -53,7 +53,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip install -r python_engine/requirements.txt
-          pip install pyinstaller cryptography
+          pip install "setuptools<70.0.0" pyinstaller cryptography
 
       - name: Freeze Python Engine with PyInstaller
         working-directory: ./python_engine
