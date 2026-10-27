@@ -47,8 +47,8 @@ class _LicenseActivationGateState extends State<LicenseActivationGate> {
     final dbStatus = await DatabaseService.instance.getSetting('user_subscription_status');
     final cloudModeUnlocked = await DatabaseService.instance.getSetting('cloud_mode_unlocked');
     
-    // Cloud GPU users (with credits or active GPU rentals) or licensed users enter directly
-    if ((user != null && (user.isSubscribed || user.credits > 0 || (user.activeGpuInstances ?? 0) > 0)) ||
+    // Cloud GPU users (with credits or active subscription) or licensed users enter directly
+    if ((user != null && (user.isSubscribed || user.credits > 0)) ||
         (dbStatus == 'pro' || dbStatus == 'lifetime') ||
         cloudModeUnlocked == 'true') {
       if (mounted) {

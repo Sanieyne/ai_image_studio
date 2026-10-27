@@ -32,8 +32,8 @@ class _GenerationBubbleState extends State<GenerationBubble> {
   @override
   void initState() {
     super.initState();
-    // Auto-sync generation to cloud library if in cloud mode and not yet saved
-    if (widget.item.isCloud && !widget.item.isSaved && !widget.item.isLoading) {
+    // Auto-sync generation to cloud library if in cloud mode and completed
+    if (widget.item.isCloud && !widget.item.isSaved && widget.item.status == GenerationStatus.completed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _handleSaveToCloud(context, silent: true);
       });

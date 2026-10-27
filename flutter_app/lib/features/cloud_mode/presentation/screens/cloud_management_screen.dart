@@ -98,7 +98,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         if (rec != null) {
           _recommendation = rec;
           if (rec.recommendedStorage.sizeGB > _selectedStorageGB) {
-            _selectedStorageGB = rec.recommendedStorage.sizeGB;
+            _selectedStorageGB = rec.recommendedStorage.sizeGB.round();
           }
         }
         if (market != null) {
@@ -134,7 +134,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
         if (rec != null) {
           _recommendation = rec;
           if (rec.recommendedStorage.sizeGB > _selectedStorageGB) {
-            _selectedStorageGB = rec.recommendedStorage.sizeGB;
+            _selectedStorageGB = rec.recommendedStorage.sizeGB.round();
           }
         }
         if (market != null) {

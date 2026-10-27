@@ -582,6 +582,16 @@ class AuthService extends ChangeNotifier {
     return getCurrentUser(forceRefresh: true);
   }
 
+  /// Returns a valid access token, refreshing if necessary.
+  Future<String?> getValidAccessToken() async {
+    if (_accessToken != null && _accessToken!.isNotEmpty) {
+      return _accessToken;
+    }
+    final refreshed = await refreshTokens();
+    if (refreshed) return _accessToken;
+    return null;
+  }
+
   /// Syncs credits from Gumroad (claims pending top-ups or pulls via Seller API)
   Future<Map<String, dynamic>?> syncGumroadCredits({String? gumroadEmail, String? orderId}) async {
     final token = await getValidAccessToken();
