@@ -1,5 +1,5 @@
 name: ai_image_studio
-description: AI Image Studio - Flutter desktop frontend for local SDXL generation.
+description: Cosmic-Gen - Desktop app for AI generation and local workflows.
 publish_to: "none"
 version: 0.4.1+5
 

@@ -100,10 +100,13 @@ jobs:
           APP_DIR=$(dirname "$APP_PATH")
           APP_NAME=$(basename "$APP_PATH")
           cd "$APP_DIR"
-          zip -r -y "$GITHUB_WORKSPACE/dist/AI_Image_Studio_macOS_AppleSilicon.zip" "$APP_NAME"
+          zip -r -y "$GITHUB_WORKSPACE/dist/Cosmic-Gen_macOS_AppleSilicon.zip" "$APP_NAME"
+          cp "$GITHUB_WORKSPACE/dist/Cosmic-Gen_macOS_AppleSilicon.zip" "$GITHUB_WORKSPACE/dist/AI_Image_Studio_macOS_AppleSilicon.zip"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AI_Image_Studio_macOS_AppleSilicon
-          path: dist/AI_Image_Studio_macOS_AppleSilicon.zip
+          name: Cosmic-Gen_macOS_AppleSilicon
+          path: |
+            dist/Cosmic-Gen_macOS_AppleSilicon.zip
+            dist/AI_Image_Studio_macOS_AppleSilicon.zip
