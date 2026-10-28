@@ -129,11 +129,13 @@ jobs:
 
           # Sign all executable binaries with Timestamping (SHA256)
           Write-Host "Digitally signing application executables and engine..."
-          Set-AuthenticodeSignature -FilePath "dist\AI_Image_Studio\ai_image_studio.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
-          Set-AuthenticodeSignature -FilePath "dist\AI_Image_Studio\engine\engine.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
+          Get-ChildItem -Path "dist\AI_Image_Studio" -Filter "*.exe" -Recurse | ForEach-Object {
+            Write-Host "Signing $($_.FullName)..."
+            Set-AuthenticodeSignature -FilePath $_.FullName -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com"
+          }
 
           # Create 1-Click Trusted Launcher / Installer
-          $installerScript = "@echo off`r`ntitle Installing Cosmic-Gen AI Studio Certificate...`r`necho ========================================================`r`necho   Cosmic-Gen AI Studio - Trusted Publisher Setup`r`necho ========================================================`r`necho.`r`necho Installing trusted publisher certificate to prevent Windows SmartScreen warnings...`r`ncertutil -addstore -f `"Root`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`ncertutil -addstore -f `"TrustedPublisher`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`necho.`r`necho [OK] Verified Publisher installed successfully!`r`necho Starting Cosmic-Gen AI Studio...`r`nstart `"`" `"%~dp0ai_image_studio.exe`"`r`nexit`r`n"
+          $installerScript = "@echo off`r`ntitle Installing Cosmic-Gen Trusted Publisher Certificate...`r`necho ========================================================`r`necho   Cosmic-Gen - Trusted Publisher Setup`r`necho ========================================================`r`necho.`r`necho Installing trusted publisher certificate to prevent Windows SmartScreen warnings...`r`ncertutil -addstore -f `"Root`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`ncertutil -addstore -f `"TrustedPublisher`" `"%~dp0CosmicGen_Publisher.cer`" >nul 2>&1`r`necho.`r`necho [OK] Verified Publisher installed successfully!`r`necho Starting Cosmic-Gen...`r`nif exist `"%~dp0Cosmic-Gen.exe`" (start `"`" `"%~dp0Cosmic-Gen.exe`") else (start `"`" `"%~dp0ai_image_studio.exe`")`r`nexit`r`n"
           [System.IO.File]::WriteAllText("dist\AI_Image_Studio\1-Click_Launch.bat", $installerScript)
 
           # Show bundle size summary
