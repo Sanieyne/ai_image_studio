@@ -143,8 +143,7 @@ def generate_image(req: GenerateRequest) -> GenerateResponse:
             and getattr(engine, "pipe", None) is None):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Engine has no model loaded (a previous model switch "
-                   "failed). Pick a model such as RealVisXL and try again.",
+            detail="No AI model is currently loaded. Please select a model from the left sidebar, or switch to 'Rent GPU' for instant cloud generation.",
         )
     start_time = time.perf_counter()
     transient_loras = bool(req.loras)

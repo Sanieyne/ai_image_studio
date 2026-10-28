@@ -60,7 +60,26 @@ class ApiService {
   static String baseUrl = 'http://127.0.0.1:8000';
   static String localBaseUrl = 'http://127.0.0.1:8000';
   static String? cloudBaseUrl;
-  static const Duration requestTimeout = Duration(minutes: 5);
+  static const Duration requestTimeout = Duration(minutes: 8);
+
+  /// Converts technical engine exceptions and timeouts into friendly, helpful UI messages.
+  static String formatFriendlyError(dynamic error) {
+    final str = error.toString();
+    if (str.contains('TimeoutException')) {
+      return 'Generation took longer than expected on CPU. '
+          'Tip: Click "Rent GPU" at the top for instant 2-second generations, or retry.';
+    }
+    if (str.contains('Engine has no model loaded') || str.contains('No AI model is currently loaded') || str.contains('previous model switch failed')) {
+      return 'No AI model is currently loaded. Please select a model from the left sidebar, or switch to "Rent GPU" for instant cloud generation.';
+    }
+    if (str.contains('SocketException') || str.contains('Connection refused')) {
+      return 'Could not connect to the local engine. Please verify the engine is running or switch to "Rent GPU".';
+    }
+    if (str.contains('503') || str.contains('Service Unavailable')) {
+      return 'The engine is currently busy or initializing. Please retry in a moment, or switch to "Rent GPU".';
+    }
+    return str.replaceFirst(RegExp(r'^(Exception: |Error: )'), '');
+  }
 
   /// Set to true during UI testing without a backend.
   static bool forceMockMode = false;
@@ -165,16 +184,16 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } on SocketException catch (_) {
       debugPrint(
           '[ApiService] Backend unreachable. Falling back to mock generator.');
       return _mockFallback(request);
     } on TimeoutException {
       return GenerationResult.failure(
-          'Generation timed out after 90 seconds.');
+          'Image generation took longer than expected on CPU. Tip: Switch to "Rent GPU" at the top for instant 3-second generation, or retry.');
     } catch (e) {
-      return GenerationResult.failure('Request error: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -249,9 +268,9 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } catch (e) {
-      return GenerationResult.failure('Animation request failed: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -335,9 +354,9 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure('Wan 2.1 failed: $detail');
+      return GenerationResult.failure(formatFriendlyError(detail));
     } catch (e) {
-      return GenerationResult.failure('Wan 2.1 request error: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -401,9 +420,9 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } catch (e) {
-      return GenerationResult.failure('MiniMax-H3 video generation failed: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -449,7 +468,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 3));
+          .timeout(const Duration(minutes: 8));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -483,13 +502,13 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } on SocketException catch (_) {
       debugPrint(
           '[ApiService] Backend unreachable. Falling back to mock voice.');
       return _mockVoiceFallback(prompt, language: language, seed: seed);
     } catch (e) {
-      return GenerationResult.failure('Voice generation failed: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -559,9 +578,9 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } catch (e) {
-      return GenerationResult.failure('Virtual try-on failed: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -592,7 +611,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 3));
+          .timeout(const Duration(minutes: 6));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -623,9 +642,9 @@ class ApiService {
             jsonDecode(response.body) as Map<String, dynamic>;
         detail = errorBody['detail']?.toString() ?? detail;
       } catch (_) {}
-      return GenerationResult.failure(detail);
+      return GenerationResult.failure(formatFriendlyError(detail));
     } catch (e) {
-      return GenerationResult.failure('Image enhancement failed: $e');
+      return GenerationResult.failure(formatFriendlyError(e));
     }
   }
 
@@ -707,7 +726,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'model_id': modelId}),
           )
-          .timeout(const Duration(seconds: 120));
+          .timeout(const Duration(seconds: 300));
       return response.statusCode == 200;
     } catch (e) {
       debugPrint('[ApiService] Failed to switch model: $e');
