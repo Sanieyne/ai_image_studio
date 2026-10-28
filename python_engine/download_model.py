@@ -145,6 +145,7 @@ MODEL_CATALOG: Dict[str, dict] = {
         "mode": "video",
         "aliases": ["MiniMaxAI/MiniMax-H3", "minimax"],
         "target_subpath": "minimax-h3",
+        "r2_prefix": "models/minimax-h3/FL2VA/",
         "symlinks": [
             (".", "/workspace/models/minimax-h3"),
             (".", "/root/models/minimax-h3"),
