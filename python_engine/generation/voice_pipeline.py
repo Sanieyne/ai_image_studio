@@ -21,6 +21,10 @@ import time
 import wave
 from typing import Optional, Tuple
 
+# Neutralize Numba disk caching in PyInstaller frozen environment
+os.environ.setdefault("NUMBA_DISABLE_CACHING", "1")
+os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/numba_cache")
+
 log = logging.getLogger(__name__)
 
 SUPPORTED_LANGUAGES = {
@@ -296,6 +300,19 @@ class ChatterboxVoiceEngine:
             if self._en_model is None:
                 log.info("[*] Loading Chatterbox English TTS on %s...", self.device)
                 try:
+                    try:
+                        import numba
+                        def _nojit_wrap(orig):
+                            def _wrapped(*args, **kwargs):
+                                kwargs['cache'] = False
+                                return orig(*args, **kwargs)
+                            return _wrapped
+                        if hasattr(numba, 'jit'):
+                            numba.jit = _nojit_wrap(numba.jit)
+                        if hasattr(numba, 'njit'):
+                            numba.njit = _nojit_wrap(numba.njit)
+                    except Exception:
+                        pass
                     from chatterbox.tts import ChatterboxTTS
                     local = _chatterbox_dir()
                     self._en_model = (

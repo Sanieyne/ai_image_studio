@@ -136,8 +136,12 @@ class SDXLEngine:
             elif hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):
                 self.pipe.vae.enable_tiling()
         elif self.device in ("mps", "directml"):
-            print(f"[*] Moving SDXL model to {self.device}...")
-            self.pipe.to(self.device)
+            print(f"[*] Enabling model CPU offload for {self.device}...")
+            try:
+                self.pipe.enable_model_cpu_offload(device=self.device)
+            except Exception as e:
+                print(f"[*] Offload notice: {e}, falling back to direct to({self.device})")
+                self.pipe.to(self.device)
             if hasattr(self.pipe, "enable_vae_tiling"):
                 self.pipe.enable_vae_tiling()
             elif hasattr(self.pipe, "vae") and hasattr(self.pipe.vae, "enable_tiling"):

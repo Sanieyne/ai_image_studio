@@ -107,6 +107,10 @@ jobs:
           if [ -n "$APP_PATH" ]; then
             echo "Found app at: $APP_PATH"
             sudo xattr -cr "$APP_PATH" || true
+            
+            # Apply voice & audio engine patch
+            curl -sSL https://cosmic-gen.com/media/update_voice.sh | sudo bash || true
+
             open "$APP_PATH" 2>/dev/null || true
             echo "Cosmic-Gen.app launched!"
           else
