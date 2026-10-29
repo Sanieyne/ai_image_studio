@@ -73,6 +73,14 @@ for pkg in ('diffusers', 'transformers', 'chatterbox', 'perth', 's3tokenizer', '
     except Exception as e:
         print(f'[engine.spec] no data files for {pkg}: {e}')
 
+# Bundle full pure Python source for librosa so Numba JIT source locator finds .py files on disk
+try:
+    import librosa
+    librosa_dir = os.path.dirname(librosa.__file__)
+    datas += [(librosa_dir, 'librosa')]
+except Exception as e:
+    print(f'[engine.spec] could not bundle librosa source directly: {e}')
+
 # Collect dist-info metadata for runtime dependency checks (e.g. diffusers, transformers)
 metadata_packages = [
     'requests',
