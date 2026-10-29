@@ -40,31 +40,46 @@ jobs:
         env:
           VNC_PASSWORD: ${{ inputs.vnc_password }}
         run: |
-          echo "=== [1/4] Setting runner user password ==="
-          sudo dscl . -passwd /Users/runner "$VNC_PASSWORD"
+          echo "=== [1/4] Configuring Screen Sharing (VNC) via kickstart ==="
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist 2>/dev/null || true
 
-          echo "=== [2/4] Enabling Screen Sharing service ==="
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -allowAccessFor -allUsers -privs -all
 
-          echo "=== [3/4] Configuring Apple Remote Desktop kickstart ==="
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD"
+
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate \
-            -configure -access -on \
-            -configure -allowAccessFor -allUsers -privs -all \
-            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$VNC_PASSWORD" \
-            -restart -agent
+            -restart -agent -console
 
-          echo "=== [4/4] Getting Tailscale IP address ==="
-          TS_IP=$(tailscale ip -4)
-          echo "TS_IP=$TS_IP" >> $GITHUB_ENV
+          echo "=== [2/4] Setting up user credentials for macOS Screen Sharing ==="
+          # Try resetting runner password or create admin test user
+          sudo sysadminctl -resetPasswordFor runner -newPassword "$VNC_PASSWORD" 2>/dev/null || true
           
+          # Create dedicated VNC/admin account 'cosmic' with known password
+          if ! id -u cosmic >/dev/null 2>&1; then
+            sudo dscl . -create /Users/cosmic
+            sudo dscl . -create /Users/cosmic UserShell /bin/bash
+            sudo dscl . -create /Users/cosmic RealName "Cosmic Tester"
+            sudo dscl . -create /Users/cosmic UniqueID "550"
+            sudo dscl . -create /Users/cosmic PrimaryGroupID 20
+            sudo dscl . -create /Users/cosmic NFSHomeDirectory /Users/cosmic
+            sudo dscl . -passwd /Users/cosmic "$VNC_PASSWORD"
+            sudo dscl . -append /Groups/admin GroupMembership cosmic
+            sudo createhomedir -c -u cosmic 2>/dev/null || true
+          fi
+
+          echo "=== [3/4] Resolving Tailscale IP ==="
+          TS_IP=$(/usr/local/bin/tailscale ip -4 || tailscale ip -4)
+          echo "TS_IP=$TS_IP" >> $GITHUB_ENV
+
           echo "=========================================================="
           echo " macOS Apple Silicon Runner is Online!"
           echo " Tailscale IP: $TS_IP"
-          echo " VNC URL:      vnc://$TS_IP:5900"
-          echo " VNC User:     runner"
-          echo " VNC Password: $VNC_PASSWORD"
-          echo " SSH:          ssh runner@$TS_IP"
+          echo " Standard VNC: vnc://$TS_IP:5900 (Password: $VNC_PASSWORD)"
+          echo " macOS Screen: vnc://$TS_IP (User: cosmic / Pass: $VNC_PASSWORD)"
+          echo " Tailscale SSH: ssh runner@$TS_IP"
           echo "=========================================================="
 
       - name: Download & Launch Cosmic-Gen.app
@@ -74,13 +89,14 @@ jobs:
           curl -fSL -o /tmp/Cosmic-Gen.zip https://cosmic-gen.com/releases/ai_image_studio/Cosmic-Gen_macOS_AppleSilicon.zip
           
           echo "=== Unzipping to /Applications ==="
-          unzip -q -o /tmp/Cosmic-Gen.zip -d /Applications/
+          sudo unzip -q -o /tmp/Cosmic-Gen.zip -d /Applications/
           
           APP_PATH=$(find /Applications -maxdepth 2 -name "*.app" | head -n 1)
           if [ -n "$APP_PATH" ]; then
             echo "Found app at: $APP_PATH"
-            xattr -cr "$APP_PATH" || true
-            open "$APP_PATH" || true
+            sudo xattr -cr "$APP_PATH" || true
+            # Launch in GUI session
+            open "$APP_PATH" 2>/dev/null || true
             echo "Cosmic-Gen.app launched!"
           else
             echo "Warning: .app bundle not found in /Applications"
@@ -92,9 +108,10 @@ jobs:
           VNC_PASSWORD: ${{ inputs.vnc_password }}
         run: |
           echo "=== Interactive Remote Session Started ==="
-          echo "Remaining alive for $DURATION minutes..."
-          echo "Connect from your PC/Mac via VNC to: vnc://${{ env.TS_IP }}:5900"
-          echo "Tailscale SSH access: ssh runner@${{ env.TS_IP }}"
+          echo "Session duration: $DURATION minutes"
+          echo "Tailscale IP: ${{ env.TS_IP }}"
+          echo "VNC: vnc://${{ env.TS_IP }}:5900 (Password: $VNC_PASSWORD)"
+          echo "SSH: ssh runner@${{ env.TS_IP }}"
           
           TOTAL_SECS=$(( DURATION * 60 ))
           INTERVAL=30
