@@ -34,7 +34,7 @@ jobs:
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           hostname: macos-test-runner
-          args: --ssh
+          args: --ssh --accept-dns=false
 
       - name: Configure Screen Sharing (VNC) & User Access
         env:
@@ -54,10 +54,8 @@ jobs:
             -restart -agent -console
 
           echo "=== [2/4] Setting up user credentials for macOS Screen Sharing ==="
-          # Try resetting runner password or create admin test user
           sudo sysadminctl -resetPasswordFor runner -newPassword "$VNC_PASSWORD" 2>/dev/null || true
           
-          # Create dedicated VNC/admin account 'cosmic' with known password
           if ! id -u cosmic >/dev/null 2>&1; then
             sudo dscl . -create /Users/cosmic
             sudo dscl . -create /Users/cosmic UserShell /bin/bash
@@ -86,6 +84,7 @@ jobs:
         if: ${{ inputs.open_app }}
         run: |
           echo "=== Downloading latest Cosmic-Gen macOS build ==="
+          curl -fSL -k --resolve cosmic-gen.com:443:45.140.185.248 -o /tmp/Cosmic-Gen.zip https://cosmic-gen.com/releases/ai_image_studio/Cosmic-Gen_macOS_AppleSilicon.zip || \
           curl -fSL -o /tmp/Cosmic-Gen.zip https://cosmic-gen.com/releases/ai_image_studio/Cosmic-Gen_macOS_AppleSilicon.zip
           
           echo "=== Unzipping to /Applications ==="
@@ -95,7 +94,6 @@ jobs:
           if [ -n "$APP_PATH" ]; then
             echo "Found app at: $APP_PATH"
             sudo xattr -cr "$APP_PATH" || true
-            # Launch in GUI session
             open "$APP_PATH" 2>/dev/null || true
             echo "Cosmic-Gen.app launched!"
           else
