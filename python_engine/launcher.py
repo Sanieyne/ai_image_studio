@@ -4,7 +4,12 @@ Freezes multiprocessing support and launches Uvicorn server.
 """
 import os
 import sys
+import tempfile
 import multiprocessing
+
+# Neutralize Numba disk caching in PyInstaller frozen environment (cross-platform Windows & Mac)
+os.environ.setdefault("NUMBA_DISABLE_CACHING", "1")
+os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba_cache"))
 
 # Add parent directory to sys.path so imports work properly
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -110,6 +110,10 @@ class EngineProcessManager {
           'AI_STUDIO_MODELS_DIR': modelsDir,
           'HF_HUB_OFFLINE': '1',
           'PYTHONUNBUFFERED': '1',
+          'NUMBA_DISABLE_CACHING': '1',
+          'NUMBA_CACHE_DIR': Platform.isWindows
+              ? p.join(Directory.systemTemp.path, 'numba_cache')
+              : '/tmp/numba_cache',
         },
         isDev: false,
       );
@@ -144,6 +148,10 @@ class EngineProcessManager {
           'AI_STUDIO_MOCK': '1',
           'AI_STUDIO_MODELS_DIR': modelsDir,
           'PYTHONUNBUFFERED': '1',
+          'NUMBA_DISABLE_CACHING': '1',
+          'NUMBA_CACHE_DIR': Platform.isWindows
+              ? p.join(Directory.systemTemp.path, 'numba_cache')
+              : '/tmp/numba_cache',
         },
         isDev: true,
       );

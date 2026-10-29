@@ -536,7 +536,20 @@ class MiniMaxH3Engine:
                 import traceback
                 print(f"[!] Local pipeline error: {e}\n{traceback.format_exc()}")
 
-        # 3. Fallback preview generator using ffmpeg if weights are still loading
+        # 3. Neural video generator fallback using Wan2.1
+        try:
+            print(f"[*] Generating real video via Wan2.1 engine for: {prompt[:80]}...")
+            wan = get_wan2_1_engine()
+            return wan.generate(
+                prompt=prompt,
+                init_image_bytes=init_image_bytes,
+                fps=fps,
+                seed=seed,
+            )
+        except Exception as e:
+            print(f"[!] Wan2.1 fallback failed: {e}. Falling back to preview.")
+
+        # 4. Fallback preview generator using ffmpeg if all neural engines are unavailable
         session_dir = tempfile.mkdtemp(prefix="minimax_preview_")
         try:
             out_mp4 = os.path.join(session_dir, "preview.mp4")

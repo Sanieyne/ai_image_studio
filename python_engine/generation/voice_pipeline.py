@@ -19,11 +19,12 @@ import subprocess
 import tempfile
 import time
 import wave
+import tempfile
 from typing import Optional, Tuple
 
-# Neutralize Numba disk caching in PyInstaller frozen environment
+# Neutralize Numba disk caching in PyInstaller frozen environment (cross-platform Windows & Mac)
 os.environ.setdefault("NUMBA_DISABLE_CACHING", "1")
-os.environ.setdefault("NUMBA_CACHE_DIR", "/tmp/numba_cache")
+os.environ.setdefault("NUMBA_CACHE_DIR", os.path.join(tempfile.gettempdir(), "numba_cache"))
 
 log = logging.getLogger(__name__)
 
