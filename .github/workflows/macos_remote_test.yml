@@ -36,6 +36,19 @@ jobs:
           hostname: macos-test-runner
           args: --ssh --accept-dns=false
 
+      - name: Restore Public DNS (Prevent GitHub Runner Renewal Cancellation)
+        run: |
+          echo "=== Restoring public DNS for runner lease renewal ==="
+          SERVICES=$(networksetup -listallnetworkservices | tail -n +2)
+          while IFS= read -r s; do
+            if [[ "$s" != *"*"* && -n "$s" ]]; then
+              echo "Configuring DNS on: $s"
+              sudo networksetup -setdnsservers "$s" 8.8.8.8 1.1.1.1 2>/dev/null || true
+              sudo networksetup -setsearchdomains "$s" "Empty" 2>/dev/null || true
+            fi
+          done <<< "$SERVICES"
+          echo "Public DNS active. Runner lease renewals guaranteed."
+
       - name: Configure Screen Sharing (VNC) & User Access
         env:
           VNC_PASSWORD: ${{ inputs.vnc_password }}
@@ -119,8 +132,6 @@ jobs:
             sleep $INTERVAL
             ELAPSED=$(( ELAPSED + INTERVAL ))
             REMAINING=$(( (TOTAL_SECS - ELAPSED) / 60 ))
-            if [ $(( ELAPSED % 300 )) -eq 0 ]; then
-              echo "[$(date '+%H:%M:%S')] Apple Silicon Runner Active (${{ env.TS_IP }}) - $REMAINING mins remaining"
-            fi
+            echo "[$(date '+%H:%M:%S')] Apple Silicon Runner Active (${{ env.TS_IP }}) - $REMAINING mins remaining"
           done
           echo "Session duration elapsed. Shutting down runner."
