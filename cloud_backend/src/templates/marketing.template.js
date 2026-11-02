@@ -133,7 +133,7 @@ function renderBaseLayout({
                   <td valign="middle" align="right" class="mobile-padding" style="font-size: 13px; font-weight: 600;">
                     <a href="${BASE_URL}" target="_blank" style="color: #94a3b8; text-decoration: none; margin-left: 14px;">Studio</a>
                     <a href="${BASE_URL}/gallery" target="_blank" style="color: #94a3b8; text-decoration: none; margin-left: 14px;">Showcase</a>
-                    <a href="https://admin.cosmic-gen.com" target="_blank" style="color: #818cf8; text-decoration: none; margin-left: 14px; font-weight: 700;">Admin</a>
+                    <a href="${BASE_URL}" target="_blank" style="display: inline-block; padding: 6px 14px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.45); border-radius: 8px; color: #a5b4fc; text-decoration: none; margin-left: 14px; font-weight: 700;">Get Started</a>
                   </td>
                 </tr>
               </table>
@@ -211,8 +211,8 @@ function renderBaseLayout({
                     <p style="margin: 0 0 16px 0; font-size: 12px; color: #475569;">
                       <a href="${BASE_URL}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Studio App</a> &bull;
                       <a href="${BASE_URL}/gallery" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Gallery</a> &bull;
-                      <a href="https://admin.cosmic-gen.com" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Admin Console</a> &bull;
-                      <a href="mailto:marketing@cosmic-gen.com" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Press &amp; Inquiries</a>
+                      <a href="${BASE_URL}#pricing" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Pricing</a> &bull;
+                      <a href="mailto:marketing@cosmic-gen.com" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Contact &amp; Press</a>
                     </p>
 
                     <!-- Unsubscribe / Compliance -->
