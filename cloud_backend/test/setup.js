@@ -9,7 +9,7 @@ const randomSecret = () => crypto.randomBytes(48).toString('base64url');
 
 // Anything that could point at a live service is removed first.
 for (const name of Object.keys(process.env)) {
-  if (/^(MONGODB_|JWT_|VASTAI_|R2_|GOOGLE_|GCP_|MEDIA_|GPU_)/.test(name)) {
+  if (/^(MONGODB_|JWT_|VASTAI_|R2_|GOOGLE_|GCP_|MEDIA_|GPU_|SMTP_)/.test(name)) {
     delete process.env[name];
   }
 }

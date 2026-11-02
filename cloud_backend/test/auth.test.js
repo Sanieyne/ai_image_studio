@@ -202,7 +202,7 @@ describe('auth endpoints (v0.2.0 and new clients)', () => {
 
     const refreshed = await request(app).post('/api/v1/auth/refresh').send({ refreshToken });
     assert.equal(refreshed.status, 200);
-    assert.deepEqual(Object.keys(refreshed.body.data).sort(), ['accessToken', 'refreshToken']);
+    assert.deepEqual(Object.keys(refreshed.body.data).sort(), ['accessToken', 'refreshToken', 'user']);
 
     const me = await request(app).get('/api/v1/users/me').set('Authorization', `Bearer ${refreshed.body.data.accessToken}`);
     assert.equal(me.status, 200);

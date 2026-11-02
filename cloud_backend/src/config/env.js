@@ -149,5 +149,13 @@ export const env = Object.freeze({
   R2_BUCKET_NAME: process.env.R2_BUCKET_NAME || '',
   R2_READONLY_ACCESS_KEY_ID: process.env.R2_READONLY_ACCESS_KEY_ID || '',
   R2_READONLY_SECRET_ACCESS_KEY: process.env.R2_READONLY_SECRET_ACCESS_KEY || '',
+
+  // SMTP Email Configuration (Truehost / Workplace)
+  SMTP_HOST: process.env.SMTP_HOST || 'workplaceproemail.com',
+  SMTP_PORT: positiveInt('SMTP_PORT', 465),
+  SMTP_SECURE: bool('SMTP_SECURE', true),
+  SMTP_USER: process.env.SMTP_USER || 'support@cosmic-gen.com',
+  SMTP_PASS: process.env.SMTP_PASS || '',
+  SMTP_FROM: process.env.SMTP_FROM || 'Cosmic-Gen <noreply@cosmic-gen.com>',
 });
 

@@ -17,6 +17,18 @@ export const authLimiter = rateLimit({
   },
 });
 
+// Strict OTP limiter: 5 requests per 10 minutes per IP
+export const otpLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many verification code requests. Please wait a few minutes before trying again.',
+  },
+});
+
 // Permissive limiter for public read browsing: 120 requests per minute per IP
 export const publicReadLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute

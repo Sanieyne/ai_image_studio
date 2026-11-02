@@ -5,6 +5,7 @@
 
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { authService } from '../services/auth.service.js';
+import { otpService } from '../services/otp.service.js';
 
 export const register = asyncHandler(async (req, res) => {
   const { username, email, password, deviceLabel } = req.body;
@@ -67,4 +68,32 @@ export const logoutAll = asyncHandler(async (req, res) => {
     message: 'Logged out on all devices',
     data: result,
   });
+});
+
+/** Sends an OTP verification code via email. */
+export const sendOtp = asyncHandler(async (req, res) => {
+  const { email, purpose } = req.body;
+  const result = await otpService.sendOtp({ email, purpose });
+  res.status(200).json(result);
+});
+
+/** Verifies an OTP code for email verification or signup. */
+export const verifyOtp = asyncHandler(async (req, res) => {
+  const { email, code, purpose } = req.body;
+  const result = await otpService.verifyOtp({ email, code, purpose });
+  res.status(200).json(result);
+});
+
+/** Initiates a forgot-password flow by sending an OTP. */
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  const result = await otpService.sendOtp({ email, purpose: 'password_reset' });
+  res.status(200).json(result);
+});
+
+/** Completes password reset using verified OTP and new password. */
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { email, code, newPassword } = req.body;
+  const result = await otpService.resetPassword({ email, code, newPassword });
+  res.status(200).json(result);
 });

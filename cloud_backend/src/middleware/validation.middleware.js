@@ -83,6 +83,73 @@ export const refreshSchema = Joi.object({
     }),
 });
 
+export const sendOtpSchema = Joi.object({
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .trim()
+    .lowercase()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  purpose: Joi.string()
+    .valid('signup', 'password_reset', 'email_verification')
+    .default('email_verification'),
+});
+
+export const verifyOtpSchema = Joi.object({
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .trim()
+    .lowercase()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  code: Joi.string()
+    .trim()
+    .pattern(/^\d{6}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Verification code must be a 6-digit number',
+      'any.required': 'Verification code is required',
+    }),
+  purpose: Joi.string()
+    .valid('signup', 'password_reset', 'email_verification')
+    .default('email_verification'),
+});
+
+export const resetPasswordSchema = Joi.object({
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .trim()
+    .lowercase()
+    .required()
+    .messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  code: Joi.string()
+    .trim()
+    .pattern(/^\d{6}$/)
+    .required()
+    .messages({
+      'string.pattern.base': 'Verification code must be a 6-digit number',
+      'any.required': 'Verification code is required',
+    }),
+  newPassword: Joi.string()
+    .min(8)
+    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .required()
+    .messages({
+      'string.min': 'New password must be at least 8 characters long',
+      'string.pattern.base': 'New password must contain at least one uppercase letter, one lowercase letter, and one number',
+      'any.required': 'New password is required',
+    }),
+});
+
 export const createGenerationSchema = Joi.object({
   mediaBase64: Joi.string()
     .required()
