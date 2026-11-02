@@ -6,6 +6,7 @@
 import nodemailer from 'nodemailer';
 import fs from 'fs';
 import { env } from '../config/env.js';
+import { marketingTemplates } from '../templates/marketing.template.js';
 
 class EmailService {
   constructor() {
@@ -43,10 +44,10 @@ class EmailService {
     return this.transporter;
   }
 
-  async sendMail({ to, subject, text, html }) {
+  async sendMail({ to, from, subject, text, html }) {
     const transporter = this.getTransporter();
     const mailOptions = {
-      from: env.SMTP_FROM,
+      from: from || env.SMTP_FROM,
       to,
       subject,
       text,
@@ -59,6 +60,38 @@ class EmailService {
     }
 
     return await transporter.sendMail(mailOptions);
+  }
+
+  /**
+   * Dispatches a branded marketing campaign email.
+   * Defaults to sender: Cosmic-Gen <marketing@cosmic-gen.com>
+   */
+  async sendMarketingCampaign({
+    to,
+    from = 'Cosmic-Gen <marketing@cosmic-gen.com>',
+    subject,
+    type = 'image', // 'image' | 'video' | 'audio' | 'digest'
+    options = {},
+  }) {
+    let html = '';
+    if (type === 'video') {
+      html = marketingTemplates.createVideoCampaign({ headline: subject, ...options });
+    } else if (type === 'audio') {
+      html = marketingTemplates.createAudioCampaign({ headline: subject, ...options });
+    } else if (type === 'digest') {
+      html = marketingTemplates.createMultiMediaDigest({ headline: subject, ...options });
+    } else {
+      html = marketingTemplates.createImageCampaign({ headline: subject, ...options });
+    }
+
+    const plainText = options.bodyText || options.introText || subject;
+    return await this.sendMail({
+      to,
+      from,
+      subject,
+      text: `${subject}\n\n${plainText}\n\nVisit Cosmic-Gen: ${options.ctaUrl || 'https://cosmic-gen.com'}`,
+      html,
+    });
   }
 
   async sendOtpEmail(to, otpCode, purpose = 'email_verification') {
