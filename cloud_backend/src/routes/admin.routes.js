@@ -35,6 +35,14 @@ import {
   getReports,
   resolveReport,
 } from '../controllers/admin.controller.js';
+import {
+  getMarketingStats,
+  getMarketingPresets,
+  previewMarketingCampaign,
+  sendTestMarketingEmail,
+  broadcastMarketingCampaign,
+  getMarketingCampaignHistory,
+} from '../controllers/marketingAdmin.controller.js';
 
 const router = Router();
 
@@ -77,5 +85,13 @@ router.get('/moderation/queue', getModerationQueue);
 router.post('/moderation/:id/decide', validate(adminModerationDecideSchema), decideModeration);
 router.get('/reports', getReports);
 router.post('/reports/:id/resolve', validate(resolveReportSchema), resolveReport);
+
+// 9. Email Marketing Suite
+router.get('/marketing/stats', getMarketingStats);
+router.get('/marketing/presets', getMarketingPresets);
+router.post('/marketing/preview', previewMarketingCampaign);
+router.post('/marketing/send-test', sendTestMarketingEmail);
+router.post('/marketing/broadcast', broadcastMarketingCampaign);
+router.get('/marketing/history', getMarketingCampaignHistory);
 
 export default router;
