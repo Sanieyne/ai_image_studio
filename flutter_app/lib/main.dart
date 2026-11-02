@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'screens/downloads_screen.dart';
+import 'screens/forgot_password_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -115,8 +116,11 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
+enum _AuthView { login, register, forgotPassword }
+
 class _AuthGateState extends State<AuthGate> {
-  bool _showRegister = false;
+  _AuthView _currentView = _AuthView.login;
+  String? _loginSuccessMessage;
 
   @override
   void initState() {
@@ -141,14 +145,32 @@ class _AuthGateState extends State<AuthGate> {
               ),
             );
           case AuthStatus.unauthenticated:
-            if (_showRegister) {
-              return RegisterScreen(
-                onShowLogin: () => setState(() => _showRegister = false),
-              );
+            switch (_currentView) {
+              case _AuthView.register:
+                return RegisterScreen(
+                  onShowLogin: () => setState(() => _currentView = _AuthView.login),
+                );
+              case _AuthView.forgotPassword:
+                return ForgotPasswordScreen(
+                  onShowLogin: () => setState(() => _currentView = _AuthView.login),
+                  onPasswordResetSuccess: (msg) => setState(() {
+                    _currentView = _AuthView.login;
+                    _loginSuccessMessage = msg;
+                  }),
+                );
+              case _AuthView.login:
+                return LoginScreen(
+                  onShowRegister: () => setState(() {
+                    _currentView = _AuthView.register;
+                    _loginSuccessMessage = null;
+                  }),
+                  onShowForgotPassword: () => setState(() {
+                    _currentView = _AuthView.forgotPassword;
+                    _loginSuccessMessage = null;
+                  }),
+                  successMessage: _loginSuccessMessage,
+                );
             }
-            return LoginScreen(
-              onShowRegister: () => setState(() => _showRegister = true),
-            );
         }
       },
     );

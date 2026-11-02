@@ -371,6 +371,70 @@ class AuthService extends ChangeNotifier {
     return _handleSessionResponse(res);
   }
 
+  /// Requests a password reset OTP code sent to the user's email.
+  Future<String> requestPasswordReset(String email) async {
+    late http.Response res;
+    try {
+      res = await _http
+          .post(
+            Uri.parse('$baseUrl/auth/forgot-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'email': email.trim()}),
+          )
+          .timeout(requestTimeout);
+    } on TimeoutException {
+      throw AuthException('Request timed out. Check your connection.');
+    } catch (e) {
+      throw AuthException(_networkMessage(e));
+    }
+
+    if (res.statusCode == 200) {
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (body['message'] as String?) ?? 'Verification code sent to your email.';
+      } catch (_) {
+        return 'Verification code sent to your email.';
+      }
+    }
+    throw AuthException(_errorMessage(res), res.statusCode);
+  }
+
+  /// Resets the user's password using the OTP code received via email.
+  Future<String> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    late http.Response res;
+    try {
+      res = await _http
+          .post(
+            Uri.parse('$baseUrl/auth/reset-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'email': email.trim(),
+              'code': code.trim(),
+              'newPassword': newPassword,
+            }),
+          )
+          .timeout(requestTimeout);
+    } on TimeoutException {
+      throw AuthException('Request timed out. Check your connection.');
+    } catch (e) {
+      throw AuthException(_networkMessage(e));
+    }
+
+    if (res.statusCode == 200) {
+      try {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        return (body['message'] as String?) ?? 'Password reset successfully.';
+      } catch (_) {
+        return 'Password reset successfully.';
+      }
+    }
+    throw AuthException(_errorMessage(res), res.statusCode);
+  }
+
   /// Rotates the token pair using the stored refresh token.
   ///
   /// Concurrent callers share a single in-flight request. Returns true on

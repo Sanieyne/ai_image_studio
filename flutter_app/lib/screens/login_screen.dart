@@ -8,8 +8,15 @@ import '../widgets/auth_form_widgets.dart';
 /// app's login gate swaps to [HomeScreen] — no navigation code needed here.
 class LoginScreen extends StatefulWidget {
   final VoidCallback onShowRegister;
+  final VoidCallback? onShowForgotPassword;
+  final String? successMessage;
 
-  const LoginScreen({super.key, required this.onShowRegister});
+  const LoginScreen({
+    super.key,
+    required this.onShowRegister,
+    this.onShowForgotPassword,
+    this.successMessage,
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -21,6 +28,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
+  String? _success;
+
+  @override
+  void initState() {
+    super.initState();
+    _success = widget.successMessage;
+  }
 
   @override
   void dispose() {
@@ -30,7 +44,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    setState(() => _error = null);
+    setState(() {
+      _error = null;
+      _success = null;
+    });
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
@@ -59,6 +76,10 @@ class _LoginScreenState extends State<LoginScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_success != null) ...[
+              LuminaAuthSuccessBanner(message: _success!),
+              const SizedBox(height: 16),
+            ],
             if (_error != null) ...[
               LuminaAuthErrorBanner(message: _error!),
               const SizedBox(height: 16),
@@ -82,7 +103,22 @@ class _LoginScreenState extends State<LoginScreen> {
               validator: AuthValidators.loginPassword,
               onSubmitted: (_) => _submit(),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _loading ? null : widget.onShowForgotPassword,
+                child: const Text(
+                  'Forgot password?',
+                  style: TextStyle(
+                    color: LuminaColors.primaryEnd,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             LuminaAuthButton(
               label: 'Sign In',
               loading: _loading,

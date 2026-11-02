@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:ai_image_studio/screens/forgot_password_screen.dart';
 import 'package:ai_image_studio/screens/login_screen.dart';
 import 'package:ai_image_studio/screens/register_screen.dart';
 import 'package:ai_image_studio/services/api_client.dart';
@@ -147,6 +148,15 @@ void main() {
       expect(AuthValidators.loginPassword(null), 'Password is required');
       expect(AuthValidators.loginPassword(''), 'Password is required');
       expect(AuthValidators.loginPassword('anything'), isNull);
+    });
+
+    test('otp code: required, 6 digits only', () {
+      expect(AuthValidators.otpCode(null), 'Verification code is required');
+      expect(AuthValidators.otpCode(''), 'Verification code is required');
+      expect(AuthValidators.otpCode('12345'), 'Code must be a 6-digit number');
+      expect(AuthValidators.otpCode('1234567'), 'Code must be a 6-digit number');
+      expect(AuthValidators.otpCode('abcdef'), 'Code must be a 6-digit number');
+      expect(AuthValidators.otpCode('123456'), isNull);
     });
   });
 
@@ -346,6 +356,36 @@ void main() {
       expect(auth.status, AuthStatus.unauthenticated);
       expect(backend.requests, isEmpty); // no pointless network call
     });
+
+    test('requestPasswordReset posts to /auth/forgot-password and returns message', () async {
+      final backend = FakeBackend();
+      backend.handlers['/api/v1/auth/forgot-password'] = (_) => http.Response(
+            jsonEncode({'success': true, 'message': 'Code sent'}),
+            200,
+            headers: {'Content-Type': 'application/json'},
+          );
+      final auth = _service(backend, InMemoryTokenStore());
+      final msg = await auth.requestPasswordReset('pix@example.com');
+      expect(msg, 'Code sent');
+      expect(backend.requests.single.url.path, '/api/v1/auth/forgot-password');
+    });
+
+    test('resetPassword posts to /auth/reset-password with code and new password', () async {
+      final backend = FakeBackend();
+      backend.handlers['/api/v1/auth/reset-password'] = (_) => http.Response(
+            jsonEncode({'success': true, 'message': 'Password reset successfully'}),
+            200,
+            headers: {'Content-Type': 'application/json'},
+          );
+      final auth = _service(backend, InMemoryTokenStore());
+      final msg = await auth.resetPassword(
+        email: 'pix@example.com',
+        code: '123456',
+        newPassword: 'NewPassword-123',
+      );
+      expect(msg, 'Password reset successfully');
+      expect(backend.requests.single.url.path, '/api/v1/auth/reset-password');
+    });
   });
 
   group('401 → silent refresh → retry (ApiClient)', () {
@@ -542,6 +582,35 @@ void main() {
         find.text('Username must only contain alphanumeric characters'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('login shows forgot password button and triggers callback', (tester) async {
+      var forgotTapped = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: LoginScreen(
+            onShowRegister: () {},
+            onShowForgotPassword: () => forgotTapped = true,
+          ),
+        ),
+      );
+
+      expect(find.text('Forgot password?'), findsOneWidget);
+      await tester.tap(find.text('Forgot password?'));
+      await tester.pump();
+      expect(forgotTapped, isTrue);
+    });
+
+    testWidgets('forgot password screen validates email on step 1', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(home: ForgotPasswordScreen(onShowLogin: () {})),
+      );
+
+      expect(find.text('Reset password'), findsOneWidget);
+      await tester.tap(find.text('Send Reset Code'));
+      await tester.pump();
+
+      expect(find.text('Email is required'), findsOneWidget);
     });
   });
 }

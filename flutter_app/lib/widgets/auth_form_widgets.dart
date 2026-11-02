@@ -54,6 +54,16 @@ class AuthValidators {
     if (value == null || value.isEmpty) return 'Password is required';
     return null;
   }
+
+  /// OTP 6-digit code validation.
+  static String? otpCode(String? value) {
+    final text = value?.trim() ?? '';
+    if (text.isEmpty) return 'Verification code is required';
+    if (!RegExp(r'^\d{6}$').hasMatch(text)) {
+      return 'Code must be a 6-digit number';
+    }
+    return null;
+  }
 }
 
 /// Lumina-styled text field for the auth screens.
@@ -265,6 +275,48 @@ class LuminaAuthErrorBanner extends StatelessWidget {
             Icons.error_outline_rounded,
             size: 18,
             color: LuminaColors.primaryEnd,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(
+                color: LuminaColors.darkText,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Success banner matching the obsidian/neon styling with green accents.
+class LuminaAuthSuccessBanner extends StatelessWidget {
+  final String message;
+
+  const LuminaAuthSuccessBanner({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF10B981).withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.45),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.check_circle_outline_rounded,
+            size: 18,
+            color: Color(0xFF10B981),
           ),
           const SizedBox(width: 8),
           Expanded(
