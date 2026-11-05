@@ -413,7 +413,10 @@ export class BillingService {
       update,
       { returnDocument: 'before' }
     );
-    if (!before) return null;
+    if (!before) {
+      await this.releaseSlot(instanceId);
+      return null;
+    }
 
     // Final charge up to `until` (never past it, never before billedUntil).
     if (before.billedUntil && until > before.billedUntil) {

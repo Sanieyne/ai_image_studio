@@ -116,9 +116,25 @@ class ReconcileService {
   /** Lower activeGpuInstances to the number of instances actually holding a slot. */
   async fixSlotCounters() {
     let fixes = 0;
+    // 1. Release slots on any instances that transitioned to terminal/stopped states
+    const stuck = await GpuInstance.find({
+      holdsSlot: true,
+      status: { $nin: ACTIVE_STATUSES },
+    }).select('_id user').lean();
+
+    for (const inst of stuck) {
+      await billingService.releaseSlot(inst._id);
+      fixes += 1;
+    }
+
+    // 2. Reconcile any remaining slot drift across users
     const users = await User.find({ activeGpuInstances: { $gt: 0 } }).select('_id activeGpuInstances').lean();
     for (const u of users) {
-      const holding = await GpuInstance.countDocuments({ user: u._id, holdsSlot: true });
+      const holding = await GpuInstance.countDocuments({
+        user: u._id,
+        holdsSlot: true,
+        status: { $in: ACTIVE_STATUSES },
+      });
       if (u.activeGpuInstances > holding) {
         // Conditional on the value just read, so a concurrent rental is never undone.
         const res = await User.updateOne(
