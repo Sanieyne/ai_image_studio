@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -902,34 +903,7 @@ class _GenerationBubbleState extends State<GenerationBubble> {
         : LuminaColors.lightMuted;
 
     if (item.status == GenerationStatus.generating) {
-      return Container(
-        width: 320,
-        height: 440,
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF181C24) : Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-              color: isDark ? Colors.white10 : Colors.black12),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 28,
-              height: 28,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                color: Color(0xFFD32F2F),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Rendering via ${item.modelName}...',
-              style: TextStyle(fontSize: 13, color: muted),
-            ),
-          ],
-        ),
-      );
+      return _GeneratingCard(item: item, isDark: isDark);
     }
 
     if (item.status == GenerationStatus.failed) {
@@ -1876,6 +1850,419 @@ class _GenerationBubbleState extends State<GenerationBubble> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GeneratingCard extends StatefulWidget {
+  final GenerationItem item;
+  final bool isDark;
+
+  const _GeneratingCard({required this.item, required this.isDark});
+
+  @override
+  State<_GeneratingCard> createState() => _GeneratingCardState();
+}
+
+class _GeneratingCardState extends State<_GeneratingCard>
+    with SingleTickerProviderStateMixin {
+  Timer? _timer;
+  late AnimationController _pulseController;
+  int _elapsedSeconds = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _elapsedSeconds =
+        DateTime.now().difference(widget.item.timestamp).inSeconds;
+    if (_elapsedSeconds < 0) _elapsedSeconds = 0;
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {
+        _elapsedSeconds++;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  String _formatDuration(int totalSeconds) {
+    final m = totalSeconds ~/ 60;
+    final s = totalSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final isDark = widget.isDark;
+    final muted = isDark ? LuminaColors.darkMuted : LuminaColors.lightMuted;
+    final isVideo = item.isVideo ||
+        item.modelName.contains('MiniMax') ||
+        item.modelName.contains('Wan');
+    final isAudio = item.isAudio ||
+        item.modelName.contains('Chatterbox') ||
+        item.modelName.contains('Voice');
+    final isTryOn =
+        item.modelName.contains('Try-On') || item.modelName.contains('FASHN');
+
+    // Expected duration in seconds
+    final int estimatedTotal = isVideo
+        ? (item.modelName.contains('MiniMax') ? 240 : 180)
+        : (isTryOn ? 35 : (isAudio ? 20 : 15));
+
+    final int remainingSeconds =
+        (estimatedTotal - _elapsedSeconds).clamp(5, estimatedTotal);
+
+    // Smooth asymptotic progress representation
+    double progress;
+    if (_elapsedSeconds < estimatedTotal) {
+      progress = (_elapsedSeconds / estimatedTotal) * 0.92;
+    } else {
+      progress = 0.92 +
+          (0.06 *
+              (1.0 -
+                  1.0 /
+                      (1.0 +
+                          (_elapsedSeconds - estimatedTotal) * 0.05)));
+    }
+    progress = progress.clamp(0.05, 0.98);
+    final percentInt = (progress * 100).toInt();
+
+    // Friendly Step Title & Subtitle
+    String stepTitle;
+    String stepSubtitle;
+    IconData stepIcon;
+
+    if (isVideo) {
+      if (_elapsedSeconds < 15) {
+        stepTitle = 'Step 1/4: Analyzing Prompt & Scene Layout';
+        stepSubtitle =
+            'Parsing characters, setting camera motion trajectory...';
+        stepIcon = Icons.auto_awesome_rounded;
+      } else if (_elapsedSeconds < 45) {
+        stepTitle = 'Step 2/4: Initializing Latent Motion Field';
+        stepSubtitle =
+            'Composing initial keyframes and lighting vectors...';
+        stepIcon = Icons.movie_filter_rounded;
+      } else if (_elapsedSeconds < estimatedTotal - 35) {
+        stepTitle = 'Step 3/4: Neural Video Diffusion (Denoising)';
+        stepSubtitle =
+            'Generating 120+ fluid animated frames on GPU cluster...';
+        stepIcon = Icons.animation_rounded;
+      } else {
+        stepTitle = 'Step 4/4: Decoding VAE & Finalizing MP4';
+        stepSubtitle =
+            'Encoding high-definition H.264 video with smooth motion...';
+        stepIcon = Icons.video_file_rounded;
+      }
+    } else if (isAudio) {
+      if (_elapsedSeconds < 8) {
+        stepTitle = 'Step 1/2: Synthesizing Phonemes';
+        stepSubtitle = 'Analyzing pronunciation, rhythm, and tone...';
+        stepIcon = Icons.graphic_eq_rounded;
+      } else {
+        stepTitle = 'Step 2/2: Neural Audio Rendering';
+        stepSubtitle = 'Generating high-fidelity speech waveform...';
+        stepIcon = Icons.record_voice_over_rounded;
+      }
+    } else if (isTryOn) {
+      if (_elapsedSeconds < 15) {
+        stepTitle = 'Step 1/3: Warping Garment Geometry';
+        stepSubtitle = 'Aligning clothing fit to person pose and contours...';
+        stepIcon = Icons.accessibility_new_rounded;
+      } else if (_elapsedSeconds < 28) {
+        stepTitle = 'Step 2/3: Diffusion Fabric Inpainting';
+        stepSubtitle = 'Blending realistic shadows, folds, and fabric textures...';
+        stepIcon = Icons.brush_rounded;
+      } else {
+        stepTitle = 'Step 3/3: Post-processing Details';
+        stepSubtitle = 'Sharpening edges and matching skin tone lighting...';
+        stepIcon = Icons.check_circle_outline_rounded;
+      }
+    } else {
+      if (_elapsedSeconds < 5) {
+        stepTitle = 'Step 1/3: Encoding Prompt Tokens';
+        stepSubtitle = 'Setting up latent canvas and seed configuration...';
+        stepIcon = Icons.lightbulb_outline_rounded;
+      } else if (_elapsedSeconds < estimatedTotal - 4) {
+        stepTitle = 'Step 2/3: Multi-Step Diffusion';
+        stepSubtitle = 'Denoising latents into fine details and textures...';
+        stepIcon = Icons.palette_outlined;
+      } else {
+        stepTitle = 'Step 3/3: High-Res VAE Decode';
+        stepSubtitle = 'Converting latents to final uncompressed canvas...';
+        stepIcon = Icons.image_rounded;
+      }
+    }
+
+    final cardBg = isDark ? const Color(0xFF14171F) : Colors.white;
+    final cardBorder = isDark
+        ? Colors.white.withValues(alpha: 0.12)
+        : Colors.black.withValues(alpha: 0.08);
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 440, minHeight: 310),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Row: Status Badge + Model Chip
+          Row(
+            children: [
+              AnimatedBuilder(
+                animation: _pulseController,
+                builder: (context, child) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD32F2F).withValues(
+                          alpha: 0.12 + 0.10 * _pulseController.value),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: const Color(0xFFD32F2F).withValues(
+                            alpha: 0.35 + 0.35 * _pulseController.value),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFD32F2F),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isVideo ? 'RENDERING VIDEO' : 'GENERATING',
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.6,
+                            color: Color(0xFFD32F2F),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  item.modelName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // Central Step Info Box
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFFD32F2F),
+                      LuminaColors.primaryGlow,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFD32F2F).withValues(alpha: 0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Icon(stepIcon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      stepTitle,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      stepSubtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: muted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          // Animated Progress Bar + Percentage
+          Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Progress',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: muted,
+                    ),
+                  ),
+                  Text(
+                    '$percentInt%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFD32F2F),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 6,
+                  backgroundColor: isDark ? Colors.white12 : Colors.black12,
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    Color(0xFFD32F2F),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Stats Bar: Elapsed & Estimated Remaining Time
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF0F1218)
+                  : const Color(0xFFF3F4F7),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.timer_outlined, size: 14, color: muted),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Elapsed: ${_formatDuration(_elapsedSeconds)}',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
+                        color: isDark ? Colors.white70 : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.hourglass_top_rounded,
+                        size: 14, color: Color(0xFFD32F2F)),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Est: ~${remainingSeconds ~/ 60 > 0 ? '${remainingSeconds ~/ 60}m ' : ''}${remainingSeconds % 60}s',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Friendly Note
+          Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 12.5, color: muted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  isVideo
+                      ? 'Generating 120+ high-definition frames on the GPU cluster. You can stay here or compose another prompt.'
+                      : 'AI is rendering your generation. It will appear here automatically.',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: muted.withValues(alpha: 0.85),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
