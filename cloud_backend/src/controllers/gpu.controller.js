@@ -4,6 +4,7 @@
  */
 
 import { asyncHandler } from '../utils/asyncHandler.js';
+import axios from 'axios';
 import { gpuProviderService } from '../services/gpuProvider.service.js';
 import { vastaiService } from '../services/vastai.service.js';
 import { priceTrackerService } from '../services/priceTracker.service.js';
@@ -224,6 +225,11 @@ export function instanceProgressView(instance, now = new Date()) {
     creditsPerHour: instance.pricing?.totalCreditsPerHour ?? null,
     stopReason: instance.stopReason || null,
   };
+  view.gatewayUrl = '/api/v1/gpu/gateway';
+  // Expose cosmic-gen.com gateway as the primary engine URL to protect raw GPU IP
+  if (view.pythonEngineUrl) {
+    view.directEngineUrl = view.pythonEngineUrl;
+  }
   // Internal fields the app has no use for.
   delete view.pendingStopReason;
   delete view.holdsSlot;
@@ -327,4 +333,48 @@ export const getGpuSeries = asyncHandler(async (req, res) => {
     success: true,
     data: seriesGroups,
   });
+});
+
+/**
+ * ALL /api/v1/gpu/gateway/*
+ * Secure reverse-proxy gateway from cosmic-gen.com to the user's active GPU engine.
+ * Completely masks raw Vast.ai IPs and direct ports from client devices.
+ */
+export const proxyToGpuGateway = asyncHandler(async (req, res) => {
+  const instance = await GpuInstance.findOne({
+    user: req.user._id,
+    status: 'ready',
+  }).lean();
+
+  if (!instance || !instance.pythonEngineUrl) {
+    throw ApiError.badRequest('No active GPU instance found for your account.');
+  }
+
+  const subPath = req.url || '/';
+  const targetUrl = `${instance.pythonEngineUrl}${subPath}`;
+
+  try {
+    const response = await axios({
+      method: req.method,
+      url: targetUrl,
+      params: req.query,
+      data: req.body,
+      headers: {
+        'Content-Type': req.headers['content-type'] || 'application/json',
+      },
+      responseType: 'stream',
+      timeout: 3600000,
+      validateStatus: () => true,
+    });
+
+    res.status(response.status);
+    Object.entries(response.headers).forEach(([key, val]) => {
+      if (!['transfer-encoding', 'content-length', 'connection'].includes(key.toLowerCase())) {
+        res.setHeader(key, val);
+      }
+    });
+    response.data.pipe(res);
+  } catch (err) {
+    throw ApiError.badGateway(`GPU Engine unreachable: ${err.message}`);
+  }
 });

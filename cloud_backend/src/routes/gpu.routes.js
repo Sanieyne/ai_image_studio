@@ -15,6 +15,7 @@ import {
   destroyInstance,
   estimatePricing,
   getGpuSeries,
+  proxyToGpuGateway,
 } from '../controllers/gpu.controller.js';
 import { protect } from '../middleware/auth.middleware.js';
 import { env } from '../config/env.js';
@@ -54,5 +55,8 @@ router.post('/rent', protect, validate(rentGpuSchema), rent);
 router.get('/instances/me', protect, getMyInstances);
 router.get('/instances/:instanceId', protect, getInstanceById);
 router.delete('/instances/:instanceId', protect, destroyInstance);
+
+// Secure Reverse-Proxy Gateway to active GPU engine
+router.use('/gateway', protect, proxyToGpuGateway);
 
 export default router;
