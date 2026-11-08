@@ -1919,13 +1919,25 @@ class _GeneratingCardState extends State<_GeneratingCard>
     final isTryOn =
         item.modelName.contains('Try-On') || item.modelName.contains('FASHN');
 
-    // Expected duration in seconds
+    final bool isMiniMax = item.modelName.contains('MiniMax');
+    final bool isWan = item.modelName.contains('Wan');
+
+    // Expected duration in seconds:
+    // MiniMax: ~480s (~8 mins cold boot + 124-frame diffusion + audio)
+    // Wan 2.1: ~360s (~6 mins 81-frame 14B diffusion)
     final int estimatedTotal = isVideo
-        ? (item.modelName.contains('MiniMax') ? 240 : 180)
+        ? (isMiniMax ? 480 : (isWan ? 360 : 180))
         : (isTryOn ? 35 : (isAudio ? 20 : 15));
 
-    final int remainingSeconds =
-        (estimatedTotal - _elapsedSeconds).clamp(5, estimatedTotal);
+    final String estRemainingText;
+    if (_elapsedSeconds < estimatedTotal) {
+      final rem = estimatedTotal - _elapsedSeconds;
+      final m = rem ~/ 60;
+      final s = rem % 60;
+      estRemainingText = '~${m > 0 ? '${m}m ' : ''}${s}s left';
+    } else {
+      estRemainingText = 'Finalizing (~1-2m)';
+    }
 
     // Smooth asymptotic progress representation
     double progress;
@@ -1948,20 +1960,26 @@ class _GeneratingCardState extends State<_GeneratingCard>
     IconData stepIcon;
 
     if (isVideo) {
-      if (_elapsedSeconds < 15) {
+      if (isMiniMax && _elapsedSeconds < 120) {
+        stepTitle = 'Step 1/4: Initializing Model in GPU VRAM';
+        stepSubtitle =
+            'Warming up 33B foundation weights into HBM2e VRAM...';
+        stepIcon = Icons.memory_rounded;
+      } else if (_elapsedSeconds < 25) {
         stepTitle = 'Step 1/4: Analyzing Prompt & Scene Layout';
         stepSubtitle =
             'Parsing characters, setting camera motion trajectory...';
         stepIcon = Icons.auto_awesome_rounded;
-      } else if (_elapsedSeconds < 45) {
+      } else if (_elapsedSeconds < 60) {
         stepTitle = 'Step 2/4: Initializing Latent Motion Field';
         stepSubtitle =
             'Composing initial keyframes and lighting vectors...';
         stepIcon = Icons.movie_filter_rounded;
-      } else if (_elapsedSeconds < estimatedTotal - 35) {
+      } else if (_elapsedSeconds < estimatedTotal - 45) {
         stepTitle = 'Step 3/4: Neural Video Diffusion (Denoising)';
-        stepSubtitle =
-            'Generating 120+ fluid animated frames on GPU cluster...';
+        stepSubtitle = isMiniMax
+            ? 'Generating 124 synchronized video + audio frames on GPU...'
+            : 'Generating 80+ fluid animated frames on GPU cluster...';
         stepIcon = Icons.animation_rounded;
       } else {
         stepTitle = 'Step 4/4: Decoding VAE & Finalizing MP4';
@@ -2231,7 +2249,7 @@ class _GeneratingCardState extends State<_GeneratingCard>
                         size: 14, color: Color(0xFFD32F2F)),
                     const SizedBox(width: 5),
                     Text(
-                      'Est: ~${remainingSeconds ~/ 60 > 0 ? '${remainingSeconds ~/ 60}m ' : ''}${remainingSeconds % 60}s',
+                      'Est: $estRemainingText (Total ~${(estimatedTotal / 60).round()}m)',
                       style: TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.bold,
@@ -2253,7 +2271,7 @@ class _GeneratingCardState extends State<_GeneratingCard>
               Expanded(
                 child: Text(
                   isVideo
-                      ? 'Generating 120+ high-definition frames on the GPU cluster. You can stay here or compose another prompt.'
+                      ? 'Generating on Cloud GPU. Est: ~${(estimatedTotal / 60).round()} mins. Waiting until 100% finished — no timeout limit.'
                       : 'AI is rendering your generation. It will appear here automatically.',
                   style: TextStyle(
                     fontSize: 10.5,

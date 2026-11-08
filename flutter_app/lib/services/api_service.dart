@@ -60,7 +60,7 @@ class ApiService {
   static String baseUrl = 'http://127.0.0.1:8000';
   static String localBaseUrl = 'http://127.0.0.1:8000';
   static String? cloudBaseUrl;
-  static const Duration requestTimeout = Duration(minutes: 8);
+  static const Duration requestTimeout = Duration(hours: 4);
 
   /// Converts technical engine exceptions and timeouts into friendly, helpful UI messages.
   static String formatFriendlyError(dynamic error) {
@@ -243,7 +243,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 25));
+          .timeout(const Duration(hours: 4));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -329,7 +329,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 25));
+          .timeout(const Duration(hours: 4));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -395,7 +395,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 25));
+          .timeout(const Duration(hours: 4));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
