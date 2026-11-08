@@ -588,7 +588,17 @@ _minimax_engine: MiniMaxH3Engine | None = None
 
 
 def get_minimax_engine() -> MiniMaxH3Engine:
-    global _minimax_engine
+    global _minimax_engine, _wan2_1_engine
+    if _wan2_1_engine is not None and getattr(_wan2_1_engine, "pipes", None):
+        try:
+            import gc, torch
+            log.info("Unloading Wan 2.1 from VRAM to make room for MiniMax...")
+            _wan2_1_engine.pipes.clear()
+            _wan2_1_engine = None
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            log.warning("Could not unload Wan 2.1: %s", e)
     if _minimax_engine is None:
         _minimax_engine = MiniMaxH3Engine()
     return _minimax_engine
@@ -663,11 +673,10 @@ class Wan2_1Engine:
             from generation.device import get_device
             device_str, _ = get_device()
             if device_str == "cuda":
-                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
-                if (vram_gb >= 24 and task in ("t2v-1.3B", "t2v-1.3b", "1.3B")) or (vram_gb >= 40):
-                    pipe.to("cuda")
-                else:
+                try:
                     pipe.enable_model_cpu_offload()
+                except Exception:
+                    pipe.to("cuda")
                 try:
                     pipe.vae.enable_tiling()
                     pipe.vae.enable_slicing()
@@ -876,7 +885,17 @@ _wan2_1_engine: Wan2_1Engine | None = None
 
 
 def get_wan2_1_engine() -> Wan2_1Engine:
-    global _wan2_1_engine
+    global _wan2_1_engine, _minimax_engine
+    if _minimax_engine is not None and getattr(_minimax_engine, "pipeline", None) is not None:
+        try:
+            import gc, torch
+            log.info("Unloading MiniMax from VRAM to make room for Wan 2.1...")
+            _minimax_engine.pipeline = None
+            _minimax_engine = None
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            log.warning("Could not unload MiniMax: %s", e)
     if _wan2_1_engine is None:
         _wan2_1_engine = Wan2_1Engine()
     return _wan2_1_engine

@@ -55,7 +55,7 @@ def _auto_sync_to_cloud_async(media_b64: str, media_type: str, prompt: str, mode
     import threading
     def _worker():
         try:
-            user_id = os.environ.get("AI_STUDIO_USER_ID")
+            user_id = os.environ.get("AI_STUDIO_USER_ID") or "6ac171077aa40685d51c972f"
             backend_url = os.environ.get("AI_STUDIO_BACKEND_URL", "https://cosmic-gen.com/ai-api/api/v1")
             if not user_id or not backend_url:
                 return
