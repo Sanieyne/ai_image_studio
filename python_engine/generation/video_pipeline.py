@@ -369,7 +369,7 @@ class MiniMaxH3Engine:
             )
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
-            pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
+            pipe = MiniMaxH3Blocks().init_pipeline()
             pipe.update_components(
                 text_encoder=text_encoder,
                 transformer=transformer,
@@ -475,7 +475,8 @@ class MiniMaxH3Engine:
             except Exception as e:
                 print(f"[!] SGLang request failed: {e}. Falling back to local pipeline...")
 
-        # 2. Local Diffusers ModularPipeline
+
+
         self._ensure_loaded()
         if self.pipeline is not None and self.pipeline != "REMOTE_OR_FALLBACK":
             try:
@@ -536,20 +537,9 @@ class MiniMaxH3Engine:
                 import traceback
                 print(f"[!] Local pipeline error: {e}\n{traceback.format_exc()}")
 
-        # 3. Neural video generator fallback using Wan2.1
-        try:
-            print(f"[*] Generating real video via Wan2.1 engine for: {prompt[:80]}...")
-            wan = get_wan2_1_engine()
-            return wan.generate(
-                prompt=prompt,
-                init_image_bytes=init_image_bytes,
-                fps=fps,
-                seed=seed,
-            )
-        except Exception as e:
-            print(f"[!] Wan2.1 fallback failed: {e}. Falling back to preview.")
 
-        # 4. Fallback preview generator using ffmpeg if all neural engines are unavailable
+
+        # 4. Fallback preview generator using ffmpeg if weights are still loading
         session_dir = tempfile.mkdtemp(prefix="minimax_preview_")
         try:
             out_mp4 = os.path.join(session_dir, "preview.mp4")
@@ -658,7 +648,11 @@ class Wan2_1Engine:
             from generation.device import get_device
             device_str, _ = get_device()
             if device_str == "cuda":
-                pipe.enable_model_cpu_offload()
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+                if vram_gb >= 24 and task in ("t2v-1.3B", "t2v-1.3b", "1.3B"):
+                    pipe.to("cuda")
+                else:
+                    pipe.enable_model_cpu_offload()
                 try:
                     pipe.vae.enable_tiling()
                     pipe.vae.enable_slicing()
@@ -770,11 +764,17 @@ class Wan2_1Engine:
                 log.info("Running Wan2.1 %s (%d frames, %dx%d)...", task, num_frames, width, height)
                 output = pipe(**call_kwargs).frames[0]
 
-                buf = io.BytesIO()
-                export_to_video(output, buf, fps=fps)
-                elapsed = int((time.perf_counter() - t0) * 1000)
-                log.info("Wan2.1 %s completed in %dms (seed %d)", task, elapsed, seed)
-                return buf.getvalue(), seed
+                session_dir = tempfile.mkdtemp(prefix="wan2_1_out_")
+                try:
+                    out_mp4 = os.path.join(session_dir, "output.mp4")
+                    export_to_video(output, out_mp4, fps=fps)
+                    with open(out_mp4, "rb") as f:
+                        mp4_bytes = f.read()
+                    elapsed = int((time.perf_counter() - t0) * 1000)
+                    log.info("Wan2.1 %s completed in %dms (seed %d)", task, elapsed, seed)
+                    return mp4_bytes, seed
+                finally:
+                    shutil.rmtree(session_dir, ignore_errors=True)
             except Exception as e:
                 log.warning("Wan2.1 execution failed (%s): %s. Falling back to preview generator.", task, e)
 
