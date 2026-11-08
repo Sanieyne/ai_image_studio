@@ -145,7 +145,18 @@ MODEL_CATALOG: Dict[str, dict] = {
         "mode": "video",
         "aliases": ["MiniMaxAI/MiniMax-H3", "minimax"],
         "target_subpath": "minimax-h3",
-        "r2_prefix": "models/minimax-h3/FL2VA/",
+        "r2_prefix": "models/minimax-h3/",
+        "include_subdirs": [
+            "model_index.json",
+            "audio_scheduler",
+            "audio_vae",
+            "processor",
+            "scheduler",
+            "text_encoder",
+            "tokenizer",
+            "transformer",
+            "vae",
+        ],
         "symlinks": [
             (".", "/workspace/models/minimax-h3"),
             (".", "/root/models/minimax-h3"),
@@ -291,6 +302,12 @@ def download_single_model(
 
     r2_prefix = catalog_info.get("r2_prefix", f"models/{canonical}/")
     r2_files = list_r2_model_files(s3, bucket, canonical, custom_prefix=r2_prefix)
+    include_subdirs = catalog_info.get("include_subdirs")
+    if include_subdirs:
+        r2_files = [
+            f for f in r2_files
+            if any(f["rel_path"] == sub or f["rel_path"].startswith(f"{sub}/") for sub in include_subdirs)
+        ]
     if not r2_files:
         log(f"[!] Warning: No objects found under {r2_prefix} in R2 bucket '{bucket}'.")
         return False

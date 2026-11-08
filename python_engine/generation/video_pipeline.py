@@ -311,10 +311,11 @@ class MiniMaxH3Engine:
     def __init__(self, model_path: str = MINIMAX_REPO):
         self.model_path = model_path
         self.pipeline = None
+        self._load_error: str | None = None
 
     @property
     def loaded(self) -> bool:
-        return self.pipeline is not None and self.pipeline != "REMOTE_OR_FALLBACK"
+        return self.pipeline is not None and self.pipeline not in ("REMOTE_OR_FALLBACK", "FAILED")
 
     def _ensure_loaded(self):
         if self.pipeline is not None:
@@ -369,7 +370,7 @@ class MiniMaxH3Engine:
             )
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
-            pipe = MiniMaxH3Blocks().init_pipeline()
+            pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
             pipe.update_components(
                 text_encoder=text_encoder,
                 transformer=transformer,
@@ -403,13 +404,15 @@ class MiniMaxH3Engine:
                 pipe.to("mps")
 
             self.pipeline = pipe
+            self._load_error = None
             print("[OK] MiniMax-H3 Pipeline loaded and ready!")
             return
         except Exception as e:
             import traceback
-            print(f"[*] ModularPipeline initialization error: {e}\n{traceback.format_exc()}")
-
-        self.pipeline = "REMOTE_OR_FALLBACK"
+            err_trace = traceback.format_exc()
+            self._load_error = f"{e}\n{err_trace}"
+            print(f"[*] MiniMax-H3 initialization error: {e}\n{err_trace}")
+            self.pipeline = "FAILED"
 
     def generate(
         self,
@@ -535,38 +538,12 @@ class MiniMaxH3Engine:
                     shutil.rmtree(session_dir, ignore_errors=True)
             except Exception as e:
                 import traceback
-                print(f"[!] Local pipeline error: {e}\n{traceback.format_exc()}")
+                print(f"[!] Local MiniMax-H3 pipeline error: {e}\n{traceback.format_exc()}")
+                raise RuntimeError(f"MiniMax-H3 local pipeline execution failed: {e}") from e
 
-
-
-        # 4. Fallback preview generator using ffmpeg if weights are still loading
-        session_dir = tempfile.mkdtemp(prefix="minimax_preview_")
-        try:
-            out_mp4 = os.path.join(session_dir, "preview.mp4")
-            ref_path = os.path.join(session_dir, "ref.png")
-            if init_image_bytes:
-                with open(ref_path, "wb") as f:
-                    f.write(init_image_bytes)
-                input_spec = ["-loop", "1", "-i", ref_path]
-            else:
-                input_spec = ["-f", "lavfi", "-i", f"color=c=0x111625:s=768x432:d={duration_seconds}"]
-
-            cmd = [
-                "ffmpeg", "-y",
-                *input_spec,
-                "-f", "lavfi", "-i", f"anoisesrc=d={duration_seconds}:c=pink:r=32000:a=0.04",
-                "-vf", f"scale=768:432,fps={fps},drawtext=text='MiniMax-H3 Omni (Video+Audio)':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=h-40",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-c:a", "aac", "-b:a", "128k",
-                "-t", str(duration_seconds),
-                out_mp4,
-            ]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            with open(out_mp4, "rb") as f:
-                mp4_bytes = f.read()
-            return mp4_bytes, seed
-        finally:
-            shutil.rmtree(session_dir, ignore_errors=True)
+        # If we reach here, neither SGLang nor local pipeline is ready
+        load_err = getattr(self, "_load_error", "Model weights not loaded or pipeline failed to initialize.")
+        raise RuntimeError(f"MiniMax-H3 is not ready to generate video: {load_err}")
 
 
 _minimax_engine: MiniMaxH3Engine | None = None
