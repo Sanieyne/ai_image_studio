@@ -158,6 +158,15 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }));
       }
+
+      // Auto-recover any video generation stuck in 'generating' if network was interrupted
+      final pendingVideo = _messages.cast<GenerationItem?>().firstWhere(
+        (m) => m != null && m.status == GenerationStatus.generating && m.isVideo,
+        orElse: () => null,
+      );
+      if (pendingVideo != null) {
+        unawaited(_recoverPendingVideo(pendingVideo));
+      }
     } else {
       _consecutiveHealthFailures++;
       // Require 2 consecutive failures before declaring the engine offline.
@@ -166,6 +175,38 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _engineOnline = false);
       }
     }
+  }
+
+  Future<void> _recoverPendingVideo(GenerationItem item) async {
+    try {
+      final status = await _api.checkLatestVideoStatus();
+      if (status != null && status['has_video'] == true && status['status'] == 'completed') {
+        final ts = (status['timestamp'] as num?)?.toDouble() ?? 0;
+        final itemTs = item.timestamp.millisecondsSinceEpoch / 1000.0;
+        // If the server completed a video within 60s before or anytime after the item was submitted
+        if (ts >= (itemTs - 60)) {
+          final bytes = await _api.downloadLatestVideo();
+          if (bytes != null && bytes.isNotEmpty && mounted) {
+            item.status = GenerationStatus.completed;
+            item.seed = (status['seed'] as num?)?.toInt() ?? item.seed;
+            await _db.updateGenerationResult(
+              id: item.id,
+              status: GenerationStatus.completed,
+              bytes: bytes,
+              seed: item.seed,
+              durationMs: null,
+              loras: const {},
+              isVideo: true,
+              isAudio: false,
+            );
+            if (mounted) {
+              setState(() {});
+              await _loadGenerations();
+            }
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   bool _isModelAvailable(String modelName) {

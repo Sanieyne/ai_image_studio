@@ -530,6 +530,44 @@ class MiniMaxH3Engine:
                         audio=results["audio"][0],
                         audio_sample_rate=results["sampling_rate"],
                     )
+                    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+                    os.makedirs(outputs_dir, exist_ok=True)
+                    latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
+                    seed_mp4 = os.path.join(outputs_dir, f"video_{seed}.mp4")
+                    meta_path = os.path.join(outputs_dir, "latest_meta.json")
+                    try:
+                        shutil.copyfile(out_mp4, latest_mp4)
+                        shutil.copyfile(out_mp4, seed_mp4)
+                        with open(meta_path, "w") as f:
+                            json.dump({
+                                "status": "completed",
+                                "seed": seed,
+                                "prompt": prompt,
+                                "timestamp": time.time(),
+                                "size": len(mp4_bytes),
+                            }, f)
+                        print(f"[*] Archived video and metadata to {outputs_dir}")
+                    except Exception as save_err:
+                        print(f"[!] Warning archiving video: {save_err}")
+
+                    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+                    os.makedirs(outputs_dir, exist_ok=True)
+                    latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
+                    seed_mp4 = os.path.join(outputs_dir, f"video_{seed}.mp4")
+                    meta_path = os.path.join(outputs_dir, "latest_meta.json")
+                    try:
+                        shutil.copyfile(out_mp4, latest_mp4)
+                        shutil.copyfile(out_mp4, seed_mp4)
+                        with open(meta_path, "w") as f:
+                            json.dump({
+                                "status": "completed",
+                                "seed": seed,
+                                "prompt": prompt,
+                                "timestamp": time.time(),
+                                "size": len(mp4_bytes),
+                            }, f)
+                    except Exception:
+                        pass
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
                     print(f"[OK] MiniMax-H3 generated {len(mp4_bytes)} bytes in {int((time.perf_counter()-t0)*1000)}ms")
@@ -745,6 +783,24 @@ class Wan2_1Engine:
                 try:
                     out_mp4 = os.path.join(session_dir, "output.mp4")
                     export_to_video(output, out_mp4, fps=fps)
+                    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+                    os.makedirs(outputs_dir, exist_ok=True)
+                    latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
+                    seed_mp4 = os.path.join(outputs_dir, f"video_{seed}.mp4")
+                    meta_path = os.path.join(outputs_dir, "latest_meta.json")
+                    try:
+                        shutil.copyfile(out_mp4, latest_mp4)
+                        shutil.copyfile(out_mp4, seed_mp4)
+                        with open(meta_path, "w") as f:
+                            json.dump({
+                                "status": "completed",
+                                "seed": seed,
+                                "prompt": prompt,
+                                "timestamp": time.time(),
+                                "size": len(mp4_bytes),
+                            }, f)
+                    except Exception:
+                        pass
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
                     elapsed = int((time.perf_counter() - t0) * 1000)

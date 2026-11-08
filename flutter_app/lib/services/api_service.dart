@@ -430,6 +430,32 @@ class ApiService {
     }
   }
 
+  /// GET /video/status -> Returns metadata of the latest completed video generation
+  Future<Map<String, dynamic>?> checkLatestVideoStatus() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/video/status'))
+          .timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// GET /video/latest -> Downloads the raw bytes of the latest completed video
+  Future<Uint8List?> downloadLatestVideo() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/video/latest'))
+          .timeout(const Duration(minutes: 5));
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// POST /voice -> Chatterbox TTS or Breeze-TTS-2 voice generation / cloning
   Future<GenerationResult> generateVoice({
     required String prompt,

@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
 from api.schemas import (
@@ -908,5 +908,62 @@ def get_camera_status() -> CameraStatusResponse:
         return CameraStatusResponse(**data)
     except Exception as e:
         return CameraStatusResponse(active=False, source=None, is_mock_feed=False, idle_seconds=None)
+
+
+@router.get("/video/status")
+def get_video_status():
+    """Return the status and metadata of the most recent video generation for reconnection recovery."""
+    import json
+    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+    meta_path = os.path.join(outputs_dir, "latest_meta.json")
+    latest_path = os.path.join(outputs_dir, "latest_video.mp4")
+    if not os.path.isfile(latest_path):
+        return {"status": "idle", "has_video": False}
+    meta = {}
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+        except Exception:
+            pass
+    return {
+        "status": "completed",
+        "has_video": True,
+        "seed": meta.get("seed"),
+        "timestamp": meta.get("timestamp", os.path.getmtime(latest_path)),
+        "size": os.path.getsize(latest_path),
+        "prompt": meta.get("prompt", ""),
+    }
+
+
+@router.get("/video/latest")
+def download_latest_video():
+    """Directly download the most recently generated video file."""
+    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+    latest_path = os.path.join(outputs_dir, "latest_video.mp4")
+    if not os.path.isfile(latest_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No video has been generated yet.",
+        )
+    return FileResponse(
+        latest_path,
+        media_type="video/mp4",
+        filename="latest_video.mp4",
+    )
+
+
+@router.get("/outputs/{filename}")
+def download_output_media(filename: str):
+    """Directly download any generated media file by filename."""
+    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
+    target_path = os.path.join(outputs_dir, filename)
+    if not os.path.isfile(target_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"File '{filename}' not found in outputs.",
+        )
+    return FileResponse(target_path)
+
 
 
