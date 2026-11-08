@@ -205,6 +205,13 @@ class ModelDownloadService {
     'wan-2.2-animate-14b': 'wan-2.2-animate-14b',
     'minimax-h3 video+audio': 'minimax-h3',
     'minimax-h3': 'minimax-h3',
+    'minimaxai/minimax-h3': 'minimax-h3',
+    'wan 2.1 flf2v 14b': 'wan-2.1-flf2v-14b',
+    'wan-2.1-flf2v-14b': 'wan-2.1-flf2v-14b',
+    'wan-ai/wan2.1-flf2v-14b-720p-diffusers': 'wan-2.1-flf2v-14b',
+    'wan-ai/wan2.1-t2v-1.3b-diffusers': 'wan-2.1-t2v-1.3b',
+    'wan-ai/wan2.1-i2v-14b-480p-diffusers': 'wan-2.1-i2v-14b',
+    'wan-ai/wan2.2-animate-14b': 'wan-2.2-animate-14b',
   };
 
   /// Normalizes a model identifier to its canonical catalog ID
@@ -290,6 +297,30 @@ class ModelDownloadService {
     }
   }
 
+  /// Synchronously checks if a model's weights already exist locally on disk
+  bool isModelDownloadedSync(String rawModelId) {
+    final canonicalId = normalizeModelId(rawModelId);
+    final dir = getModelDirectory(canonicalId);
+    if (!dir.existsSync()) {
+      if (canonicalId == 'realesrgan-x4plus') {
+        final alt1 = File('/workspace/models/realesrgan/RealESRGAN_x4plus.pth');
+        final alt2 = File('/root/models/realesrgan/RealESRGAN_x4plus.pth');
+        final alt3 = File(p.join(Platform.environment['HOME'] ?? '', '.cache/realesrgan/RealESRGAN_x4plus.pth'));
+        if (alt1.existsSync() || alt2.existsSync() || alt3.existsSync()) return true;
+      }
+      return false;
+    }
+
+    try {
+      final entities = dir.listSync(recursive: true);
+      final files = entities.whereType<File>().where((f) => !f.path.endsWith('.part')).toList();
+      if (files.isEmpty) return false;
+      return files.any((f) => f.lengthSync() > 1024 * 1024);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Free space (bytes) on the drive holding the models folder, or null when
   /// it cannot be determined. Never guessed.
   Future<int?> getAvailableDiskSpace() async {
@@ -342,6 +373,9 @@ class ModelDownloadService {
 
   /// Stream of download progress across all models
   Stream<ModelDownloadProgress> get globalProgressStream => _globalProgressController.stream;
+
+  /// Convenience alias for globalProgressStream
+  Stream<ModelDownloadProgress> get progressStream => _globalProgressController.stream;
 
   /// Whether any model download is currently active
   bool get hasActiveDownloads {

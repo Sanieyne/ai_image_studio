@@ -10,7 +10,9 @@ import 'package:flutter/material.dart';
 import '../models/image_template.dart';
 import '../models/video_template.dart';
 import '../services/api_service.dart';
+import '../services/model_download_service.dart';
 import '../theme/app_theme.dart';
+import 'app_toast.dart';
 import 'camera_capture_dialog.dart';
 import 'lora_manager.dart';
 
@@ -98,8 +100,31 @@ class PromptInputBarState extends State<PromptInputBar> {
   bool _showNegativePrompt = false;
   String? _videoTemplateNotice;
 
+  /// Checks whether a model is downloaded on the active cloud instance or locally on disk
+  bool isModelAvailable(String modelName) {
+    if (modelName == 'Offline Mock Mode') return true;
+    final status = _availableModelsMap[modelName];
+    if (status != null && (status.isDownloaded || status.isActive)) return true;
+    final hfId = PromptInputBar.modelIds[modelName];
+    if (hfId != null) {
+      final statusById = _availableModelsMap[hfId];
+      if (statusById != null && (statusById.isDownloaded || statusById.isActive)) return true;
+      if (ModelDownloadService.instance.isModelDownloadedSync(hfId)) return true;
+    }
+    if (ModelDownloadService.instance.isModelDownloadedSync(modelName)) return true;
+    return false;
+  }
+
   /// Programmatically populate the prompt bar with a full VideoTemplate
   void applyVideoTemplate(VideoTemplate template) {
+    if (!isModelAvailable(template.model)) {
+      AppToast.show(
+        context,
+        message: 'Template requires "${template.model}" which is not downloaded. Please download it first.',
+        type: AppToastType.info,
+      );
+      return;
+    }
     setState(() {
       _controller.text = template.prompt;
       if (template.negativePrompt.isNotEmpty) {
@@ -123,6 +148,14 @@ class PromptInputBarState extends State<PromptInputBar> {
 
   /// Programmatically populate the prompt bar with a full ImageTemplate
   void applyImageTemplate(ImageTemplate template) {
+    if (!isModelAvailable(template.model)) {
+      AppToast.show(
+        context,
+        message: 'Template requires "${template.model}" which is not downloaded. Please download it first.',
+        type: AppToastType.info,
+      );
+      return;
+    }
     setState(() {
       _controller.text = template.prompt;
       if (template.negativePrompt.isNotEmpty) {
@@ -409,11 +442,18 @@ class PromptInputBarState extends State<PromptInputBar> {
   String _model = 'Wan 2.2 Animate 14B';
   String _mode = 'Motion Animate';
   Map<String, AvailableModelInfo> _availableModelsMap = {};
+  StreamSubscription? _downloadSub;
 
   @override
   void initState() {
     super.initState();
     _fetchAvailableModels();
+    _downloadSub = ModelDownloadService.instance.progressStream.listen((_) {
+      if (mounted) {
+        _fetchAvailableModels();
+        setState(() {});
+      }
+    });
     if (widget.studioTab != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) applyStudioTab(widget.studioTab);
@@ -467,7 +507,20 @@ class PromptInputBarState extends State<PromptInputBar> {
         setState(() {
           _availableModelsMap = {
             for (final m in models) m.label: m,
+            for (final m in models) m.id: m,
           };
+          // If current model is not downloaded, try to select first available one in this mode
+          if (!isModelAvailable(_model)) {
+            final candidates = _currentModeModels;
+            final firstDl = candidates.cast<_MenuOption?>().firstWhere(
+              (m) => m != null && isModelAvailable(m.value),
+              orElse: () => null,
+            );
+            if (firstDl != null) {
+              _model = firstDl.value;
+              _applyModelDefaults(_model);
+            }
+          }
         });
       }
     } catch (_) {}
@@ -475,6 +528,7 @@ class PromptInputBarState extends State<PromptInputBar> {
 
   @override
   void dispose() {
+    _downloadSub?.cancel();
     _controller.dispose();
     _negController.dispose();
     _instructionController.dispose();
@@ -706,6 +760,15 @@ class PromptInputBarState extends State<PromptInputBar> {
   }
 
   void _submitEnhancer() {
+    if (!isModelAvailable(_model)) {
+      AppToast.show(
+        context,
+        message: 'Cannot enhance: Model "$_model" is not downloaded. Please download it or launch a Cloud GPU instance with it.',
+        type: AppToastType.error,
+      );
+      return;
+    }
+
     if (_referenceBytes == null || _referenceBase64 == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -736,6 +799,15 @@ class PromptInputBarState extends State<PromptInputBar> {
   void _submit() {
     if (_isEnhancerMode) {
       _submitEnhancer();
+      return;
+    }
+
+    if (!isModelAvailable(_model)) {
+      AppToast.show(
+        context,
+        message: 'Cannot generate: Model "$_model" is not downloaded. Please download it or launch a Cloud GPU instance with it.',
+        type: AppToastType.error,
+      );
       return;
     }
 
@@ -954,6 +1026,31 @@ class PromptInputBarState extends State<PromptInputBar> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                if (!isModelAvailable(_model)) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.redAccent.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.35)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.warning_amber_rounded, size: 14, color: Colors.redAccent),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Model "$_model" is not downloaded. Please download it or switch to an active model.',
+                            style: const TextStyle(fontSize: 11, color: Colors.redAccent, fontWeight: FontWeight.w600),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 // Top row: dropdown selector pills.
                 Wrap(
                   spacing: 8,
@@ -978,8 +1075,12 @@ class PromptInputBarState extends State<PromptInputBar> {
                       onSelected: (v) => setState(() {
                         _mode = v;
                         final modeModels = _modelsForMode(v);
-                        if (!modeModels.any((m) => m.value == _model)) {
-                          _model = modeModels.first.value;
+                        if (!modeModels.any((m) => m.value == _model && isModelAvailable(m.value))) {
+                          final firstDl = modeModels.cast<_MenuOption?>().firstWhere(
+                            (m) => m != null && isModelAvailable(m.value),
+                            orElse: () => null,
+                          );
+                          _model = firstDl?.value ?? modeModels.first.value;
                         }
                         _applyModelDefaults(_model);
                       }),
@@ -992,10 +1093,21 @@ class PromptInputBarState extends State<PromptInputBar> {
                       menuOffset: const Offset(0, -220),
                       modelStatusMap: _availableModelsMap,
                       onMenuOpened: _fetchAvailableModels,
-                      onSelected: (v) => setState(() {
-                        _model = v;
-                        _applyModelDefaults(v);
-                      }),
+                      isModelSelector: true,
+                      onSelected: (v) {
+                        if (!isModelAvailable(v)) {
+                          AppToast.show(
+                            context,
+                            message: 'Model "$v" is not downloaded. Please download it before selecting.',
+                            type: AppToastType.info,
+                          );
+                          return;
+                        }
+                        setState(() {
+                          _model = v;
+                          _applyModelDefaults(v);
+                        });
+                      },
                     ),
                     if (_isTryOnMode) ...[
                       _SelectorMenu(
@@ -2786,7 +2898,7 @@ class PromptInputBarState extends State<PromptInputBar> {
 }
 
 /// Pill button opening a styled dropdown menu. Label and icon follow
-/// the current selection.
+/// the current selection. Models that are not downloaded are disabled.
 class _SelectorMenu extends StatelessWidget {
   final List<_MenuOption> options;
   final String value;
@@ -2796,6 +2908,7 @@ class _SelectorMenu extends StatelessWidget {
   final ValueChanged<String> onSelected;
   final Map<String, AvailableModelInfo>? modelStatusMap;
   final VoidCallback? onMenuOpened;
+  final bool isModelSelector;
 
   const _SelectorMenu({
     required this.options,
@@ -2806,20 +2919,35 @@ class _SelectorMenu extends StatelessWidget {
     required this.onSelected,
     this.modelStatusMap,
     this.onMenuOpened,
+    this.isModelSelector = false,
   });
 
-  Widget _buildStatusDot(AvailableModelInfo status) {
+  bool _isOptionDownloaded(String modelValue) {
+    if (modelValue == 'Offline Mock Mode') return true;
+    final status = modelStatusMap?[modelValue];
+    if (status != null && (status.isDownloaded || status.isActive)) return true;
+    final hfId = PromptInputBar.modelIds[modelValue];
+    if (hfId != null) {
+      final statusById = modelStatusMap?[hfId];
+      if (statusById != null && (statusById.isDownloaded || statusById.isActive)) return true;
+      if (ModelDownloadService.instance.isModelDownloadedSync(hfId)) return true;
+    }
+    if (ModelDownloadService.instance.isModelDownloadedSync(modelValue)) return true;
+    return false;
+  }
+
+  Widget _buildStatusDot(AvailableModelInfo? status, bool isDownloaded) {
     final Color dotColor;
     final String tooltip;
-    if (status.isActive) {
+    if (status?.isActive == true) {
       dotColor = const Color(0xFF10B981);
       tooltip = 'Active in GPU memory';
-    } else if (status.isDownloaded) {
+    } else if (isDownloaded) {
       dotColor = const Color(0xFF3B82F6);
-      tooltip = 'Downloaded & cached on disk';
+      tooltip = 'Downloaded & ready';
     } else {
-      dotColor = Colors.grey.withValues(alpha: 0.5);
-      tooltip = 'Available online';
+      dotColor = const Color(0xFFEF4444);
+      tooltip = 'Not downloaded';
     }
     return Tooltip(
       message: tooltip,
@@ -2829,7 +2957,7 @@ class _SelectorMenu extends StatelessWidget {
         decoration: BoxDecoration(
           color: dotColor,
           shape: BoxShape.circle,
-          boxShadow: status.isActive
+          boxShadow: status?.isActive == true
               ? [
                   BoxShadow(
                     color: dotColor.withValues(alpha: 0.7),
@@ -2864,10 +2992,11 @@ class _SelectorMenu extends StatelessWidget {
       );
     }
 
-    final status = modelStatusMap?[modelValue];
-    if (status == null) return null;
+    final hfId = PromptInputBar.modelIds[modelValue];
+    final status = modelStatusMap?[modelValue] ??
+        (hfId != null && modelStatusMap != null ? modelStatusMap![hfId] : null);
 
-    if (status.isActive) {
+    if (status?.isActive == true) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
         decoration: BoxDecoration(
@@ -2875,19 +3004,12 @@ class _SelectorMenu extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           border: Border.all(color: const Color(0xFF10B981), width: 0.8),
         ),
-        child: Row(
+        child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 5,
-              height: 5,
-              decoration: const BoxDecoration(
-                color: Color(0xFF10B981),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 3),
-            const Text(
+            Icon(Icons.check_circle, size: 8, color: Color(0xFF10B981)),
+            SizedBox(width: 3),
+            Text(
               'ACTIVE',
               style: TextStyle(
                 fontSize: 9,
@@ -2901,7 +3023,8 @@ class _SelectorMenu extends StatelessWidget {
       );
     }
 
-    if (status.isDownloaded) {
+    final isDownloaded = _isOptionDownloaded(modelValue);
+    if (isDownloaded) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
         decoration: BoxDecoration(
@@ -2909,19 +3032,12 @@ class _SelectorMenu extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           border: Border.all(color: const Color(0xFF3B82F6), width: 0.8),
         ),
-        child: Row(
+        child: const Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 5,
-              height: 5,
-              decoration: const BoxDecoration(
-                color: Color(0xFF3B82F6),
-                shape: BoxShape.circle,
-              ),
-            ),
-            const SizedBox(width: 3),
-            const Text(
+            Icon(Icons.download_done, size: 8, color: Color(0xFF3B82F6)),
+            SizedBox(width: 3),
+            Text(
               'READY',
               style: TextStyle(
                 fontSize: 9,
@@ -2938,18 +3054,25 @@ class _SelectorMenu extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
+        color: Colors.red.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.8),
+        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4), width: 0.8),
       ),
-      child: const Text(
-        'ONLINE',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey,
-          letterSpacing: 0.4,
-        ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_outline, size: 8, color: Colors.redAccent),
+          SizedBox(width: 3),
+          Text(
+            'NOT DOWNLOADED',
+            style: TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w700,
+              color: Colors.redAccent,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2970,7 +3093,7 @@ class _SelectorMenu extends StatelessWidget {
       onSelected: onSelected,
       onOpened: onMenuOpened,
       offset: menuOffset,
-      tooltip: 'Choose option',
+      tooltip: isModelSelector ? 'Choose model (downloaded only)' : 'Choose option',
       color: dark ? LuminaColors.darkCard : LuminaColors.lightCard,
       elevation: 8,
       shape: RoundedRectangleBorder(
@@ -2978,48 +3101,72 @@ class _SelectorMenu extends StatelessWidget {
         side: BorderSide(color: border),
       ),
       itemBuilder: (context) => [
-        for (final o in options)
-          PopupMenuItem<String>(
-            value: o.value,
-            child: Row(
-              children: [
-                Icon(o.icon, size: 16, color: muted),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+        for (final o in options) ...[
+          () {
+            final isDownloaded = !isModelSelector || _isOptionDownloaded(o.value);
+
+            return PopupMenuItem<String>(
+              value: o.value,
+              enabled: isDownloaded,
+              child: Opacity(
+                opacity: isDownloaded ? 1.0 : 0.42,
+                child: Row(
+                  children: [
+                    Icon(
+                      isDownloaded ? o.icon : Icons.lock_outline_rounded,
+                      size: 16,
+                      color: isDownloaded ? muted : Colors.grey,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Flexible(
-                            child: Text(
-                              o.value,
-                              style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  o.value,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: isDownloaded ? null : muted,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (isModelSelector) ...[
+                                const SizedBox(width: 6),
+                                _buildStatusBadge(o.value) ?? const SizedBox.shrink(),
+                              ],
+                            ],
                           ),
-                          if (modelStatusMap != null) ...[
-                            const SizedBox(width: 6),
-                            _buildStatusBadge(o.value) ??
-                                const SizedBox.shrink(),
-                          ],
+                          Text(
+                            isDownloaded
+                                ? o.hint
+                                : 'Locked: Model not downloaded on Cloud/Local',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isDownloaded ? muted : Colors.redAccent.withValues(alpha: 0.8),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ],
                       ),
-                      Text(o.hint,
-                          style: TextStyle(
-                              fontSize: 11, color: muted),
-                          overflow: TextOverflow.ellipsis),
-                    ],
-                  ),
+                    ),
+                    if (isDownloaded && o.value == value)
+                      const Icon(Icons.check, size: 16, color: LuminaColors.primaryGlow)
+                    else if (!isDownloaded)
+                      const Tooltip(
+                        message: 'Model is not downloaded. Download before selecting.',
+                        child: Icon(Icons.download_for_offline_outlined, size: 16, color: Colors.grey),
+                      ),
+                  ],
                 ),
-                if (o.value == value)
-                  const Icon(Icons.check,
-                      size: 16, color: LuminaColors.primaryGlow),
-              ],
-            ),
-          ),
+              ),
+            );
+          }(),
+        ],
       ],
       child: Container(
         padding:
@@ -3027,7 +3174,11 @@ class _SelectorMenu extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius:
               BorderRadius.circular(LuminaColors.pillRadius),
-          border: Border.all(color: border),
+          border: Border.all(
+            color: isModelSelector && !_isOptionDownloaded(current.value)
+                ? Colors.redAccent.withValues(alpha: 0.6)
+                : border,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -3037,9 +3188,9 @@ class _SelectorMenu extends StatelessWidget {
             Text(current.value,
                 style: const TextStyle(
                     fontSize: 12, fontWeight: FontWeight.w600)),
-            if (currentStatus != null) ...[
+            if (isModelSelector) ...[
               const SizedBox(width: 6),
-              _buildStatusDot(currentStatus),
+              _buildStatusDot(currentStatus, _isOptionDownloaded(current.value)),
             ],
             const SizedBox(width: 4),
             Icon(Icons.expand_more, size: 14, color: muted),

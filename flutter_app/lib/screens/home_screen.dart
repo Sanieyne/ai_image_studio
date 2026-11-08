@@ -13,8 +13,10 @@ import '../models/image_template.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../services/model_download_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_sidebar.dart';
+import '../widgets/app_toast.dart';
 import '../widgets/credit_topup_dialog.dart';
 import '../widgets/generation_bubble.dart';
 import '../widgets/prompt_input_bar.dart';
@@ -85,6 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<GenerationItem> _messages = [];
   final ScrollController _scrollController = ScrollController();
   int _healthTicks = 0;
+  Map<String, AvailableModelInfo> _cloudAvailableMap = {};
 
   @override
   void initState() {
@@ -115,8 +118,17 @@ class _HomeScreenState extends State<HomeScreen> {
       _consecutiveHealthFailures = 0;
       if (!_engineOnline) {
         setState(() => _engineOnline = true);
-        unawaited(_api.getAvailableModels().then((_) {
-          if (mounted) setState(() {});
+      }
+      if (_healthTicks % 4 == 0 || _cloudAvailableMap.isEmpty) {
+        unawaited(_api.getAvailableModels().then((models) {
+          if (mounted && models.isNotEmpty) {
+            setState(() {
+              _cloudAvailableMap = {
+                for (final m in models) m.label: m,
+                for (final m in models) m.id: m,
+              };
+            });
+          }
         }));
       }
     } else {
@@ -127,6 +139,20 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() => _engineOnline = false);
       }
     }
+  }
+
+  bool _isModelAvailable(String modelName) {
+    if (modelName == 'Offline Mock Mode') return true;
+    final status = _cloudAvailableMap[modelName];
+    if (status != null && (status.isDownloaded || status.isActive)) return true;
+    final hfId = PromptInputBar.modelIds[modelName];
+    if (hfId != null) {
+      final statusById = _cloudAvailableMap[hfId];
+      if (statusById != null && (statusById.isDownloaded || statusById.isActive)) return true;
+      if (ModelDownloadService.instance.isModelDownloadedSync(hfId)) return true;
+    }
+    if (ModelDownloadService.instance.isModelDownloadedSync(modelName)) return true;
+    return false;
   }
 
   String _deriveTitle(String prompt) {
@@ -636,6 +662,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
       _handleOpenSubscriptionDialog();
+      return;
+    }
+
+    if (!_isModelAvailable(model)) {
+      AppToast.show(
+        context,
+        message: 'Cannot generate: Model "$model" is not downloaded. Please download it or launch a Cloud GPU instance with it.',
+        type: AppToastType.error,
+      );
       return;
     }
 

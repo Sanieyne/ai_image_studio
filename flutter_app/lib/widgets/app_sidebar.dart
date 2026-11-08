@@ -9,8 +9,11 @@ import '../models/video_template.dart';
 import '../models/image_template.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/model_download_service.dart';
 import '../theme/app_theme.dart';
+import 'app_toast.dart';
 import 'model_download_button.dart';
+import 'prompt_input_bar.dart';
 import 'settings_dialog.dart';
 import 'silent_video_preview_player.dart';
 
@@ -113,6 +116,9 @@ enum ProjectAction { share, rename, pin, archive, delete, moveToProject }
 
 class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateMixin {
   SidebarTab _currentTab = SidebarTab.history;
+  Map<String, AvailableModelInfo> _cloudAvailableMap = {};
+  StreamSubscription? _downloadSub;
+  Timer? _cloudStatusTimer;
 
   @override
   void initState() {
@@ -121,6 +127,40 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
       _currentTab = widget.activeTab!;
     }
     AuthService.instance.getCurrentUser();
+    _downloadSub = ModelDownloadService.instance.progressStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _fetchCloudStatus();
+    _cloudStatusTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchCloudStatus());
+  }
+
+  Future<void> _fetchCloudStatus() async {
+    if (widget.apiService == null) return;
+    try {
+      final models = await widget.apiService!.getAvailableModels();
+      if (mounted && models.isNotEmpty) {
+        setState(() {
+          _cloudAvailableMap = {
+            for (final m in models) m.label: m,
+            for (final m in models) m.id: m,
+          };
+        });
+      }
+    } catch (_) {}
+  }
+
+  bool _isModelDownloaded(String modelIdOrName) {
+    if (modelIdOrName == 'Offline Mock Mode') return true;
+    final status = _cloudAvailableMap[modelIdOrName];
+    if (status != null && (status.isDownloaded || status.isActive)) return true;
+    final hfId = PromptInputBar.modelIds[modelIdOrName];
+    if (hfId != null) {
+      final statusById = _cloudAvailableMap[hfId];
+      if (statusById != null && (statusById.isDownloaded || statusById.isActive)) return true;
+      if (ModelDownloadService.instance.isModelDownloadedSync(hfId)) return true;
+    }
+    if (ModelDownloadService.instance.isModelDownloadedSync(modelIdOrName)) return true;
+    return false;
   }
 
   @override
@@ -343,6 +383,8 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     _search.dispose();
     _previewTimer?.cancel();
     _cloneSpeakerNameController.dispose();
+    _downloadSub?.cancel();
+    _cloudStatusTimer?.cancel();
     super.dispose();
   }
 
@@ -1516,10 +1558,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             _VideoTemplateCard(
               template: template,
               isSelected: _selectedVideoTemplateId == template.id,
+              isDownloaded: _isModelDownloaded(template.model),
               dark: dark,
               border: border,
               muted: muted,
               onSelect: () {
+                if (!_isModelDownloaded(template.model)) {
+                  AppToast.show(
+                    context,
+                    message: 'Template requires "${template.model}" which is not downloaded. Please download it first or connect to Cloud GPU.',
+                    type: AppToastType.info,
+                  );
+                  return;
+                }
                 setState(() {
                   _selectedVideoTemplateId = template.id;
                   _selectedVideoModel = template.model;
@@ -1571,11 +1622,23 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     final title = model['title']!;
     final downloadId = model['downloadId'] ?? '';
     final cloudOnly = downloadId.isEmpty;
+    final checkId = downloadId.isNotEmpty ? downloadId : title;
+    final isDownloaded = _isModelDownloaded(checkId);
     return Padding(
       key: ValueKey('voice_model_card_$title'),
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        onTap: () => setState(() => _selectedVoiceModel = title),
+        onTap: () {
+          if (!isDownloaded) {
+            AppToast.show(
+              context,
+              message: 'Model "$title" is not downloaded. Please download it first or connect to Cloud GPU.',
+              type: AppToastType.info,
+            );
+            return;
+          }
+          setState(() => _selectedVoiceModel = title);
+        },
         borderRadius: BorderRadius.circular(10),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
@@ -1586,73 +1649,103 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                 : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? LuminaColors.primaryStart : border,
+              color: isSelected
+                  ? LuminaColors.primaryStart
+                  : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
               width: isSelected ? 1.5 : 1.0,
             ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                    size: 20,
-                    color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white24 : Colors.black26),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                        color: isSelected ? LuminaColors.primaryEnd : null,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: cloudOnly
-                          ? Colors.cyanAccent.withValues(alpha: 0.12)
-                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      model['tag'] ?? '',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: cloudOnly ? Colors.cyan.shade700 : muted,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.only(left: 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Opacity(
+            opacity: isDownloaded ? 1.0 : 0.65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(model['desc']!, style: TextStyle(fontSize: 11, color: muted, height: 1.3)),
-                    const SizedBox(height: 6),
-                    if (cloudOnly)
-                      Text(
-                        'Runs on a cloud GPU; no local download.',
-                        style: TextStyle(fontSize: 10.5, color: muted, fontStyle: FontStyle.italic),
-                      )
-                    else
-                      ModelDownloadButton(
-                        modelId: downloadId,
-                        displayName: downloadId == 'chatterbox-tts' ? 'Chatterbox (English + Multilingual)' : title,
-                        isSelected: isSelected,
+                    Icon(
+                      isSelected
+                          ? Icons.check_circle_rounded
+                          : (isDownloaded ? Icons.radio_button_unchecked_rounded : Icons.lock_outline_rounded),
+                      size: 20,
+                      color: isSelected
+                          ? LuminaColors.primaryStart
+                          : (isDownloaded
+                              ? (dark ? Colors.white24 : Colors.black26)
+                              : Colors.grey.withValues(alpha: 0.6)),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          color: isSelected ? LuminaColors.primaryEnd : null,
+                        ),
                       ),
+                    ),
+                    if (!isDownloaded) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                        ),
+                        child: const Text(
+                          'NOT DOWNLOADED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: cloudOnly
+                            ? Colors.cyanAccent.withValues(alpha: 0.12)
+                            : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        model['tag'] ?? '',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: cloudOnly ? Colors.cyan.shade700 : muted,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(model['desc']!, style: TextStyle(fontSize: 11, color: muted, height: 1.3)),
+                      const SizedBox(height: 6),
+                      if (cloudOnly)
+                        Text(
+                          'Runs on a cloud GPU; no local download.',
+                          style: TextStyle(fontSize: 10.5, color: muted, fontStyle: FontStyle.italic),
+                        )
+                      else
+                        ModelDownloadButton(
+                          modelId: downloadId,
+                          displayName: downloadId == 'chatterbox-tts' ? 'Chatterbox (English + Multilingual)' : title,
+                          isSelected: isSelected,
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1667,10 +1760,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     required Color muted,
   }) {
     final modelId = model['id']!;
+    final isDownloaded = _isModelDownloaded(modelId);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: () {
+          if (!isDownloaded) {
+            AppToast.show(
+              context,
+              message: 'Model "$modelId" is not downloaded. Please download it first or connect to Cloud GPU.',
+              type: AppToastType.info,
+            );
+            return;
+          }
           setState(() => _selectedVideoModel = modelId);
           widget.onSelectVideoModel?.call(modelId);
         },
@@ -1684,7 +1786,9 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                 : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? LuminaColors.primaryStart : border,
+              color: isSelected
+                  ? LuminaColors.primaryStart
+                  : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
               width: isSelected ? 1.5 : 1.0,
             ),
             boxShadow: isSelected
@@ -1697,109 +1801,131 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                   ]
                 : null,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  // Tick Icon with circular red gradient badge when selected!
-                  if (isSelected) ...[
-                    Container(
-                      width: 22,
-                      height: 22,
-                      decoration: const BoxDecoration(
-                        gradient: LuminaColors.primaryGradient,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0x66D32F2F),
-                            blurRadius: 6,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.check_rounded,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ] else ...[
-                    Icon(
-                      Icons.radio_button_unchecked_rounded,
-                      size: 20,
-                      color: dark ? Colors.white24 : Colors.black26,
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Expanded(
-                    child: Text(
-                      model['name']!,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                        color: isSelected ? LuminaColors.primaryEnd : null,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? LuminaColors.primaryStart.withValues(alpha: 0.20)
-                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      model['tag']!,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? LuminaColors.primaryEnd : muted,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ModelDownloadButton(
-                    modelId: model['id']!,
-                    displayName: model['name']!,
-                    isSelected: isSelected,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.only(left: 30),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Opacity(
+            opacity: isDownloaded ? 1.0 : 0.65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      model['desc']!,
-                      style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    // Tick Icon with circular red gradient badge when selected!
+                    if (isSelected) ...[
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          gradient: LuminaColors.primaryGradient,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x66D32F2F),
+                              blurRadius: 6,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ] else ...[
+                      Icon(
+                        isDownloaded ? Icons.radio_button_unchecked_rounded : Icons.lock_outline_rounded,
+                        size: 20,
+                        color: isDownloaded ? (dark ? Colors.white24 : Colors.black26) : Colors.grey.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        model['name']!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          color: isSelected ? LuminaColors.primaryEnd : null,
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Icon(Icons.hd_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          model['resolution']!,
-                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                    if (!isDownloaded) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
                         ),
-                        const SizedBox(width: 12),
-                        Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          model['speed']!,
-                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        child: const Text(
+                          'NOT DOWNLOADED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? LuminaColors.primaryStart.withValues(alpha: 0.20)
+                            : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        model['tag']!,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: isSelected ? LuminaColors.primaryEnd : muted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ModelDownloadButton(
+                      modelId: model['id']!,
+                      displayName: model['name']!,
+                      isSelected: isSelected,
                     ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        model['desc']!,
+                        style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Icon(Icons.hd_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            model['resolution']!,
+                            style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            model['speed']!,
+                            style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1995,10 +2121,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
             _ImageTemplateCard(
               template: template,
               isSelected: _selectedImageTemplateId == template.id,
+              isDownloaded: _isModelDownloaded(template.model),
               dark: dark,
               border: border,
               muted: muted,
               onSelect: () {
+                if (!_isModelDownloaded(template.model)) {
+                  AppToast.show(
+                    context,
+                    message: 'Template requires "${template.model}" which is not downloaded. Please download it first or connect to Cloud GPU.',
+                    type: AppToastType.info,
+                  );
+                  return;
+                }
                 setState(() {
                   _selectedImageTemplateId = template.id;
                   _selectedImageModel = template.model;
@@ -2046,10 +2181,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
     required Color muted,
   }) {
     final modelId = model['id']!;
+    final isDownloaded = _isModelDownloaded(modelId);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: InkWell(
         onTap: () {
+          if (!isDownloaded) {
+            AppToast.show(
+              context,
+              message: 'Model "$modelId" is not downloaded. Please download it first or connect to Cloud GPU.',
+              type: AppToastType.info,
+            );
+            return;
+          }
           setState(() => _selectedImageModel = modelId);
           widget.onSelectImageModel?.call(modelId);
         },
@@ -2063,7 +2207,9 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                 : (dark ? Colors.white.withValues(alpha: 0.03) : Colors.black.withValues(alpha: 0.02)),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: isSelected ? LuminaColors.primaryStart : border,
+              color: isSelected
+                  ? LuminaColors.primaryStart
+                  : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
               width: isSelected ? 1.5 : 1.0,
             ),
             boxShadow: isSelected
@@ -2076,108 +2222,130 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                   ]
                 : null,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (isSelected) ...[
-                    Container(
-                      width: 22,
-                      height: 22,
-                      decoration: const BoxDecoration(
-                        gradient: LuminaColors.primaryGradient,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Color(0x66D32F2F),
-                            blurRadius: 6,
-                            offset: Offset(0, 1),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.check_rounded,
-                        size: 14,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ] else ...[
-                    Icon(
-                      Icons.radio_button_unchecked_rounded,
-                      size: 20,
-                      color: dark ? Colors.white24 : Colors.black26,
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  Expanded(
-                    child: Text(
-                      model['name']!,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-                        color: isSelected ? LuminaColors.primaryEnd : null,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? LuminaColors.primaryStart.withValues(alpha: 0.20)
-                          : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      model['tag']!,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected ? LuminaColors.primaryEnd : muted,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ModelDownloadButton(
-                    modelId: model['id']!,
-                    displayName: model['name']!,
-                    isSelected: isSelected,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.only(left: 30),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          child: Opacity(
+            opacity: isDownloaded ? 1.0 : 0.65,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      model['desc']!,
-                      style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                    if (isSelected) ...[
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: const BoxDecoration(
+                          gradient: LuminaColors.primaryGradient,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x66D32F2F),
+                              blurRadius: 6,
+                              offset: Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ] else ...[
+                      Icon(
+                        isDownloaded ? Icons.radio_button_unchecked_rounded : Icons.lock_outline_rounded,
+                        size: 20,
+                        color: isDownloaded ? (dark ? Colors.white24 : Colors.black26) : Colors.grey.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Expanded(
+                      child: Text(
+                        model['name']!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          color: isSelected ? LuminaColors.primaryEnd : null,
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 5),
-                    Row(
-                      children: [
-                        Icon(Icons.photo_size_select_actual_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          model['resolution']!,
-                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                    if (!isDownloaded) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
                         ),
-                        const SizedBox(width: 12),
-                        Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
-                        const SizedBox(width: 4),
-                        Text(
-                          model['speed']!,
-                          style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                        child: const Text(
+                          'NOT DOWNLOADED',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.redAccent,
+                          ),
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? LuminaColors.primaryStart.withValues(alpha: 0.20)
+                            : (dark ? Colors.white.withValues(alpha: 0.07) : Colors.black.withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        model['tag']!,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: isSelected ? LuminaColors.primaryEnd : muted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ModelDownloadButton(
+                      modelId: model['id']!,
+                      displayName: model['name']!,
+                      isSelected: isSelected,
                     ),
                   ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        model['desc']!,
+                        style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        children: [
+                          Icon(Icons.photo_size_select_actual_outlined, size: 12, color: muted.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            model['resolution']!,
+                            style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.speed_rounded, size: 12, color: muted.withValues(alpha: 0.8)),
+                          const SizedBox(width: 4),
+                          Text(
+                            model['speed']!,
+                            style: TextStyle(fontSize: 10, color: muted.withValues(alpha: 0.9), fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -2343,10 +2511,19 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
           // Model Cards
           ..._enhancerModels.map((m) {
             final isSelected = _selectedEnhancerModel == m['id'];
+            final isDownloaded = _isModelDownloaded(m['id']!);
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: InkWell(
                 onTap: () {
+                  if (!isDownloaded) {
+                    AppToast.show(
+                      context,
+                      message: 'Model "${m['name']}" is not downloaded. Please download it first or connect to Cloud GPU.',
+                      type: AppToastType.info,
+                    );
+                    return;
+                  }
                   setState(() => _selectedEnhancerModel = m['id']!);
                   widget.onSelectEnhancerModel?.call(m['id']!);
                 },
@@ -2360,66 +2537,94 @@ class _AppSidebarState extends State<AppSidebar> with SingleTickerProviderStateM
                         : (dark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03)),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: isSelected ? LuminaColors.primaryStart : border,
+                      color: isSelected
+                          ? LuminaColors.primaryStart
+                          : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
                       width: isSelected ? 1.5 : 1.0,
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                            size: 16,
-                            color: isSelected ? LuminaColors.primaryStart : muted,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              m['name']!,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? (dark ? Colors.white : LuminaColors.primaryStart) : null,
+                  child: Opacity(
+                    opacity: isDownloaded ? 1.0 : 0.65,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              isSelected
+                                  ? Icons.check_circle_rounded
+                                  : (isDownloaded ? Icons.radio_button_unchecked_rounded : Icons.lock_outline_rounded),
+                              size: 16,
+                              color: isSelected
+                                  ? LuminaColors.primaryStart
+                                  : (isDownloaded ? muted : Colors.grey.withValues(alpha: 0.6)),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                m['name']!,
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSelected ? (dark ? Colors.white : LuminaColors.primaryStart) : null,
+                                ),
                               ),
                             ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white10 : Colors.black12),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              m['tag']!,
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? Colors.white : muted,
+                            if (!isDownloaded) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                                ),
+                                child: const Text(
+                                  'NOT DOWNLOADED',
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.redAccent,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isSelected ? LuminaColors.primaryStart : (dark ? Colors.white10 : Colors.black12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                m['tag']!,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: isSelected ? Colors.white : muted,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        m['desc']!,
-                        style: TextStyle(fontSize: 11, color: muted, height: 1.3),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.photo_size_select_large_rounded, size: 12, color: muted),
-                          const SizedBox(width: 4),
-                          Text(m['resolution']!, style: TextStyle(fontSize: 10.5, color: muted)),
-                          const Spacer(),
-                          const Icon(Icons.bolt_rounded, size: 12, color: LuminaColors.primaryEnd),
-                          const SizedBox(width: 2),
-                          Text(m['speed']!, style: TextStyle(fontSize: 10.5, color: muted)),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          m['desc']!,
+                          style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.photo_size_select_large_rounded, size: 12, color: muted),
+                            const SizedBox(width: 4),
+                            Text(m['resolution']!, style: TextStyle(fontSize: 10.5, color: muted)),
+                            const Spacer(),
+                            const Icon(Icons.bolt_rounded, size: 12, color: LuminaColors.primaryEnd),
+                            const SizedBox(width: 2),
+                            Text(m['speed']!, style: TextStyle(fontSize: 10.5, color: muted)),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -3282,6 +3487,7 @@ class _SidebarProjectTileState extends State<SidebarProjectTile> {
 class _VideoTemplateCard extends StatelessWidget {
   final VideoTemplate template;
   final bool isSelected;
+  final bool isDownloaded;
   final bool dark;
   final Color border;
   final Color muted;
@@ -3290,6 +3496,7 @@ class _VideoTemplateCard extends StatelessWidget {
   const _VideoTemplateCard({
     required this.template,
     required this.isSelected,
+    this.isDownloaded = true,
     required this.dark,
     required this.border,
     required this.muted,
@@ -3313,7 +3520,9 @@ class _VideoTemplateCard extends StatelessWidget {
                   : Colors.black.withValues(alpha: 0.02)),
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
-            color: isSelected ? LuminaColors.primaryStart : border,
+            color: isSelected
+                ? LuminaColors.primaryStart
+                : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
             width: isSelected ? 1.5 : 1.0,
           ),
           boxShadow: isSelected
@@ -3341,11 +3550,36 @@ class _VideoTemplateCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    template.description,
-                    style: TextStyle(fontSize: 11, color: muted, height: 1.3),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          template.description,
+                          style: TextStyle(fontSize: 11, color: muted, height: 1.3),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (!isDownloaded) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                          ),
+                          child: const Text(
+                            'NOT DOWNLOADED',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.redAccent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 8),
 
@@ -3419,22 +3653,29 @@ class _VideoTemplateCard extends StatelessWidget {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: onSelect,
-                      icon: const Icon(Icons.auto_awesome_rounded,
-                          size: 13, color: Colors.white),
+                      icon: Icon(
+                        isDownloaded ? Icons.auto_awesome_rounded : Icons.lock_outline_rounded,
+                        size: 13,
+                        color: Colors.white,
+                      ),
                       label: Text(
-                        isSelected
-                            ? 'Selected (Ready to Generate)'
-                            : 'Load Template into Prompt',
-                        style: const TextStyle(
+                        !isDownloaded
+                            ? 'Locked (${template.model} Not Downloaded)'
+                            : (isSelected
+                                ? 'Selected (Ready to Generate)'
+                                : 'Load Template into Prompt'),
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDownloaded ? Colors.white : Colors.white70,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isSelected
-                            ? LuminaColors.primaryStart
-                            : const Color(0xFF1E293B),
+                        backgroundColor: !isDownloaded
+                            ? const Color(0xFF2D1E24)
+                            : (isSelected
+                                ? LuminaColors.primaryStart
+                                : const Color(0xFF1E293B)),
                         padding: const EdgeInsets.symmetric(vertical: 9),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(7)),
@@ -3455,6 +3696,7 @@ class _VideoTemplateCard extends StatelessWidget {
 class _ImageTemplateCard extends StatelessWidget {
   final ImageTemplate template;
   final bool isSelected;
+  final bool isDownloaded;
   final bool dark;
   final Color border;
   final Color muted;
@@ -3463,6 +3705,7 @@ class _ImageTemplateCard extends StatelessWidget {
   const _ImageTemplateCard({
     required this.template,
     required this.isSelected,
+    this.isDownloaded = true,
     required this.dark,
     required this.border,
     required this.muted,
@@ -3486,7 +3729,9 @@ class _ImageTemplateCard extends StatelessWidget {
                   : Colors.black.withValues(alpha: 0.02)),
           borderRadius: BorderRadius.circular(11),
           border: Border.all(
-            color: isSelected ? LuminaColors.primaryStart : border,
+            color: isSelected
+                ? LuminaColors.primaryStart
+                : (!isDownloaded ? Colors.redAccent.withValues(alpha: 0.25) : border),
             width: isSelected ? 1.5 : 1.0,
           ),
           boxShadow: isSelected
@@ -3553,20 +3798,43 @@ class _ImageTemplateCard extends StatelessWidget {
                   Positioned(
                     top: 8,
                     right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.55),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        template.model,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w600,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!isDownloaded) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withValues(alpha: 0.85),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'NOT DOWNLOADED',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            template.model,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                   Positioned(
@@ -3704,22 +3972,29 @@ class _ImageTemplateCard extends StatelessWidget {
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: onSelect,
-                      icon: const Icon(Icons.auto_awesome_rounded,
-                          size: 13, color: Colors.white),
+                      icon: Icon(
+                        isDownloaded ? Icons.auto_awesome_rounded : Icons.lock_outline_rounded,
+                        size: 13,
+                        color: Colors.white,
+                      ),
                       label: Text(
-                        isSelected
-                            ? 'Selected (Ready to Generate)'
-                            : 'Load Template into Prompt',
-                        style: const TextStyle(
+                        !isDownloaded
+                            ? 'Locked (${template.model} Not Downloaded)'
+                            : (isSelected
+                                ? 'Selected (Ready to Generate)'
+                                : 'Load Template into Prompt'),
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDownloaded ? Colors.white : Colors.white70,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: isSelected
-                            ? LuminaColors.primaryStart
-                            : const Color(0xFF1E293B),
+                        backgroundColor: !isDownloaded
+                            ? const Color(0xFF2D1E24)
+                            : (isSelected
+                                ? LuminaColors.primaryStart
+                                : const Color(0xFF1E293B)),
                         padding: const EdgeInsets.symmetric(vertical: 9),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(7)),

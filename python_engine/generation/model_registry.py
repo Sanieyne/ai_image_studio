@@ -194,6 +194,19 @@ def is_model_downloaded(model_id: str) -> bool:
     if os.path.isdir(model_id) or os.path.isfile(model_id):
         return True
 
+    # Check local/workspace models directory
+    try:
+        from generation.model_paths import model_dir
+        local = model_dir(model_id)
+        if local is not None and local.exists():
+            for root, _, files in os.walk(local):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if os.path.isfile(fp) and os.path.getsize(fp) > 1024 * 1024:
+                        return True
+    except Exception:
+        pass
+
     # Check common Hugging Face cache directories
     candidate_roots = [
         os.environ.get("HF_HUB_CACHE"),

@@ -29,8 +29,14 @@ CATALOG_TO_HF = {
     "qwen-image-2.1": "Qwen/Qwen-Image-2.1",
     "wan-2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
     "wan-2.1-i2v-14b": "Wan-AI/Wan2.1-I2V-14B-480P-Diffusers",
+    "wan-2.1-flf2v-14b": "Wan-AI/Wan2.1-FLF2V-14B-720P-Diffusers",
     "wan-2.2-animate-14b": "Wan-AI/Wan2.2-Animate-14B-Diffusers",
+    "minimax-h3": "MiniMaxAI/MiniMax-H3",
     "chatterbox-tts": "ResembleAI/chatterbox",
+    "chatterbox-multilingual": "ResembleAI/chatterbox-multilingual",
+    "breeze-tts-2": "BreezeBlue/Breeze-TTS-2",
+    "fashn-vton-1.5": "fashn-ai/fashn-vton-1.5",
+    "realesrgan-x4plus": "amd/realesrgan-x4plus",
 }
 HF_TO_CATALOG = {hf.lower(): cid for cid, hf in CATALOG_TO_HF.items()}
 
