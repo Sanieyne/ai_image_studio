@@ -113,7 +113,7 @@ class CloudApiService {
     double? minVramGB,
     double? maxPrice,
     int limit = 20,
-    String orderBy = 'price',
+    String orderBy = 'fastest',
   }) async {
     try {
       final queryParams = <String, String>{

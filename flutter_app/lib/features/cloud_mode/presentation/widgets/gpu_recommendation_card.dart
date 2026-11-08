@@ -41,7 +41,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
   final _cloudApi = CloudApiService.instance;
 
   String _browsingTab = 'recommended'; // 'recommended' | 'series' | 'search'
-  String _selectedRankMode = 'balanced'; // 'balanced' | 'cheapest' | 'fastest' | 'reliable'
+  String _selectedRankMode = 'fastest'; // 'fastest' | 'balanced' | 'cheapest' | 'reliable'
 
   Map<String, List<String>> _gpuSeriesMap = {};
   String _selectedSeries = 'All';
@@ -109,6 +109,34 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
         }).toList();
       }
     }
+
+    // Always guarantee free/low bandwidth offers are prioritized at top
+    displayedOffers = List<MarketplaceOffer>.from(displayedOffers)..sort((a, b) {
+      final tierDiff = _getBandwidthTier(a) - _getBandwidthTier(b);
+      if (tierDiff != 0) return tierDiff;
+
+      if (_browsingTab == 'recommended') {
+        if (_selectedRankMode == 'cheapest') {
+          return (a.totalCreditsPerHour ?? double.infinity)
+              .compareTo(b.totalCreditsPerHour ?? double.infinity);
+        } else if (_selectedRankMode == 'reliable') {
+          return b.reliability.compareTo(a.reliability);
+        } else if (_selectedRankMode == 'balanced') {
+          final speedDiff = b.inetDown - a.inetDown;
+          if (speedDiff.abs() > 200) return speedDiff;
+          return (a.totalCreditsPerHour ?? double.infinity)
+              .compareTo(b.totalCreditsPerHour ?? double.infinity);
+        }
+      }
+
+      // Default & 'fastest' mode: prioritize download speed (e.g. 7Gbps > 5Gbps > 1Gbps)
+      final speedDiff = b.inetDown - a.inetDown;
+      if (speedDiff.abs() > 150) return speedDiff;
+      final perfDiff = b.dlperf.compareTo(a.dlperf);
+      if (perfDiff != 0) return -perfDiff;
+      return (a.totalCreditsPerHour ?? double.infinity)
+          .compareTo(b.totalCreditsPerHour ?? double.infinity);
+    });
 
     final MarketplaceOffer? userSelectedOffer = widget.selectedOffer;
 
@@ -216,11 +244,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  _buildRankTab('fastest', '⚡ Fastest', mr.fastestOffer != null),
+                  const SizedBox(width: 6),
                   _buildRankTab('balanced', '⚖ Balanced', mr.balancedOffer != null),
                   const SizedBox(width: 6),
                   _buildRankTab('cheapest', '💰 Lowest Cost', mr.cheapestOffer != null),
-                  const SizedBox(width: 6),
-                  _buildRankTab('fastest', '⚡ Fastest', mr.fastestOffer != null),
                   const SizedBox(width: 6),
                   _buildRankTab('reliable', '🛡 99%+ Uptime', mr.mostReliableOffer != null),
                 ],
@@ -407,7 +435,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                         child: _buildTelemetryBadge(
                                           icon: Icons.speed_rounded,
                                           label: 'Network',
-                                          value: '↓ ${activeOffer.inetDown}M / ↑ ${activeOffer.inetUp}M',
+                                          value: '↓ ${_formatSpeed(activeOffer.inetDown)} / ↑ ${_formatSpeed(activeOffer.inetUp)}',
                                           color: Colors.greenAccent.shade700,
                                         ),
                                       ),
@@ -599,7 +627,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                                     spacing: 6,
                                     runSpacing: 4,
                                     children: [
-                                      _buildMiniTag('↓ ${offer.inetDown}M / ↑ ${offer.inetUp}M', Colors.greenAccent.shade700),
+                                      _buildMiniTag('↓ ${_formatSpeed(offer.inetDown)} / ↑ ${_formatSpeed(offer.inetUp)}', Colors.greenAccent.shade700),
                                       _buildMiniTag(_bandwidthText(offer), Colors.cyanAccent.shade700),
                                       _buildMiniTag('⚡ ${offer.dlperf.toStringAsFixed(1)} dlperf', LuminaColors.amber),
                                       _buildMiniTag('🛡 ${(offer.reliability * 100).toInt()}% SLA', Colors.tealAccent.shade400),
@@ -965,13 +993,37 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     );
   }
 
-  /// "↓ 0.2441 · ↑ 0.2441 cr/GB (by usage)" from the server's per-GB prices.
+  int _getBandwidthTier(MarketplaceOffer o) {
+    final credits = o.bandwidthDownCreditsPerGB ?? 0.0;
+    if (credits <= 0.005) return 0; // Free ($0.00/TB)
+    if (credits <= 0.35) return 1;  // Low (<= ~$2.50/TB)
+    if (credits <= 0.60) return 2;  // Medium (<= ~$4.50/TB)
+    if (credits <= 1.05) return 3;  // Moderate (<= ~$8.00/TB)
+    return 4;                       // Expensive
+  }
+
+  String _formatSpeed(int mbps) {
+    if (mbps >= 1000) {
+      return '${(mbps / 1000).toStringAsFixed(1)} Gbps';
+    }
+    return '$mbps Mbps';
+  }
+
+  /// Displays human-friendly bandwidth pricing (e.g. FREE ($0/TB) or per-GB credits)
   String _bandwidthText(MarketplaceOffer offer) {
-    String v(double? x) => x == null ? '?' : x.toStringAsFixed(4);
-    if (offer.bandwidthDownCreditsPerGB == null && offer.bandwidthUpCreditsPerGB == null) {
+    final down = offer.bandwidthDownCreditsPerGB;
+    final up = offer.bandwidthUpCreditsPerGB;
+    if (down == null && up == null) {
       return 'Bandwidth: $kPriceUnavailable';
     }
-    return '↓ ${v(offer.bandwidthDownCreditsPerGB)} · ↑ ${v(offer.bandwidthUpCreditsPerGB)} cr/GB (by usage)';
+    if ((down == null || down <= 0.005) && (up == null || up <= 0.005)) {
+      return r'Bandwidth: FREE ($0/TB)';
+    }
+    String v(double? x) => x == null ? '?' : x.toStringAsFixed(4);
+    if (down != null && down <= 0.005) {
+      return 'Bandwidth: FREE In · ↑ ${v(up)} cr/GB';
+    }
+    return '↓ ${v(down)} · ↑ ${v(up)} cr/GB (by usage)';
   }
 
   Widget _buildMiniTag(String text, Color color) {

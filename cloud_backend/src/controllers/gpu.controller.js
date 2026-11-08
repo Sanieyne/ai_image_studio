@@ -61,7 +61,7 @@ export const getOffers = asyncHandler(async (req, res) => {
     gpuName: gpuName || undefined,
     verifiedOnly: verified === 'false' ? false : true,
     limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250,
-    orderBy: orderBy || 'price',
+    orderBy: orderBy || 'fastest',
     storageGB,
   });
 

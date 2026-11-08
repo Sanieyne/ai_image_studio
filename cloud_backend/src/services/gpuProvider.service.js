@@ -47,7 +47,7 @@ class GpuProviderService {
       gpuName,
       verifiedOnly = true,
       limit = 250,
-      orderBy = 'price',
+      orderBy = 'fastest',
       storageGB = DEFAULT_STORAGE_GB,
     } = options;
     const pricingConfig = await pricingService.getConfig();
@@ -122,33 +122,44 @@ class GpuProviderService {
     });
 
     // Bandwidth cost tier classification:
-    // Tier 0: Free ($0/TB)
-    // Tier 1: Low (<= ~$2.50/TB)
-    // Tier 2: Medium (<= ~$4.50/TB)
-    // Tier 3: Moderate (<= ~$8.00/TB)
+    // Tier 0: Free ($0/TB, <= 0.005 credits/GB)
+    // Tier 1: Low (<= ~$2.50/TB, <= 0.35 credits/GB)
+    // Tier 2: Medium (<= ~$4.50/TB, <= 0.60 credits/GB)
+    // Tier 3: Moderate (<= ~$8.00/TB, <= 1.05 credits/GB)
     // Tier 4: Expensive (> $8.00/TB, e.g. $13/TB, $26/TB)
     const getBandwidthTier = (o) => {
       const creditsPerGB = o.bandwidthDownCreditsPerGB ?? o.bandwidthCreditsPerGB ?? 0;
-      if (creditsPerGB <= 0.01) return 0;
+      if (creditsPerGB <= 0.005) return 0;
       if (creditsPerGB <= 0.35) return 1;
       if (creditsPerGB <= 0.60) return 2;
       if (creditsPerGB <= 1.05) return 3;
       return 4;
     };
 
-    // 5. Sorting
+    // 5. Sorting - strictly prioritize free/low bandwidth price at top
     enrichedOffers.sort((a, b) => {
-      if (orderBy === 'dlperf') {
-        return b.dlperf - a.dlperf;
-      }
-      if (orderBy === 'reliability') {
-        return b.reliability - a.reliability;
-      }
-      // Prioritize lower bandwidth cost tiers first (Free -> $2 -> $4 -> others)
+      // Prioritize lower bandwidth cost tiers first (Free -> Low -> Medium -> others)
       const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
       if (tierDiff !== 0) return tierDiff;
 
-      // Within the same bandwidth tier, sort by total hourly price
+      if (orderBy === 'dlperf') {
+        return (b.dlperf ?? 0) - (a.dlperf ?? 0);
+      }
+      if (orderBy === 'reliability') {
+        return (b.reliability ?? 0) - (a.reliability ?? 0);
+      }
+      if (orderBy === 'price') {
+        return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+      }
+
+      // Default: 'fastest' -> highest network download speed (inetDown)
+      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
+      if (Math.abs(speedDiff) > 150) return speedDiff;
+
+      // If download speed is similar, sort by AI compute performance (dlperf)
+      const perfDiff = (b.dlperf ?? 0) - (a.dlperf ?? 0);
+      if (Math.abs(perfDiff) > 2) return perfDiff;
+
       return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     });
 
@@ -198,35 +209,53 @@ class GpuProviderService {
 
     const getBandwidthTier = (o) => {
       const creditsPerGB = o.bandwidthDownCreditsPerGB ?? o.bandwidthCreditsPerGB ?? 0;
-      if (creditsPerGB <= 0.01) return 0;
+      if (creditsPerGB <= 0.005) return 0;
       if (creditsPerGB <= 0.35) return 1;
       if (creditsPerGB <= 0.60) return 2;
       if (creditsPerGB <= 1.05) return 3;
       return 4;
     };
 
-    // 1. Cheapest offer (prioritizing lowest bandwidth tier first, then lowest hourly credits)
-    const byTierAndTotal = (a, b) => {
+    // Helper: sort by download speed & compute within bandwidth tier
+    const byFastest = (a, b) => {
+      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
+      if (tierDiff !== 0) return tierDiff;
+      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
+      if (Math.abs(speedDiff) > 150) return speedDiff;
+      const perfDiff = (b.dlperf ?? 0) - (a.dlperf ?? 0);
+      if (Math.abs(perfDiff) > 2) return perfDiff;
+      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+    };
+
+    // Helper: sort by hourly credits within bandwidth tier
+    const byTierAndPrice = (a, b) => {
       const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
       if (tierDiff !== 0) return tierDiff;
       return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     };
-    const cheapestOffer = [...offers].sort(byTierAndTotal)[0];
 
-    // 2. Fastest offer by dlperf compute score
-    const fastestOffer = [...offers].sort((a, b) => b.dlperf - a.dlperf)[0];
+    // 1. Fastest offer: Free/low bandwidth first, then highest network download speed & compute
+    const fastestOffer = [...offers].sort(byFastest)[0];
 
-    // 3. Most reliable offer (reliability >= 0.98 priority, low bandwidth preferred)
+    // 2. Cheapest offer: Free/low bandwidth first, then lowest hourly credits
+    const cheapestOffer = [...offers].sort(byTierAndPrice)[0];
+
+    // 3. Most reliable offer: Free/low bandwidth preferred, reliability >= 0.95 priority
     const mostReliableOffer = [...offers]
       .filter((o) => o.reliability >= 0.95)
-      .sort((a, b) => b.reliability - a.reliability || byTierAndTotal(a, b))[0] || offers[0];
+      .sort((a, b) => {
+        const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
+        if (tierDiff !== 0) return tierDiff;
+        return (b.reliability ?? 0) - (a.reliability ?? 0) || (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+      })[0] || offers[0];
 
-    // 4. Balanced offer (Optimal fit, competitive price, high speed, reasonable bandwidth)
+    // 4. Balanced offer: Free/low bandwidth with fast download speed (>= 1500 Mbps or top tier) and optimal fit
+    const balancedCandidates = offers.filter((o) => getBandwidthTier(o) <= 1 && (o.inetDown ?? 0) >= 1500);
     const balancedOffer =
-      offers.find((o) => getBandwidthTier(o) <= 2 && o.fit === 'optimal' && o.reliability >= 0.98) ||
-      offers.find((o) => getBandwidthTier(o) <= 2 && o.fit === 'tight') ||
-      offers.find((o) => o.fit === 'optimal' && o.reliability >= 0.98) ||
-      offers.find((o) => o.fit === 'tight') ||
+      balancedCandidates.find((o) => o.fit === 'optimal' && (o.reliability ?? 0) >= 0.98) ||
+      balancedCandidates.find((o) => (o.reliability ?? 0) >= 0.98) ||
+      balancedCandidates[0] ||
+      offers.filter((o) => getBandwidthTier(o) <= 1).sort(byFastest)[0] ||
       offers[0];
 
     return {
