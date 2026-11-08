@@ -145,7 +145,7 @@ MODEL_CATALOG: Dict[str, dict] = {
         "mode": "video",
         "aliases": ["MiniMaxAI/MiniMax-H3", "minimax"],
         "target_subpath": "minimax-h3",
-        "r2_prefix": "models/minimax-h3/",
+        "r2_prefix": "models/minimax-h3/FL2VA/",
         "include_subdirs": [
             "model_index.json",
             "audio_scheduler",
@@ -155,7 +155,7 @@ MODEL_CATALOG: Dict[str, dict] = {
             "text_encoder",
             "tokenizer",
             "transformer",
-            "vae",
+            "video_vae",
         ],
         "symlinks": [
             (".", "/workspace/models/minimax-h3"),
