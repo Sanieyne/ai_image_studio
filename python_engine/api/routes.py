@@ -521,6 +521,7 @@ def generate_wan2_1(req: Wan2_1Request) -> VideoResponse:
             task=req.task,
             width=req.width,
             height=req.height,
+            aspect_ratio=req.aspect_ratio,
             num_frames=req.num_frames,
             fps=req.fps,
             steps=req.steps,
@@ -541,7 +542,7 @@ def generate_wan2_1(req: Wan2_1Request) -> VideoResponse:
         media_type="video",
         prompt=req.prompt,
         model_id="wan-2.1",
-        settings={"num_frames": req.num_frames, "fps": req.fps, "seed": seed_used},
+        settings={"num_frames": req.num_frames, "fps": req.fps, "aspect_ratio": req.aspect_ratio, "seed": seed_used},
         ext="mp4",
     )
     return VideoResponse(

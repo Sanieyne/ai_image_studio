@@ -701,6 +701,7 @@ class Wan2_1Engine:
         task: str = "t2v-1.3B",
         width: int = 832,
         height: int = 480,
+        aspect_ratio: str = "16:9",
         num_frames: int = 81,
         fps: int = 16,
         steps: int = 30,
@@ -713,7 +714,7 @@ class Wan2_1Engine:
         import shutil
         import subprocess
         import tempfile
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         from generation.prompt_enhancer import (
             OFFICIAL_WAN_NEGATIVE_PROMPT,
@@ -737,6 +738,35 @@ class Wan2_1Engine:
         if not negative_prompt:
             negative_prompt = OFFICIAL_WAN_NEGATIVE_PROMPT
 
+        # Determine target resolution based on aspect_ratio and input image
+        is_720p = "720p" in normalized_task or (width >= 1280 or height >= 720)
+
+        # If width/height are default (832x480), adapt to requested aspect_ratio or input image ratio
+        if (width == 832 and height == 480) or aspect_ratio in ("1:1", "9:16", "4:3", "3:4", "21:9"):
+            ar = aspect_ratio
+            if ar == "1:1":
+                width, height = (960, 960) if is_720p else (624, 624)
+            elif ar == "9:16":
+                width, height = (720, 1280) if is_720p else (480, 832)
+            elif ar == "4:3":
+                width, height = (960, 720) if is_720p else (720, 544)
+            elif ar == "3:4":
+                width, height = (720, 960) if is_720p else (544, 720)
+            elif ar == "21:9":
+                width, height = (1280, 544) if is_720p else (960, 416)
+            elif init_image_bytes and ar == "16:9":
+                # Auto-detect from image dimensions if caller left 16:9 default
+                try:
+                    probe = Image.open(io.BytesIO(init_image_bytes))
+                    pw, ph = probe.size
+                    ratio = pw / float(ph)
+                    if 0.85 <= ratio <= 1.18:
+                        width, height = (960, 960) if is_720p else (624, 624)
+                    elif ratio < 0.75:
+                        width, height = (720, 1280) if is_720p else (480, 832)
+                except Exception:
+                    pass
+
         # Snap dimensions to valid 16-pixel multiples for Wan DiT
         width = max(256, (width // 16) * 16)
         height = max(256, (height // 16) * 16)
@@ -747,7 +777,7 @@ class Wan2_1Engine:
                 flow_shift = 8.0
             if guidance_scale == 5.0:
                 guidance_scale = 6.0
-        elif "720p" in normalized_task or width >= 1280 or height >= 720:
+        elif is_720p:
             if flow_shift == 3.0:
                 flow_shift = 5.0
 
@@ -758,7 +788,7 @@ class Wan2_1Engine:
             has_image=bool(init_image_bytes),
             is_flf2v=is_flf2v,
         )
-        log.info("Wan 2.1 enhanced prompt: %s", effective_prompt)
+        log.info("Wan 2.1 enhanced prompt: %s (resolution: %dx%d)", effective_prompt, width, height)
 
         self._ensure_loaded(task, flow_shift=flow_shift)
         pipe = self.pipes.get(task)
@@ -782,7 +812,9 @@ class Wan2_1Engine:
                     "generator": generator,
                 }
                 if init_image_bytes:
-                    img = Image.open(io.BytesIO(init_image_bytes)).convert("RGB").resize((width, height))
+                    img = Image.open(io.BytesIO(init_image_bytes)).convert("RGB")
+                    # Preserve aspect ratio with smart center-cropLanczos
+                    img = ImageOps.fit(img, (width, height), method=Image.Resampling.LANCZOS)
                     call_kwargs["image"] = img
 
                 log.info("Running Wan2.1 %s (%d frames, %dx%d)...", task, num_frames, width, height)
@@ -792,6 +824,8 @@ class Wan2_1Engine:
                 try:
                     out_mp4 = os.path.join(session_dir, "output.mp4")
                     export_to_video(output, out_mp4, fps=fps)
+                    with open(out_mp4, "rb") as f:
+                        mp4_bytes = f.read()
                     outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
                     os.makedirs(outputs_dir, exist_ok=True)
                     latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
@@ -810,8 +844,6 @@ class Wan2_1Engine:
                             }, f)
                     except Exception:
                         pass
-                    with open(out_mp4, "rb") as f:
-                        mp4_bytes = f.read()
                     elapsed = int((time.perf_counter() - t0) * 1000)
                     log.info("Wan2.1 %s completed in %dms (seed %d)", task, elapsed, seed)
                     return mp4_bytes, seed

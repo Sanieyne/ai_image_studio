@@ -92,6 +92,8 @@ python3 -m pip install --no-cache-dir opencv-python-headless "onnxruntime-gpu<1.
   || echo "[WARN] Deep-Live-Cam base packages installation completed with warnings."
 python3 -m pip install --no-cache-dir --no-deps insightface >> /var/log/pip_engine.log 2>&1 \
   || echo "[WARN] Insightface installation completed with warnings."
+python3 -m pip install --no-cache-dir ftfy av >> /var/log/pip_engine.log 2>&1 \
+  || echo "[WARN] ftfy and av installation completed with warnings."
 
 # Configure system dynamic linker so ONNX Runtime GPU finds cuDNN and CUDA 12 libraries
 python3 -c 'import glob; print("\n".join(glob.glob("/usr/local/lib/python*/dist-packages/nvidia/*/lib")))' > /etc/ld.so.conf.d/nvidia_pip.conf 2>/dev/null || true

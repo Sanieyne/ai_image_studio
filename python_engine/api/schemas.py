@@ -192,6 +192,7 @@ class Wan2_1Request(BaseModel):
     steps: int = Field(default=30, ge=10, le=50)
     guidance_scale: float = Field(default=5.0, ge=1.0, le=12.0)
     flow_shift: float = Field(default=3.0, ge=1.0, le=12.0)
+    aspect_ratio: Optional[str] = Field(default="16:9", description="Aspect ratio: '1:1', '16:9', '9:16', '4:3', '3:4', '21:9'")
     seed: Optional[int] = -1
 
 

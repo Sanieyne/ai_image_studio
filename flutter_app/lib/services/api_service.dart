@@ -304,6 +304,27 @@ class ApiService {
               ? endImageBase64.split(',').last
               : endImageBase64;
 
+      int finalWidth = width;
+      int finalHeight = height;
+      if (width == 832 && height == 480) {
+        if (aspectRatio == '1:1') {
+          finalWidth = 624;
+          finalHeight = 624;
+        } else if (aspectRatio == '9:16') {
+          finalWidth = 480;
+          finalHeight = 832;
+        } else if (aspectRatio == '4:3') {
+          finalWidth = 720;
+          finalHeight = 544;
+        } else if (aspectRatio == '3:4') {
+          finalWidth = 544;
+          finalHeight = 720;
+        } else if (aspectRatio == '21:9') {
+          finalWidth = 960;
+          finalHeight = 416;
+        }
+      }
+
       final body = {
         'prompt': prompt,
         if (negativePrompt != null && negativePrompt.isNotEmpty)
@@ -313,8 +334,9 @@ class ApiService {
         if (cleanEndImageB64 != null && cleanEndImageB64.isNotEmpty)
           'end_image_base64': cleanEndImageB64,
         'task': task,
-        'width': width,
-        'height': height,
+        'width': finalWidth,
+        'height': finalHeight,
+        'aspect_ratio': aspectRatio,
         'num_frames': numFrames,
         'fps': fps,
         'steps': steps,

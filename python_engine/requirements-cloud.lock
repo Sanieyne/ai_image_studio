@@ -114,3 +114,5 @@ insightface==2.1
 opencv-python-headless==5.0.0.93
 onnxruntime==1.31.0
 scikit-image==0.26.0
+av>=14.0.0
+ftfy>=6.3.0
