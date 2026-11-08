@@ -101,7 +101,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _checkHealth() async {
-    final ok = await _api.checkHealth();
     final cloudOk = await _cloudApi.checkHealth();
 
     if (!mounted) return;
@@ -114,12 +113,39 @@ class _HomeScreenState extends State<HomeScreen> {
       unawaited(AuthService.instance.refreshProfile());
     }
 
+    // Auto-discover active running cloud GPU instance if not yet connected to it
+    if (cloudOk && AuthService.instance.isAuthenticated && (!_engineOnline || ApiService.cloudBaseUrl == null || _healthTicks % 4 == 0)) {
+      try {
+        final instances = await _cloudApi.fetchMyInstances();
+        if (mounted && instances != null && instances.isNotEmpty) {
+          final active = instances.firstWhere(
+            (i) => i['status'] == 'ready' || i['status'] == 'running',
+            orElse: () => <String, dynamic>{},
+          );
+          if (active.isNotEmpty) {
+            final engineUrl = active['pythonEngineUrl']?.toString();
+            if (engineUrl != null && engineUrl.isNotEmpty && ApiService.baseUrl != engineUrl) {
+              ApiService.cloudBaseUrl = engineUrl;
+              ApiService.baseUrl = engineUrl;
+              DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
+              if (_executionMode != StudioExecutionMode.cloud) {
+                setState(() => _executionMode = StudioExecutionMode.cloud);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    final ok = await _api.checkHealth();
+    if (!mounted) return;
+
     if (ok) {
       _consecutiveHealthFailures = 0;
       if (!_engineOnline) {
         setState(() => _engineOnline = true);
       }
-      if (_healthTicks % 4 == 0 || _cloudAvailableMap.isEmpty) {
+      if (_healthTicks % 2 == 0 || _cloudAvailableMap.isEmpty) {
         unawaited(_api.getAvailableModels().then((models) {
           if (mounted && models.isNotEmpty) {
             setState(() {
@@ -128,6 +154,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 for (final m in models) m.id: m,
               };
             });
+            _promptBarKey.currentState?.refreshModels();
           }
         }));
       }
