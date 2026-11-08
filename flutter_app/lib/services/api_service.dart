@@ -65,7 +65,11 @@ class ApiService {
   /// Converts technical engine exceptions and timeouts into friendly, helpful UI messages.
   static String formatFriendlyError(dynamic error) {
     final str = error.toString();
+    final isRemote = !baseUrl.contains('127.0.0.1') && !baseUrl.contains('localhost');
     if (str.contains('TimeoutException')) {
+      if (isRemote) {
+        return 'Video generation timed out while waiting for Cloud GPU. The model is processing high-resolution diffusion; you can retry with fewer steps (e.g. 15-20) or wait for model warming.';
+      }
       return 'Generation took longer than expected on CPU. '
           'Tip: Click "Rent GPU" at the top for instant 2-second generations, or retry.';
     }
@@ -239,7 +243,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 6));
+          .timeout(const Duration(minutes: 25));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -325,7 +329,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 6));
+          .timeout(const Duration(minutes: 25));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
@@ -391,7 +395,7 @@ class ApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
-          .timeout(const Duration(minutes: 6));
+          .timeout(const Duration(minutes: 25));
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> data =
