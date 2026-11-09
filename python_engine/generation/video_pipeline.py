@@ -355,6 +355,15 @@ class MiniMaxH3Engine:
                 )
 
             print(f"[*] Loading and quantizing MiniMaxH3Transformer3DModel to Int8...")
+            transformer_dir = os.path.join(self.model_path, "transformer")
+            orig_idx = os.path.join(transformer_dir, "model.safetensors.index.json")
+            diffusers_idx = os.path.join(transformer_dir, "diffusion_pytorch_model.safetensors.index.json")
+            if os.path.isfile(orig_idx) and not os.path.exists(diffusers_idx):
+                try:
+                    os.symlink("model.safetensors.index.json", diffusers_idx)
+                except Exception:
+                    pass
+
             transformer = MiniMaxH3Transformer3DModel.from_pretrained(
                 self.model_path,
                 subfolder="transformer",
@@ -481,7 +490,7 @@ class MiniMaxH3Engine:
 
 
         self._ensure_loaded()
-        if self.pipeline is not None and self.pipeline != "REMOTE_OR_FALLBACK":
+        if self.pipeline is not None and not isinstance(self.pipeline, str):
             try:
                 import torch
                 from diffusers.utils.export_utils import encode_video
