@@ -140,31 +140,39 @@ class GpuProviderService {
       return 4;
     };
 
-    // 5. Sorting - strictly prioritize free/low bandwidth price at top
+    // 5. Sorting - "Least cost with highest internet speed first":
+    // Primary: lowest price per hour. Within competitive price tiers (<= 5 credits diff),
+    // the offer with the highest internet download speed becomes first.
     enrichedOffers.sort((a, b) => {
-      // Prioritize lower bandwidth cost tiers first (Free -> Low -> Medium -> others)
-      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
-      if (tierDiff !== 0) return tierDiff;
-
       if (orderBy === 'dlperf') {
         return (b.dlperf ?? 0) - (a.dlperf ?? 0);
       }
       if (orderBy === 'reliability') {
         return (b.reliability ?? 0) - (a.reliability ?? 0);
       }
-      if (orderBy === 'price') {
-        return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+
+      // Avoid extreme bandwidth gouging (Tier 4 > $8/TB)
+      const tierA = getBandwidthTier(a);
+      const tierB = getBandwidthTier(b);
+      if (tierA >= 4 && tierB < 4) return 1;
+      if (tierB >= 4 && tierA < 4) return -1;
+
+      // Primary: Least price first
+      const priceA = a.totalCreditsPerHour ?? Infinity;
+      const priceB = b.totalCreditsPerHour ?? Infinity;
+      const priceDiff = priceA - priceB;
+
+      if (Math.abs(priceDiff) > 5) {
+        return priceDiff;
       }
 
-      // Default: 'fastest' -> highest network download speed (inetDown)
+      // Within competitive / close price range (<= 5 credits diff): highest download speed first
       const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
-      if (Math.abs(speedDiff) > 150) return speedDiff;
+      if (Math.abs(speedDiff) > 50) {
+        return speedDiff;
+      }
 
-      // If download speed is similar, sort by AI compute performance (dlperf)
-      const perfDiff = (b.dlperf ?? 0) - (a.dlperf ?? 0);
-      if (Math.abs(perfDiff) > 2) return perfDiff;
-
-      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+      return priceDiff;
     });
 
     return {
@@ -231,18 +239,34 @@ class GpuProviderService {
       return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     };
 
-    // Helper: sort by hourly credits within bandwidth tier
-    const byTierAndPrice = (a, b) => {
-      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
-      if (tierDiff !== 0) return tierDiff;
-      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+    // Helper: sort by lowest price (least cost), and among similar price, highest internet speed first
+    const byLeastPriceAndSpeed = (a, b) => {
+      const tierA = getBandwidthTier(a);
+      const tierB = getBandwidthTier(b);
+      if (tierA >= 4 && tierB < 4) return 1;
+      if (tierB >= 4 && tierA < 4) return -1;
+
+      const priceA = a.totalCreditsPerHour ?? Infinity;
+      const priceB = b.totalCreditsPerHour ?? Infinity;
+      const priceDiff = priceA - priceB;
+
+      if (Math.abs(priceDiff) > 5) {
+        return priceDiff;
+      }
+
+      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
+      if (Math.abs(speedDiff) > 50) {
+        return speedDiff;
+      }
+
+      return priceDiff;
     };
 
     // 1. Fastest offer: Free/low bandwidth first, then highest network download speed & compute
     const fastestOffer = [...offers].sort(byFastest)[0];
 
-    // 2. Cheapest offer: Free/low bandwidth first, then lowest hourly credits
-    const cheapestOffer = [...offers].sort(byTierAndPrice)[0];
+    // 2. Cheapest offer: Lowest hourly credits, and among the cheapest, highest internet speed first
+    const cheapestOffer = [...offers].sort(byLeastPriceAndSpeed)[0];
 
     // 3. Most reliable offer: Free/low bandwidth preferred, reliability >= 0.95 priority
     const mostReliableOffer = [...offers]
