@@ -343,8 +343,9 @@ export const getGpuSeries = asyncHandler(async (req, res) => {
 export const proxyToGpuGateway = asyncHandler(async (req, res) => {
   const instance = await GpuInstance.findOne({
     user: req.user._id,
-    status: 'ready',
-  }).lean();
+    status: { $in: ['ready', 'running', 'downloading_model', 'provisioning'] },
+    pythonEngineUrl: { $exists: true, $ne: null },
+  }).sort({ createdAt: -1 }).lean();
 
   if (!instance || !instance.pythonEngineUrl) {
     throw ApiError.badRequest('No active GPU instance found for your account.');
