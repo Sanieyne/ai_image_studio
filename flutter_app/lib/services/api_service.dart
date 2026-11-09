@@ -817,7 +817,10 @@ class ApiService {
             .toList();
       }
     } catch (e) {
-      debugPrint('[ApiService] Failed to fetch available models: $e');
+      final msg = e.toString();
+      if (!msg.contains('Connection refused') && !msg.contains('TimeoutException') && !msg.contains('reset by peer')) {
+        debugPrint('[ApiService] Failed to fetch available models: $e');
+      }
     }
     return [];
   }

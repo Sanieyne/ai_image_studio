@@ -80,263 +80,294 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ],
           ),
-          child: Row(
-            children: [
-              // Sidebar collapse toggle.
-              if (onMenuToggle != null) ...[
-                IconButton(
-                  onPressed: onMenuToggle,
-                  icon: Icon(
-                    sidebarCollapsed ? Icons.menu : Icons.menu_open,
-                    size: 20,
-                  ),
-                  tooltip: sidebarCollapsed
-                      ? 'Expand sidebar'
-                      : 'Collapse sidebar',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-                const SizedBox(width: 6),
-              ],
-              // Logo badge + title.
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF232A35), Color(0xFF0E1116)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(
-                    color: const Color(0xFF78C8FF).withValues(alpha: 0.35),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF5AB4FF).withValues(alpha: 0.35),
-                      blurRadius: 12,
-                    ),
-                  ],
-                ),
-                child: const Center(
-                  child: Text('✦',
-                      style: TextStyle(fontSize: 17, color: Color(0xFFDFF3FF))),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(appTitle,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.8,
-                      fontSize: 14)),
-              const SizedBox(width: 10),
-              Container(width: 1, height: 22, color: border),
-              const SizedBox(width: 10),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final showWorkspace = w >= 1350;
+              final showFullModeLabels = w >= 1150;
+              final showTitle = w >= 980;
+              final compactThemeToggle = w < 1220;
+              final compactButtons = w < 1100;
 
-              // Local vs Cloud Mode Switcher
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-                  border: Border.all(color: border),
-                  color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.2),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _ModePill(
-                      icon: Icons.memory_rounded,
-                      label: 'Local Engine',
-                      selected: executionMode == StudioExecutionMode.local,
-                      muted: muted,
-                      onTap: () => onExecutionModeChanged?.call(StudioExecutionMode.local),
+              return Row(
+                children: [
+                  // Sidebar collapse toggle.
+                  if (onMenuToggle != null) ...[
+                    IconButton(
+                      onPressed: onMenuToggle,
+                      icon: Icon(
+                        sidebarCollapsed ? Icons.menu : Icons.menu_open,
+                        size: 20,
+                      ),
+                      tooltip: sidebarCollapsed
+                          ? 'Expand sidebar'
+                          : 'Collapse sidebar',
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
                     ),
-                    _ModePill(
-                      icon: Icons.cloud_outlined,
-                      label: 'Rent GPU',
-                      selected: executionMode == StudioExecutionMode.cloud,
-                      muted: muted,
-                      onTap: () => onExecutionModeChanged?.call(StudioExecutionMode.cloud),
-                    ),
+                    const SizedBox(width: 6),
                   ],
-                ),
-              ),
-
-              const SizedBox(width: 10),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 180),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    borderRadius:
-                        BorderRadius.circular(LuminaColors.pillRadius),
-                    border: Border.all(color: border),
-                  ),
-                  child: Text(
-                    workspaceLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: muted),
-                  ),
-                ),
-              ),
-              const Spacer(),
-              // Engine and Cloud status chips
-              _StatusChip(online: engineOnline, deviceName: deviceName),
-              if (executionMode == StudioExecutionMode.cloud) ...[
-                const SizedBox(width: 8),
-                _CloudStatusChip(online: cloudOnline),
-              ],
-              const SizedBox(width: 10),
-              // Cloud Mode: Credits balance & Buy Credits button
-              // Local Mode: Subscription status (Pro Member vs Free Tier) & Upgrade button
-              if (executionMode == StudioExecutionMode.cloud) ...[
-                // Credits pill.
-                InkWell(
-                  onTap: onBuyCredits,
-                  borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  // Logo badge + title.
+                  Container(
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(LuminaColors.pillRadius),
-                      border: Border.all(color: border),
-                      color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.15),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('✦',
-                            style: TextStyle(
-                                color: LuminaColors.amber, fontSize: 14)),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${_fmt(credits)} Credits',
-                          style: const TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w600),
+                      borderRadius: BorderRadius.circular(10),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF232A35), Color(0xFF0E1116)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      border: Border.all(
+                        color: const Color(0xFF78C8FF).withValues(alpha: 0.35),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF5AB4FF).withValues(alpha: 0.35),
+                          blurRadius: 12,
                         ),
                       ],
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Buy credits (secondary outline).
-                OutlinedButton(
-                  onPressed: onBuyCredits,
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: LuminaColors.infoBlue),
-                    shape: const StadiumBorder(),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  ),
-                  child: const Text('+ Buy Credits',
-                      style: TextStyle(fontSize: 13)),
-                ),
-              ] else ...[
-                // Local Mode Subscription Status
-                if (isSubscribed) ...[
-                  _buildSubscriptionBadge(context, dark, border, muted),
-                ] else ...[
-                  // Not Activated -> Friendly Locked pill + Buy License button
-                  InkWell(
-                    onTap: onSubscribe,
-                    borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
-                        border: Border.all(color: border),
-                        color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.lock_outline_rounded, size: 14, color: muted),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Unlicensed',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w600,
-                              color: muted,
-                            ),
-                          ),
-                        ],
-                      ),
+                    child: const Center(
+                      child: Text('✦',
+                          style: TextStyle(fontSize: 17, color: Color(0xFFDFF3FF))),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: onSubscribe,
-                    icon: const Icon(Icons.key_rounded, size: 15, color: Colors.white),
-                    label: const Text(
-                      'Buy License (\$35)',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-                      backgroundColor: LuminaColors.primaryEnd,
-                      elevation: 2,
-                      shadowColor: LuminaColors.primaryGlow.withValues(alpha: 0.35),
-                    ),
-                  ),
-                ],
-              ],
-              const SizedBox(width: 8),
-              // Downloads management entry point.
-              _DownloadsTopBarButton(
-                border: border,
-                muted: muted,
-                onTap: onOpenDownloads ??
-                    () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const DownloadsScreen(),
-                          ),
-                        ),
-              ),
-              const SizedBox(width: 8),
-              // Theme toggle.
-              Tooltip(
-                message: isDark ? 'Switch to light' : 'Switch to dark',
-                child: InkWell(
-                  onTap: onThemeToggle,
-                  borderRadius:
-                      BorderRadius.circular(LuminaColors.pillRadius),
-                  child: Container(
+                  if (showTitle) ...[
+                    const SizedBox(width: 10),
+                    Text(appTitle,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.8,
+                            fontSize: 14)),
+                  ],
+                  const SizedBox(width: 10),
+                  Container(width: 1, height: 22, color: border),
+                  const SizedBox(width: 10),
+
+                  // Local vs Cloud Mode Switcher
+                  Container(
                     padding: const EdgeInsets.all(3),
                     decoration: BoxDecoration(
-                      borderRadius:
-                          BorderRadius.circular(LuminaColors.pillRadius),
+                      borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
                       border: Border.all(color: border),
+                      color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.2),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _ToggleOpt(
-                            label: '☀ Light',
-                            active: !isDark,
-                            muted: muted),
-                        _ToggleOpt(
-                            label: '🌙 Dark',
-                            active: isDark,
-                            muted: muted),
+                        _ModePill(
+                          icon: Icons.memory_rounded,
+                          label: showFullModeLabels ? 'Local Engine' : 'Local',
+                          selected: executionMode == StudioExecutionMode.local,
+                          muted: muted,
+                          onTap: () => onExecutionModeChanged?.call(StudioExecutionMode.local),
+                        ),
+                        _ModePill(
+                          icon: Icons.cloud_outlined,
+                          label: showFullModeLabels ? 'Rent GPU' : 'Cloud',
+                          selected: executionMode == StudioExecutionMode.cloud,
+                          muted: muted,
+                          onTap: () => onExecutionModeChanged?.call(StudioExecutionMode.cloud),
+                        ),
                       ],
                     ),
                   ),
-                ),
-              ),
-            ],
+
+                  if (showWorkspace) ...[
+                    const SizedBox(width: 10),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 180),
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(LuminaColors.pillRadius),
+                          border: Border.all(color: border),
+                        ),
+                        child: Text(
+                          workspaceLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: muted),
+                        ),
+                      ),
+                    ),
+                  ],
+                  const Spacer(),
+                  // Engine and Cloud status chips
+                  _StatusChip(online: engineOnline, deviceName: deviceName),
+                  if (executionMode == StudioExecutionMode.cloud) ...[
+                    const SizedBox(width: 8),
+                    _CloudStatusChip(online: cloudOnline),
+                  ],
+                  const SizedBox(width: 10),
+                  // Cloud Mode: Credits balance & Buy Credits button
+                  // Local Mode: Subscription status (Pro Member vs Free Tier) & Upgrade button
+                  if (executionMode == StudioExecutionMode.cloud) ...[
+                    // Credits pill.
+                    InkWell(
+                      onTap: onBuyCredits,
+                      borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(LuminaColors.pillRadius),
+                          border: Border.all(color: border),
+                          color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.15),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('✦',
+                                style: TextStyle(
+                                    color: LuminaColors.amber, fontSize: 14)),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${_fmt(credits)} Credits',
+                              style: const TextStyle(
+                                  fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // Buy credits (secondary outline).
+                    OutlinedButton(
+                      onPressed: onBuyCredits,
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: LuminaColors.infoBlue),
+                        shape: const StadiumBorder(),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: compactButtons ? 10 : 14, vertical: 8),
+                      ),
+                      child: Text(compactButtons ? '+ Credits' : '+ Buy Credits',
+                          style: const TextStyle(fontSize: 13)),
+                    ),
+                  ] else ...[
+                    // Local Mode Subscription Status
+                    if (isSubscribed) ...[
+                      _buildSubscriptionBadge(context, dark, border, muted),
+                    ] else ...[
+                      // Not Activated -> Friendly Locked pill + Buy License button
+                      if (w >= 1050) ...[
+                        InkWell(
+                          onTap: onSubscribe,
+                          borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(LuminaColors.pillRadius),
+                              border: Border.all(color: border),
+                              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.lock_outline_rounded, size: 14, color: muted),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Unlicensed',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: muted,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      ElevatedButton.icon(
+                        onPressed: onSubscribe,
+                        icon: const Icon(Icons.key_rounded, size: 15, color: Colors.white),
+                        label: Text(
+                          compactButtons ? 'Buy (\$35)' : 'Buy License (\$35)',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          shape: const StadiumBorder(),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: compactButtons ? 10 : 13, vertical: 8),
+                          backgroundColor: LuminaColors.primaryEnd,
+                          elevation: 2,
+                          shadowColor: LuminaColors.primaryGlow.withValues(alpha: 0.35),
+                        ),
+                      ),
+                    ],
+                  ],
+                  const SizedBox(width: 8),
+                  // Downloads management entry point.
+                  _DownloadsTopBarButton(
+                    border: border,
+                    muted: muted,
+                    onTap: onOpenDownloads ??
+                        () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const DownloadsScreen(),
+                              ),
+                            ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Theme toggle.
+                  if (compactThemeToggle)
+                    IconButton(
+                      onPressed: onThemeToggle,
+                      icon: Icon(
+                        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                        size: 20,
+                        color: muted,
+                      ),
+                      tooltip: isDark ? 'Switch to light' : 'Switch to dark',
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                    )
+                  else
+                    Tooltip(
+                      message: isDark ? 'Switch to light' : 'Switch to dark',
+                      child: InkWell(
+                        onTap: onThemeToggle,
+                        borderRadius:
+                            BorderRadius.circular(LuminaColors.pillRadius),
+                        child: Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            borderRadius:
+                                BorderRadius.circular(LuminaColors.pillRadius),
+                            border: Border.all(color: border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _ToggleOpt(
+                                  label: '☀ Light',
+                                  active: !isDark,
+                                  muted: muted),
+                              _ToggleOpt(
+                                  label: '🌙 Dark',
+                                  active: isDark,
+                                  muted: muted),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),

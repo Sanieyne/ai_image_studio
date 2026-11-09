@@ -117,19 +117,39 @@ class _HomeScreenState extends State<HomeScreen> {
     if (cloudOk && AuthService.instance.isAuthenticated && (!_engineOnline || ApiService.cloudBaseUrl == null || _healthTicks % 4 == 0)) {
       try {
         final instances = await _cloudApi.fetchMyInstances();
-        if (mounted && instances != null && instances.isNotEmpty) {
-          final active = instances.firstWhere(
-            (i) => i['status'] == 'ready' || i['status'] == 'running',
-            orElse: () => <String, dynamic>{},
-          );
-          if (active.isNotEmpty) {
-            final engineUrl = active['pythonEngineUrl']?.toString();
-            if (engineUrl != null && engineUrl.isNotEmpty && ApiService.baseUrl != engineUrl) {
-              ApiService.cloudBaseUrl = engineUrl;
-              ApiService.baseUrl = engineUrl;
-              DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
-              if (_executionMode != StudioExecutionMode.cloud) {
-                setState(() => _executionMode = StudioExecutionMode.cloud);
+        if (mounted) {
+          if (instances != null && instances.isNotEmpty) {
+            final active = instances.firstWhere(
+              (i) => i['status'] == 'ready' || i['status'] == 'running',
+              orElse: () => <String, dynamic>{},
+            );
+            if (active.isNotEmpty) {
+              final engineUrl = active['pythonEngineUrl']?.toString();
+              if (engineUrl != null && engineUrl.isNotEmpty && ApiService.baseUrl != engineUrl) {
+                ApiService.cloudBaseUrl = engineUrl;
+                ApiService.baseUrl = engineUrl;
+                DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
+                if (_executionMode != StudioExecutionMode.cloud) {
+                  setState(() => _executionMode = StudioExecutionMode.cloud);
+                }
+              }
+            } else {
+              // No active/ready instance
+              if (ApiService.cloudBaseUrl != null) {
+                ApiService.cloudBaseUrl = null;
+                DatabaseService.instance.setSetting('studio_cloud_engine_url', '');
+                if (ApiService.baseUrl != ApiService.localBaseUrl) {
+                  ApiService.baseUrl = ApiService.localBaseUrl;
+                }
+              }
+            }
+          } else {
+            // No instances at all
+            if (ApiService.cloudBaseUrl != null) {
+              ApiService.cloudBaseUrl = null;
+              DatabaseService.instance.setSetting('studio_cloud_engine_url', '');
+              if (ApiService.baseUrl != ApiService.localBaseUrl) {
+                ApiService.baseUrl = ApiService.localBaseUrl;
               }
             }
           }
