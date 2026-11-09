@@ -104,7 +104,16 @@ export const GPU_TIERS = Object.freeze([
     ramGB: 128,
     pricePerHour: 1.15,
     tier: 'pro',
-    tags: ['wan-14b', 'minimax'],
+    tags: ['wan-14b'],
+  },
+  {
+    id: 'cmp-170hx-65gb',
+    name: 'CMP 170HX / 65GB+',
+    vramGB: 65,
+    ramGB: 74,
+    pricePerHour: 0.55,
+    tier: 'heavy',
+    tags: ['minimax', 'minimax-h3', 'wan-14b'],
   },
   {
     id: 'a100-80gb',
@@ -113,7 +122,7 @@ export const GPU_TIERS = Object.freeze([
     ramGB: 256,
     pricePerHour: 1.85,
     tier: 'enterprise',
-    tags: ['all', 'minimax-h3'],
+    tags: ['all', 'minimax', 'minimax-h3'],
   },
 ]);
 

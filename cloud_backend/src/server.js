@@ -95,7 +95,8 @@ const INITIAL_MODELS = [
     mode: MODEL_MODES.VIDEO,
     hfRepoId: 'MiniMaxAI/MiniMax-H3',
     sizeGB: 144,
-    requiredVramGB: 32,
+    requiredVramGB: 64,
+    requiredRamGB: 70,
     defaultSteps: 30,
     defaultGuidance: 6.0,
   },
@@ -146,8 +147,14 @@ async function seedModelCatalog() {
     for (const model of INITIAL_MODELS) {
       await ModelCatalog.findOneAndUpdate(
         { modelId: model.modelId },
-        { $setOnInsert: model },
-        { upsert: true, new: true }
+        {
+          $setOnInsert: model,
+          $set: {
+            requiredVramGB: model.requiredVramGB,
+            requiredRamGB: model.requiredRamGB || 16,
+          },
+        },
+        { upsert: true, returnDocument: 'after' }
       );
     }
     console.info('[Catalog] Verified and seeded default AI model catalog.');

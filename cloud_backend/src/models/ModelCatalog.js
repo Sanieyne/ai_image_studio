@@ -42,6 +42,11 @@ const modelCatalogSchema = new mongoose.Schema(
       required: [true, 'Required VRAM in GB is required'],
       min: 1,
     },
+    requiredRamGB: {
+      type: Number,
+      default: 32,
+      min: 8,
+    },
     defaultSteps: {
       type: Number,
       default: 30,

@@ -46,34 +46,36 @@ class RecommendationService {
 
     if (!models || models.length === 0) {
       const STATIC_CATALOG = [
-        { modelId: 'qwen-image-2.1', displayName: 'Qwen-Image 2.1', sizeGB: 33, requiredVramGB: 16 },
-        { modelId: 'flux-1-kontext-dev', displayName: 'FLUX.1 Kontext [dev]', sizeGB: 24, requiredVramGB: 24 },
-        { modelId: 'sdxl-base-1.0', displayName: 'SDXL Base 1.0', sizeGB: 6.9, requiredVramGB: 12 },
-        { modelId: 'z-image-turbo', displayName: 'Z-Image Turbo', sizeGB: 6.2, requiredVramGB: 12 },
-        { modelId: 'wan-2.1-t2v-1.3b', displayName: 'Wan 2.1 T2V 1.3B', sizeGB: 3.5, requiredVramGB: 12 },
-        { modelId: 'wan-2.1-i2v-14b', displayName: 'Wan 2.1 I2V 14B', sizeGB: 28, requiredVramGB: 24 },
-        { modelId: 'wan-2.2-animate-14b', displayName: 'Wan 2.2 Animate 14B', sizeGB: 28, requiredVramGB: 24 },
-        { modelId: 'minimax-h3', displayName: 'MiniMax-H3 Video+Audio', sizeGB: 144, requiredVramGB: 32 },
-        { modelId: 'chatterbox-tts', displayName: 'Chatterbox TTS', sizeGB: 1.2, requiredVramGB: 4 },
-        { modelId: 'breeze-tts-2', displayName: 'Breeze TTS 2', sizeGB: 4.8, requiredVramGB: 8 },
-        { modelId: 'fashn-vton-1.5', displayName: 'FASHN VTON 1.5', sizeGB: 8.5, requiredVramGB: 16 },
-        { modelId: 'real-esrgan-x4plus', displayName: 'Real-ESRGAN 4x+', sizeGB: 2.1, requiredVramGB: 6 },
+        { modelId: 'qwen-image-2.1', displayName: 'Qwen-Image 2.1', sizeGB: 33, requiredVramGB: 16, requiredRamGB: 32 },
+        { modelId: 'flux-1-kontext-dev', displayName: 'FLUX.1 Kontext [dev]', sizeGB: 24, requiredVramGB: 24, requiredRamGB: 32 },
+        { modelId: 'sdxl-base-1.0', displayName: 'SDXL Base 1.0', sizeGB: 6.9, requiredVramGB: 12, requiredRamGB: 16 },
+        { modelId: 'z-image-turbo', displayName: 'Z-Image Turbo', sizeGB: 6.2, requiredVramGB: 12, requiredRamGB: 16 },
+        { modelId: 'wan-2.1-t2v-1.3b', displayName: 'Wan 2.1 T2V 1.3B', sizeGB: 3.5, requiredVramGB: 12, requiredRamGB: 16 },
+        { modelId: 'wan-2.1-i2v-14b', displayName: 'Wan 2.1 I2V 14B', sizeGB: 28, requiredVramGB: 24, requiredRamGB: 32 },
+        { modelId: 'wan-2.2-animate-14b', displayName: 'Wan 2.2 Animate 14B', sizeGB: 28, requiredVramGB: 24, requiredRamGB: 32 },
+        { modelId: 'minimax-h3', displayName: 'MiniMax-H3 Video+Audio', sizeGB: 144, requiredVramGB: 64, requiredRamGB: 70 },
+        { modelId: 'chatterbox-tts', displayName: 'Chatterbox TTS', sizeGB: 1.2, requiredVramGB: 4, requiredRamGB: 8 },
+        { modelId: 'breeze-tts-2', displayName: 'Breeze TTS 2', sizeGB: 4.8, requiredVramGB: 8, requiredRamGB: 16 },
+        { modelId: 'fashn-vton-1.5', displayName: 'FASHN VTON 1.5', sizeGB: 8.5, requiredVramGB: 16, requiredRamGB: 16 },
+        { modelId: 'real-esrgan-x4plus', displayName: 'Real-ESRGAN 4x+', sizeGB: 2.1, requiredVramGB: 6, requiredRamGB: 8 },
       ];
       models = STATIC_CATALOG.filter((m) => uniqueIds.includes(m.modelId));
     }
 
     if (models.length === 0) {
       // Default to standard base model
-      models = [{ modelId: 'sdxl-base-1.0', displayName: 'SDXL Base 1.0', sizeGB: 6.9, requiredVramGB: 12 }];
+      models = [{ modelId: 'sdxl-base-1.0', displayName: 'SDXL Base 1.0', sizeGB: 6.9, requiredVramGB: 12, requiredRamGB: 16 }];
     }
 
     // 2. Sum model weights
     const totalModelSizeGB =
       Math.round(models.reduce((sum, m) => sum + m.sizeGB, 0) * 100) / 100;
 
-    // 3. Max and Min VRAM
-    const maxVramGB = Math.max(...models.map((m) => m.requiredVramGB));
-    const minVramGB = Math.min(...models.map((m) => m.requiredVramGB));
+    // 3. Max and Min VRAM and RAM
+    const maxVramGB = Math.max(...models.map((m) => m.requiredVramGB || 12));
+    const minVramGB = Math.min(...models.map((m) => m.requiredVramGB || 12));
+    const maxRamGB = Math.max(...models.map((m) => m.requiredRamGB || 16));
+    const minRamGB = Math.min(...models.map((m) => m.requiredRamGB || 16));
 
     // 4. Output buffer (30% for generated media)
     const bufferGB =
@@ -101,12 +103,12 @@ class RecommendationService {
     };
     const allPlans = STORAGE_PLANS.map((plan) => pricingService.formatStoragePricing(plan));
 
-    // 7. Compatible GPUs filtered by maxVramGB requirement and formatted with server credits
-    const compatibleGPUs = GPU_TIERS.filter((gpu) => gpu.vramGB >= maxVramGB)
+    // 7. Compatible GPUs filtered by maxVramGB AND maxRamGB requirement and formatted with server credits
+    const compatibleGPUs = GPU_TIERS.filter((gpu) => gpu.vramGB >= maxVramGB && (gpu.ramGB || 32) >= maxRamGB)
       .map((gpu) => {
         const headroom = gpu.vramGB - maxVramGB;
         let fit = 'minimum';
-        let reason = `Minimum requirement satisfied for ${maxVramGB}GB model VRAM.`;
+        let reason = `Minimum requirement satisfied for ${maxVramGB}GB model VRAM and ${maxRamGB}GB host RAM.`;
 
         if (headroom >= 8) {
           fit = 'optimal';
@@ -143,9 +145,15 @@ class RecommendationService {
       );
     }
 
+    if (models.some((m) => m.modelId === 'minimax-h3')) {
+      warnings.push(
+        'MiniMax-H3 requires at least 64GB GPU VRAM and 70GB Host System RAM (e.g. CMP 170HX 65GB, A100 80GB, or H100). GPUs with less VRAM or RAM cannot fit the model and will crash.'
+      );
+    }
+
     if (compatibleGPUs.length === 0) {
       warnings.push(
-        `Current model selection requires at least ${maxVramGB}GB VRAM. No standard single-GPU tier available. Contact enterprise support.`
+        `Current model selection requires at least ${maxVramGB}GB VRAM and ${maxRamGB}GB RAM. No standard single-GPU tier available. Contact enterprise support.`
       );
     }
 
@@ -156,6 +164,7 @@ class RecommendationService {
         mode: m.mode,
         sizeGB: m.sizeGB,
         requiredVramGB: m.requiredVramGB,
+        requiredRamGB: m.requiredRamGB || 16,
       })),
       requirements: {
         modelCount: models.length,
@@ -165,6 +174,8 @@ class RecommendationService {
         totalWithBufferGB,
         maxVramGB,
         minVramGB,
+        maxRamGB,
+        minRamGB,
       },
       recommendedStorage: {
         ...recommendedStorage,
@@ -194,9 +205,10 @@ class RecommendationService {
       mode: m.mode,
       sizeGB: m.sizeGB,
       requiredVramGB: m.requiredVramGB,
-      compatibleGPUs: GPU_TIERS.filter((gpu) => gpu.vramGB >= m.requiredVramGB).map(
-        (gpu) => gpu.id
-      ),
+      requiredRamGB: m.requiredRamGB || 16,
+      compatibleGPUs: GPU_TIERS.filter(
+        (gpu) => gpu.vramGB >= m.requiredVramGB && (gpu.ramGB || 32) >= (m.requiredRamGB || 16)
+      ).map((gpu) => gpu.id),
     }));
 
     return {

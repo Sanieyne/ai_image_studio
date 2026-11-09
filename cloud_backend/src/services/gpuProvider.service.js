@@ -57,6 +57,7 @@ class GpuProviderService {
 
     let requirements = null;
     let requiredVram = minVramGB;
+    let requiredRam = 16;
     let requiredDisk = 30;
     let totalModelSizeGB = 15;
 
@@ -64,6 +65,7 @@ class GpuProviderService {
     if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
       requirements = await recommendationService.calculateRequirements(selectedModelIds);
       requiredVram = Math.max(requiredVram, requirements.requirements.maxVramGB);
+      requiredRam = Math.max(requiredRam, requirements.requirements.maxRamGB || 16);
       requiredDisk = Math.max(requiredDisk, requirements.requirements.totalWithBufferGB);
       totalModelSizeGB = requirements.requirements.totalModelSizeGB;
     }
@@ -71,6 +73,7 @@ class GpuProviderService {
     // 2. Fetch live marketplace offers from Vast.ai with hard 400 Mbps floor
     const rawOffers = await vastaiService.searchOffers({
       minVramGB: requiredVram,
+      minRamGB: requiredRam,
       minDiskGB: requiredDisk,
       minInetDown: effectiveMinInetDown,
       gpuName,
@@ -79,10 +82,11 @@ class GpuProviderService {
       totalModelSizeGB,
     });
 
-    // 3. Defense-in-depth: strictly exclude any offer below 400 Mbps and filter by maxPricePerHour.
+    // 3. Defense-in-depth: strictly exclude any offer below 400 Mbps, below required VRAM, or below required RAM.
     //    Prices are recomputed for the storage size the user picked.
     let filteredOffers = rawOffers
       .filter((o) => (o.inetDown ?? 0) >= MIN_INET_DOWN_FLOOR_MBPS)
+      .filter((o) => (o.vramGB ?? 0) >= requiredVram && (o.ramGB ?? 0) >= requiredRam)
       .map((o) => pricingService.repriceOffer(o, storageGB, pricingConfig));
     if (maxPricePerHour != null && !isNaN(maxPricePerHour)) {
       filteredOffers = filteredOffers.filter((o) => o.pricePerHour <= Number(maxPricePerHour));
@@ -361,6 +365,8 @@ class GpuProviderService {
     }
 
     // Auto-scale storage if selected models require more volume than requested
+    let requiredVram = 0;
+    let requiredRam = 16;
     if (Array.isArray(selectedModelIds) && selectedModelIds.length > 0) {
       try {
         const rec = await recommendationService.calculateRequirements(selectedModelIds);
@@ -368,6 +374,8 @@ class GpuProviderService {
         if (requiredGB && requiredGB > numericStorage) {
           numericStorage = Math.min(STORAGE_MAX_GB, requiredGB);
         }
+        requiredVram = rec?.requirements?.maxVramGB || 0;
+        requiredRam = rec?.requirements?.maxRamGB || 16;
       } catch (err) {
         // Fall back to provided numericStorage
       }
@@ -375,6 +383,18 @@ class GpuProviderService {
 
     // 1. Fetch offer details
     const offer = await vastaiService.getOffer(offerId);
+
+    // Hardware compatibility validation against selected models (defense in depth)
+    if (requiredVram > 0 && (offer.vramGB ?? 0) < requiredVram) {
+      throw ApiError.badRequest(
+        `Selected GPU only has ${offer.vramGB}GB VRAM, but your selected models (${selectedModelIds.join(', ')}) require at least ${requiredVram}GB VRAM. Please choose a compatible GPU offer with at least ${requiredVram}GB VRAM.`
+      );
+    }
+    if (requiredRam > 0 && (offer.ramGB ?? 0) < requiredRam) {
+      throw ApiError.badRequest(
+        `Selected host only has ${offer.ramGB}GB system RAM, but your selected models require at least ${requiredRam}GB RAM to prevent out-of-memory crashes during model loading. Please choose an offer with at least ${requiredRam}GB RAM.`
+      );
+    }
 
     // Defense-in-depth: independently re-verify the host meets the 400 Mbps download speed floor
     const hostInetDown = offer.inetDown ?? offer.rawOffer?.inet_down ?? 0;
