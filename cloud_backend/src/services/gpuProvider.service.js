@@ -140,9 +140,16 @@ class GpuProviderService {
       return 4;
     };
 
-    // 5. Sorting - "Least cost with highest internet speed first":
-    // Primary: lowest price per hour. Within competitive price tiers (<= 5 credits diff),
-    // the offer with the highest internet download speed becomes first.
+    // Helper: calculate "Lowest + Fast at the same time" composite value score.
+    // Minimizes price while strongly boosting high download speed.
+    // Keeps high-cost cards (>300 credits) low, while promoting fast, affordable cards to the top.
+    const getLowestFastScore = (o) => {
+      const p = o.totalCreditsPerHour ?? 9999;
+      const s = Math.max(o.inetDown ?? 100, 100);
+      return p * (1 + 600 / s);
+    };
+
+    // 5. Sorting - "Lowest price + Fastest speed at the same time" (Best Value):
     enrichedOffers.sort((a, b) => {
       if (orderBy === 'dlperf') {
         return (b.dlperf ?? 0) - (a.dlperf ?? 0);
@@ -157,22 +164,13 @@ class GpuProviderService {
       if (tierA >= 4 && tierB < 4) return 1;
       if (tierB >= 4 && tierA < 4) return -1;
 
-      // Primary: Least price first
-      const priceA = a.totalCreditsPerHour ?? Infinity;
-      const priceB = b.totalCreditsPerHour ?? Infinity;
-      const priceDiff = priceA - priceB;
-
-      if (Math.abs(priceDiff) > 5) {
-        return priceDiff;
+      // Default, 'price', and 'fastest': Sort by Lowest + Fast at the same time
+      const scoreDiff = getLowestFastScore(a) - getLowestFastScore(b);
+      if (Math.abs(scoreDiff) > 0.05) {
+        return scoreDiff;
       }
 
-      // Within competitive / close price range (<= 5 credits diff): highest download speed first
-      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
-      if (Math.abs(speedDiff) > 50) {
-        return speedDiff;
-      }
-
-      return priceDiff;
+      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
     });
 
     return {
@@ -229,62 +227,32 @@ class GpuProviderService {
     };
 
     // Helper: sort by download speed & compute within bandwidth tier
-    const byFastest = (a, b) => {
-      const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
-      if (tierDiff !== 0) return tierDiff;
-      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
-      if (Math.abs(speedDiff) > 150) return speedDiff;
-      const perfDiff = (b.dlperf ?? 0) - (a.dlperf ?? 0);
-      if (Math.abs(perfDiff) > 2) return perfDiff;
-      return (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
+    // Helper: calculate "Lowest + Fast at the same time" composite value score
+    const getLowestFastScore = (o) => {
+      const p = o.totalCreditsPerHour ?? 9999;
+      const s = Math.max(o.inetDown ?? 100, 100);
+      return p * (1 + 600 / s);
     };
 
-    // Helper: sort by lowest price (least cost), and among similar price, highest internet speed first
-    const byLeastPriceAndSpeed = (a, b) => {
-      const tierA = getBandwidthTier(a);
-      const tierB = getBandwidthTier(b);
-      if (tierA >= 4 && tierB < 4) return 1;
-      if (tierB >= 4 && tierA < 4) return -1;
+    // 1. Cheapest offer: Strictly lowest hourly credits (with speed tie-breaker)
+    const cheapestOffer = [...offers].sort(
+      (a, b) => (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity) || (b.inetDown ?? 0) - (a.inetDown ?? 0)
+    )[0];
 
-      const priceA = a.totalCreditsPerHour ?? Infinity;
-      const priceB = b.totalCreditsPerHour ?? Infinity;
-      const priceDiff = priceA - priceB;
+    // 2. Fastest offer: Highest network download speed
+    const fastestOffer = [...offers].sort(
+      (a, b) => (b.inetDown ?? 0) - (a.inetDown ?? 0) || (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity)
+    )[0];
 
-      if (Math.abs(priceDiff) > 5) {
-        return priceDiff;
-      }
-
-      const speedDiff = (b.inetDown ?? 0) - (a.inetDown ?? 0);
-      if (Math.abs(speedDiff) > 50) {
-        return speedDiff;
-      }
-
-      return priceDiff;
-    };
-
-    // 1. Fastest offer: Free/low bandwidth first, then highest network download speed & compute
-    const fastestOffer = [...offers].sort(byFastest)[0];
-
-    // 2. Cheapest offer: Lowest hourly credits, and among the cheapest, highest internet speed first
-    const cheapestOffer = [...offers].sort(byLeastPriceAndSpeed)[0];
-
-    // 3. Most reliable offer: Free/low bandwidth preferred, reliability >= 0.95 priority
+    // 3. Most reliable offer: High reliability >= 0.95 prioritized by best value score
     const mostReliableOffer = [...offers]
-      .filter((o) => o.reliability >= 0.95)
-      .sort((a, b) => {
-        const tierDiff = getBandwidthTier(a) - getBandwidthTier(b);
-        if (tierDiff !== 0) return tierDiff;
-        return (b.reliability ?? 0) - (a.reliability ?? 0) || (a.totalCreditsPerHour ?? Infinity) - (b.totalCreditsPerHour ?? Infinity);
-      })[0] || offers[0];
+      .filter((o) => (o.reliability ?? 0) >= 0.95)
+      .sort((a, b) => getLowestFastScore(a) - getLowestFastScore(b))[0] || offers[0];
 
-    // 4. Balanced offer: Free/low bandwidth with fast download speed (>= 1500 Mbps or top tier) and optimal fit
-    const balancedCandidates = offers.filter((o) => getBandwidthTier(o) <= 1 && (o.inetDown ?? 0) >= 1500);
-    const balancedOffer =
-      balancedCandidates.find((o) => o.fit === 'optimal' && (o.reliability ?? 0) >= 0.98) ||
-      balancedCandidates.find((o) => (o.reliability ?? 0) >= 0.98) ||
-      balancedCandidates[0] ||
-      offers.filter((o) => getBandwidthTier(o) <= 1).sort(byFastest)[0] ||
-      offers[0];
+    // 4. Balanced offer: "Lowest + Fast at the same time" (Best Value sweet spot)
+    const balancedOffer = [...offers].sort(
+      (a, b) => getLowestFastScore(a) - getLowestFastScore(b)
+    )[0] || offers[0];
 
     return {
       requirements,
