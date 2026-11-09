@@ -318,7 +318,7 @@ class MiniMaxH3Engine:
         return self.pipeline is not None and self.pipeline not in ("REMOTE_OR_FALLBACK", "FAILED")
 
     def _ensure_loaded(self):
-        if self.pipeline is not None:
+        if self.pipeline is not None and self.pipeline != "FAILED":
             return
 
         try:
@@ -331,6 +331,46 @@ class MiniMaxH3Engine:
             from transformers import Qwen2TokenizerFast, Qwen3VLForConditionalGeneration, Qwen3VLProcessor
             from transformers import TorchAoConfig as TransformersTorchAoConfig
             from torchao.quantization import Int8WeightOnlyConfig
+
+            # Ensure diffusers directory structure compatibility for MiniMax-H3
+            transformer_dir = os.path.join(self.model_path, "transformer")
+            orig_idx = os.path.join(transformer_dir, "model.safetensors.index.json")
+            diffusers_idx = os.path.join(transformer_dir, "diffusion_pytorch_model.safetensors.index.json")
+            if os.path.isfile(orig_idx) and not os.path.exists(diffusers_idx):
+                try:
+                    os.symlink("model.safetensors.index.json", diffusers_idx)
+                except Exception:
+                    pass
+
+            # Symlink vae -> video_vae if needed
+            vae_dir = os.path.join(self.model_path, "vae")
+            video_vae_dir = os.path.join(self.model_path, "video_vae")
+            if os.path.isdir(video_vae_dir) and not os.path.exists(vae_dir):
+                try:
+                    os.symlink("video_vae", vae_dir)
+                except Exception:
+                    pass
+
+            # Symlink video_vae/diffusion_pytorch_model.safetensors -> source/model.safetensors
+            if os.path.isdir(video_vae_dir):
+                target_vvae = os.path.join(video_vae_dir, "diffusion_pytorch_model.safetensors")
+                src_vvae = os.path.join(video_vae_dir, "source", "model.safetensors")
+                if os.path.isfile(src_vvae) and not os.path.exists(target_vvae):
+                    try:
+                        os.symlink("source/model.safetensors", target_vvae)
+                    except Exception:
+                        pass
+
+            # Symlink audio_vae/diffusion_pytorch_model.safetensors -> model.safetensors
+            audio_vae_dir = os.path.join(self.model_path, "audio_vae")
+            if os.path.isdir(audio_vae_dir):
+                target_avae = os.path.join(audio_vae_dir, "diffusion_pytorch_model.safetensors")
+                src_avae = os.path.join(audio_vae_dir, "model.safetensors")
+                if os.path.isfile(src_avae) and not os.path.exists(target_avae):
+                    try:
+                        os.symlink("model.safetensors", target_avae)
+                    except Exception:
+                        pass
 
             print(f"[*] Loading MiniMax-H3 text_encoder...")
             qwen_path = "/root/models/minimax-qwen-int8"
@@ -355,15 +395,6 @@ class MiniMaxH3Engine:
                 )
 
             print(f"[*] Loading and quantizing MiniMaxH3Transformer3DModel to Int8...")
-            transformer_dir = os.path.join(self.model_path, "transformer")
-            orig_idx = os.path.join(transformer_dir, "model.safetensors.index.json")
-            diffusers_idx = os.path.join(transformer_dir, "diffusion_pytorch_model.safetensors.index.json")
-            if os.path.isfile(orig_idx) and not os.path.exists(diffusers_idx):
-                try:
-                    os.symlink("model.safetensors.index.json", diffusers_idx)
-                except Exception:
-                    pass
-
             transformer = MiniMaxH3Transformer3DModel.from_pretrained(
                 self.model_path,
                 subfolder="transformer",
@@ -385,7 +416,7 @@ class MiniMaxH3Engine:
                 transformer=transformer,
                 tokenizer=Qwen2TokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer"),
                 processor=Qwen3VLProcessor.from_pretrained(self.model_path, subfolder="processor"),
-                vae=AutoencoderKLMiniMaxH3.from_pretrained(self.model_path, subfolder="vae", torch_dtype=torch.bfloat16),
+                vae=AutoencoderKLMiniMaxH3.from_pretrained(self.model_path, subfolder="video_vae", torch_dtype=torch.bfloat16),
                 audio_vae=AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16),
                 scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="scheduler"),
                 audio_scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="audio_scheduler"),
@@ -523,6 +554,7 @@ class MiniMaxH3Engine:
                 }
 
                 if init_image_bytes:
+                    import io
                     init_img = Image.open(io.BytesIO(init_image_bytes)).convert("RGB")
                     kwargs["image"] = init_img
 
@@ -539,6 +571,9 @@ class MiniMaxH3Engine:
                         audio=results["audio"][0],
                         audio_sample_rate=results["sampling_rate"],
                     )
+                    with open(out_mp4, "rb") as f:
+                        mp4_bytes = f.read()
+
                     outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
                     os.makedirs(outputs_dir, exist_ok=True)
                     latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
@@ -559,26 +594,6 @@ class MiniMaxH3Engine:
                     except Exception as save_err:
                         print(f"[!] Warning archiving video: {save_err}")
 
-                    outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
-                    os.makedirs(outputs_dir, exist_ok=True)
-                    latest_mp4 = os.path.join(outputs_dir, "latest_video.mp4")
-                    seed_mp4 = os.path.join(outputs_dir, f"video_{seed}.mp4")
-                    meta_path = os.path.join(outputs_dir, "latest_meta.json")
-                    try:
-                        shutil.copyfile(out_mp4, latest_mp4)
-                        shutil.copyfile(out_mp4, seed_mp4)
-                        with open(meta_path, "w") as f:
-                            json.dump({
-                                "status": "completed",
-                                "seed": seed,
-                                "prompt": prompt,
-                                "timestamp": time.time(),
-                                "size": len(mp4_bytes),
-                            }, f)
-                    except Exception:
-                        pass
-                    with open(out_mp4, "rb") as f:
-                        mp4_bytes = f.read()
                     print(f"[OK] MiniMax-H3 generated {len(mp4_bytes)} bytes in {int((time.perf_counter()-t0)*1000)}ms")
                     return mp4_bytes, seed
                 finally:
