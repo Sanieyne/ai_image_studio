@@ -441,11 +441,11 @@ class MiniMaxH3Engine:
                 pipe.vae.to("cuda")
                 pipe.audio_vae.to("cuda")
 
-                if vram_gb >= 60:
-                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM >= 60GB: placing transformer 100% in VRAM for maximum speed...")
+                if vram_gb >= 24:
+                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM >= 24GB: placing Int8 transformer directly in VRAM...")
                     pipe.transformer.to("cuda")
                 else:
-                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM < 60GB: enabling block-level offload...")
+                    print(f"[*] GPU has {vram_gb:.1f}GB VRAM < 24GB: enabling block-level offload...")
                     pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
             elif device_str == "mps":
                 pipe.to("mps")
