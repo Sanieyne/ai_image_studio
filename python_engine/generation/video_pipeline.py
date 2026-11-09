@@ -410,14 +410,21 @@ class MiniMaxH3Engine:
             )
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
+            import sys
+            if self.model_path not in sys.path:
+                sys.path.append(self.model_path)
+            from video_vae.minimax_h3_video_vae import MiniMaxH3VideoVAE
+            vae = MiniMaxH3VideoVAE.from_pretrained(os.path.join(self.model_path, "video_vae"), torch_dtype=torch.bfloat16)
+            audio_vae = AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16)
+
             pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
             pipe.update_components(
                 text_encoder=text_encoder,
                 transformer=transformer,
                 tokenizer=Qwen2TokenizerFast.from_pretrained(self.model_path, subfolder="tokenizer"),
                 processor=Qwen3VLProcessor.from_pretrained(self.model_path, subfolder="processor"),
-                vae=AutoencoderKLMiniMaxH3.from_pretrained(self.model_path, subfolder="video_vae", torch_dtype=torch.bfloat16),
-                audio_vae=AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16),
+                vae=vae,
+                audio_vae=audio_vae,
                 scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="scheduler"),
                 audio_scheduler=MiniMaxH3Scheduler.from_pretrained(self.model_path, subfolder="audio_scheduler"),
             )
