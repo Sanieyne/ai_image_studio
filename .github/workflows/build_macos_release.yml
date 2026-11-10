@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*mac*'
+      - 'v*'
 
 jobs:
   build-macos:
@@ -111,3 +111,29 @@ jobs:
           path: |
             dist/Cosmic-Gen_macOS_AppleSilicon.zip
             dist/AI_Image_Studio_macOS_AppleSilicon.zip
+
+      - name: Publish macOS Assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Cosmic-Gen_macOS_AppleSilicon.zip
+            dist/AI_Image_Studio_macOS_AppleSilicon.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy macOS Release to Contabo
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          CONTABO_SSH_KEY_B64: ${{ secrets.CONTABO_SSH_KEY_B64 }}
+          CONTABO_KNOWN_HOSTS: ${{ secrets.CONTABO_KNOWN_HOSTS }}
+          CONTABO_IP: ${{ secrets.CONTABO_IP }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$CONTABO_SSH_KEY_B64" | base64 --decode > ~/.ssh/contabo_key
+          chmod 600 ~/.ssh/contabo_key
+          echo "$CONTABO_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+          echo "Uploading macOS release to Contabo..."
+          scp -i ~/.ssh/contabo_key -o StrictHostKeyChecking=yes dist/Cosmic-Gen_macOS_AppleSilicon.zip dist/AI_Image_Studio_macOS_AppleSilicon.zip "root@${CONTABO_IP}:/var/www/releases/ai_image_studio/"
+          ssh -i ~/.ssh/contabo_key -o StrictHostKeyChecking=yes "root@${CONTABO_IP}" "cd /var/www/releases/ai_image_studio && ln -sf Cosmic-Gen_macOS_AppleSilicon.zip Cosmic-Gen_macOS_latest.zip && ln -sf Cosmic-Gen_macOS_AppleSilicon.zip macos_latest.zip && echo 'macOS deploy complete: \$(date)'"

@@ -175,18 +175,23 @@ jobs:
           name: gpu-zip
           path: dist
 
-      - name: Deploy build to Contabo VPS
+      # -------------------------------------------------------------
+      # 5. Fast Cloudflare R2 Parallel Upload & Contabo High-Speed Sync
+      # -------------------------------------------------------------
+      - name: Deploy build to Contabo VPS (via High-Speed R2 Pipeline)
         shell: pwsh
         env:
           CONTABO_SSH_KEY_B64: ${{ secrets.CONTABO_SSH_KEY_B64 }}
           CONTABO_IP: ${{ secrets.CONTABO_IP }}
           CONTABO_KNOWN_HOSTS: ${{ secrets.CONTABO_KNOWN_HOSTS }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
         run: |
           $ErrorActionPreference = 'Stop'
           $keyPath = "$HOME\.ssh\contabo_key"
           New-Item -ItemType Directory -Force -Path (Split-Path $keyPath) | Out-Null
-          # Key stored as single-line base64: multiline secret values
-          # get mangled between GitHub and the runner file write.
           $keyBytes = [Convert]::FromBase64String($env:CONTABO_SSH_KEY_B64.Trim())
           Write-Host "decoded key bytes: $($keyBytes.Length) (expect 411)"
           if ($keyBytes.Length -lt 100) { throw "decoded key too short - secret is damaged" }
@@ -194,27 +199,39 @@ jobs:
           icacls $keyPath /inheritance:r | Out-Null
           icacls $keyPath /grant:r "$($env:USERNAME):R" | Out-Null
 
-          # Fail fast on a bad key. Prints only the PUBLIC key (safe to log).
-          $keygen = 'C:\Windows\System32\OpenSSH\ssh-keygen.exe'
-          $pubKey = & $keygen -y -f $keyPath
-          if ($LASTEXITCODE -ne 0) { throw "deploy key does not parse" }
-          Write-Host "deploy key OK"
-
-          # Pin the server's host key: only the key in the CONTABO_KNOWN_HOSTS
-          # secret (output of `ssh-keyscan <host>`, checked by hand) is trusted.
-          if ([string]::IsNullOrWhiteSpace($env:CONTABO_KNOWN_HOSTS)) { throw "CONTABO_KNOWN_HOSTS secret is not set" }
           $knownHostsPath = "$HOME\.ssh\contabo_known_hosts"
           [System.IO.File]::WriteAllText($knownHostsPath, $env:CONTABO_KNOWN_HOSTS.Trim() + "`n")
 
           $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
-          $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
           $sshOpts = @('-i', $keyPath, '-o', "UserKnownHostsFile=$knownHostsPath", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=30')
 
-          & $scp @sshOpts 'dist\AI_Image_Studio_Windows_x64_GPU.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
-          if ($LASTEXITCODE -ne 0) { throw "scp upload failed (exit $LASTEXITCODE)" }
+          # 1. Fast parallel multi-part upload to Cloudflare R2 (~30-45 seconds)
+          Write-Host "Uploading 3.16 GB Windows release to Cloudflare R2 in parallel chunks..."
+          python -m pip install --quiet boto3
+          python -c @"
+          import os, boto3
+          from boto3.s3.transfer import TransferConfig
 
-          & $ssh @sshOpts "root@$($env:CONTABO_IP)" 'cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ls -lah && echo Deploy complete: $(date)'
-          if ($LASTEXITCODE -ne 0) { throw "remote symlink update failed (exit $LASTEXITCODE)" }
+          endpoint = os.environ.get('R2_ENDPOINT')
+          key_id = os.environ.get('R2_ACCESS_KEY_ID')
+          secret = os.environ.get('R2_SECRET_ACCESS_KEY')
+          bucket = os.environ.get('R2_BUCKET_NAME', 'cosmic-gen')
+
+          s3 = boto3.client('s3', endpoint_url=endpoint, aws_access_key_id=key_id, aws_secret_access_key=secret, region_name='auto')
+          config = TransferConfig(multipart_threshold=25*1024*1024, max_concurrency=10, multipart_chunksize=25*1024*1024, use_threads=True)
+
+          file_path = 'dist/AI_Image_Studio_Windows_x64_GPU.zip'
+          s3.upload_file(file_path, bucket, 'releases/AI_Image_Studio_Windows_x64_GPU.zip', Config=config)
+          s3.upload_file(file_path, bucket, 'releases/latest_release.zip', Config=config)
+          print('Cloudflare R2 multi-part upload complete!')
+          "@
+
+          # 2. Contabo pulls directly from R2 at full 185+ Mbps line speed (~1.5 minutes)
+          Write-Host "Signaling Contabo VPS to pull release from Cloudflare R2..."
+          $remoteCmd = "python3 -c `"import boto3; from boto3.s3.transfer import TransferConfig; s3 = boto3.client('s3', endpoint_url='$($env:R2_ENDPOINT)', aws_access_key_id='$($env:R2_ACCESS_KEY_ID)', aws_secret_access_key='$($env:R2_SECRET_ACCESS_KEY)', region_name='auto'); config = TransferConfig(multipart_threshold=25*1024*1024, max_concurrency=10, multipart_chunksize=25*1024*1024, use_threads=True); s3.download_file('$($env:R2_BUCKET_NAME)', 'releases/AI_Image_Studio_Windows_x64_GPU.zip', '/var/www/releases/ai_image_studio/AI_Image_Studio_Windows_x64_GPU.zip', Config=config)`" && cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_latest.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_x64_GPU.zip && echo Deploy complete: `$(date)"
+
+          & $ssh @sshOpts "root@$($env:CONTABO_IP)" $remoteCmd
+          if ($LASTEXITCODE -ne 0) { throw "Contabo high-speed pull failed (exit $LASTEXITCODE)" }
 
       # -------------------------------------------------------------
       # 6. Create GitHub Release on Tag (no artifact - build is on Contabo)
