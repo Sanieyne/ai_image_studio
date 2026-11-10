@@ -134,7 +134,7 @@ export const env = Object.freeze({
   GPU_RENTALS_PAUSED_MESSAGE:
     process.env.GPU_RENTALS_PAUSED_MESSAGE || 'Cloud GPU rentals are paused while we upgrade them.',
   // Container image for rented instances. Its torch must match python_engine/constraints-cloud.txt.
-  VASTAI_ENGINE_IMAGE: process.env.VASTAI_ENGINE_IMAGE || 'pytorch/pytorch:2.11.0-cuda12.8-cudnn9-runtime',
+  VASTAI_ENGINE_IMAGE: process.env.VASTAI_ENGINE_IMAGE || 'ghcr.io/sanieyne/cosmic-ai-engine:latest',
 
   MEDIA_STORAGE_PATH: process.env.MEDIA_STORAGE_PATH || '/var/www/media',
   MEDIA_PUBLIC_URL: (process.env.MEDIA_PUBLIC_URL || 'https://cosmic-gen.com/media').replace(/\/+$/, ''),

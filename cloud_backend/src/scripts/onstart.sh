@@ -52,6 +52,22 @@ fail() {
 
 last_lines() { tail -n "${2:-5}" "$1" 2>/dev/null | tr '\n' ' ' | cut -c1-600; }
 
+# Fast path: Pre-baked Docker container image detected
+if [ -d "/workspace/python_engine" ] && [ -f "/workspace/python_engine/app.py" ] && [ -f "/workspace/python_engine/self_test.py" ]; then
+  stage "Pre-baked Docker container detected! All dependencies and engine files are already present."
+  cd /workspace/python_engine
+
+  if [ -n "${AI_STUDIO_SELECTED_MODELS:-}" ]; then
+    stage "Streaming selected models from R2: ${AI_STUDIO_SELECTED_MODELS}"
+    python3 download_model.py --models "${AI_STUDIO_SELECTED_MODELS}" --allow-partial || true
+  fi
+
+  stage "Starting the pre-baked engine on port 8000"
+  nohup python3 app.py > /var/log/ai_engine.log 2>&1 &
+  echo "[OK] Engine started with PID $!"
+  exit 0
+fi
+
 stage "1/4 Downloading the engine package"
 python3 -m pip install -q --no-cache-dir boto3 > /var/log/pip_boto3.log 2>&1 \
   || fail "Could not install the download tool (boto3): $(last_lines /var/log/pip_boto3.log)"
