@@ -121,6 +121,7 @@ class InstanceProvisioningScreen extends StatefulWidget {
 
   /// How often the instance is polled while the socket is down.
   final Duration pollInterval;
+  final bool autoNavigateOnReady;
 
   const InstanceProvisioningScreen({
     super.key,
@@ -136,6 +137,7 @@ class InstanceProvisioningScreen extends StatefulWidget {
     this.fetchInstance,
     this.stopInstance,
     this.pollInterval = const Duration(seconds: 5),
+    this.autoNavigateOnReady = false,
   });
 
   @override
@@ -153,6 +155,7 @@ class _InstanceProvisioningScreenState
   String? _errorMessage;
   String? _deviceInfo;
   Timer? _navigationTimer;
+  bool _wasInitiallyProvisioning = false;
 
   // Live progress from the backend (socket or polling).
   String? _stepMessage;
@@ -177,6 +180,10 @@ class _InstanceProvisioningScreenState
 
     if (widget.initialPreviewState != null) {
       _state = widget.initialPreviewState!;
+      if (_state == ProvisioningState.provisioning ||
+          _state == ProvisioningState.downloadingModel) {
+        _wasInitiallyProvisioning = true;
+      }
     }
     if (widget.initialDeviceInfo != null) {
       _deviceInfo = widget.initialDeviceInfo;
@@ -406,11 +413,14 @@ class _InstanceProvisioningScreenState
       switch (rawStatus) {
         case 'DOWNLOADING_MODEL':
           _state = ProvisioningState.downloadingModel;
+          _wasInitiallyProvisioning = true;
           break;
         case 'READY':
         case 'RUNNING':
           _state = ProvisioningState.ready;
-          _scheduleAutoNavigation();
+          if (widget.autoNavigateOnReady && _wasInitiallyProvisioning) {
+            _scheduleAutoNavigation();
+          }
           break;
         case 'FAILED':
         case 'ERROR':
@@ -1422,6 +1432,8 @@ class _InstanceProvisioningScreenState
   }
 
   void _showAddModelDialog() {
+    _navigationTimer?.cancel();
+    _wasInitiallyProvisioning = false;
     final catalog = CloudApiService.instance.fallbackModels;
     final existingIds = _models.map((m) => m.modelId.toLowerCase()).toSet();
     final available = catalog.where((c) => !existingIds.contains(c.modelId.toLowerCase())).toList();

@@ -377,6 +377,7 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
                         gpuName: gpuName,
                         selectedModelIds: _selectedModelIds.toList(),
                         isDark: widget.isDark,
+                        autoNavigateOnReady: true,
                         onReturnToStudio: widget.onReturnToStudio,
                       ),
                     ),

@@ -724,6 +724,7 @@ class _HomeScreenState extends State<HomeScreen> {
             gpuName: active['gpuType']?.toString() ?? _api.activeDeviceName ?? 'Cloud GPU',
             selectedModelIds: (active['modelsRequested'] as List?)?.map((e) => e.toString()).toList() ?? const [],
             isDark: widget.isDark,
+            autoNavigateOnReady: false,
             onReturnToStudio: () {
               Navigator.of(ctx).pop();
             },
