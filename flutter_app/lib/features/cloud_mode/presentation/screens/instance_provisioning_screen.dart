@@ -1041,6 +1041,30 @@ class _InstanceProvisioningScreenState
                     color: muted,
                   ),
                 ),
+                const SizedBox(width: 10),
+                InkWell(
+                  onTap: _showAddModelDialog,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: LuminaColors.cyan.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: LuminaColors.cyan.withValues(alpha: 0.4)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_rounded, size: 14, color: LuminaColors.cyan),
+                        SizedBox(width: 4),
+                        Text(
+                          'Add Model',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: LuminaColors.cyan),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1395,5 +1419,115 @@ class _InstanceProvisioningScreenState
         ),
       ],
     );
+  }
+
+  void _showAddModelDialog() {
+    final catalog = CloudApiService.instance.fallbackModels;
+    final existingIds = _models.map((m) => m.modelId.toLowerCase()).toSet();
+    final available = catalog.where((c) => !existingIds.contains(c.modelId.toLowerCase())).toList();
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: LuminaColors.surfaceDark,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: LuminaColors.borderDark),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.add_circle_outline_rounded, color: LuminaColors.cyan),
+              SizedBox(width: 10),
+              Text(
+                'Add Model to Active GPU',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: 480,
+            child: available.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text(
+                      'All catalog models are already loaded or queued on this GPU.',
+                      style: TextStyle(color: Colors.white70),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: available.length,
+                    separatorBuilder: (_, __) => Divider(color: LuminaColors.borderDark.withValues(alpha: 0.5)),
+                    itemBuilder: (context, index) {
+                      final item = available[index];
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: LuminaColors.surfaceLighterDark,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            item.mode == 'voice'
+                                ? Icons.record_voice_over_rounded
+                                : item.mode == 'video'
+                                    ? Icons.videocam_rounded
+                                    : Icons.image_rounded,
+                            size: 20,
+                            color: LuminaColors.cyan,
+                          ),
+                        ),
+                        title: Text(item.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                        subtitle: Text('${item.mode.toUpperCase()} • ${item.sizeGB} GB', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                        trailing: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: LuminaColors.cyan,
+                            foregroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          icon: const Icon(Icons.download_rounded, size: 16),
+                          label: const Text('Download', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          onPressed: () async {
+                            Navigator.of(ctx).pop();
+                            await _triggerDownloadModel(item.modelId);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close', style: TextStyle(color: Colors.white54)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _triggerDownloadModel(String modelId) async {
+    setState(() {
+      _models.add(ModelProvisioningItem(
+        modelId: modelId,
+        status: 'queued',
+        progressPercent: 0.0,
+      ));
+    });
+
+    final success = await ApiService().downloadModelToGpu(modelId);
+    if (!success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not enqueue model download on GPU.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 }

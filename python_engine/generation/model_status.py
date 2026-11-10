@@ -122,22 +122,49 @@ class ModelStatusManager:
 
     def start_lifecycle_worker(self, model_ids: Optional[List[str]] = None) -> None:
         """Launch background worker to sequentially download & load models."""
+        if model_ids:
+            self.initialize_models(model_ids)
+        self._ensure_worker_running()
+
+    def _ensure_worker_running(self) -> None:
         with self._lock:
             if self._is_running:
                 return
             self._is_running = True
 
-        if model_ids:
-            self.initialize_models(model_ids)
-
         worker = threading.Thread(
             target=self._run_sequential_lifecycle,
-            args=(model_ids,),
             daemon=True,
             name="ModelLifecycleWorker",
         )
         self._worker_thread = worker
         worker.start()
+
+    def enqueue_model(self, model_id: str) -> dict:
+        """Enqueue a new model for download & preparation on the running engine."""
+        clean_id = model_id.strip()
+        try:
+            from download_model import resolve_canonical_id
+            canonical_id = resolve_canonical_id(clean_id)
+        except Exception:
+            canonical_id = clean_id
+
+        with self._lock:
+            existing = self._models.get(canonical_id)
+            if existing and existing.get("status") in ("ready", "downloading", "loading"):
+                return dict(existing)
+
+            self._models[canonical_id] = {
+                "modelId": canonical_id,
+                "status": "queued",
+                "progressPercent": 0.0,
+                "error": None,
+                "loadedInVram": False,
+            }
+            res = dict(self._models[canonical_id])
+
+        self._ensure_worker_running()
+        return res
 
     def _can_fit_in_vram(self, model_id: str) -> bool:
         """Evaluate whether the model can safely fit into available GPU VRAM.
@@ -170,14 +197,7 @@ class ModelStatusManager:
     def _run_sequential_lifecycle(self, model_ids: Optional[List[str]] = None) -> None:
         """Sequentially process each model: queued -> downloading -> loading -> ready."""
         try:
-            # Determine models to process
-            with self._lock:
-                queue = list(self._models.keys())
-
-            if not queue and model_ids:
-                queue = list(model_ids)
-
-            log.info("[*] ModelLifecycleWorker started for queue: %s", queue)
+            log.info("[*] ModelLifecycleWorker processing loop started.")
 
             # S3 client and storage root setup
             s3, bucket = None, None
@@ -190,7 +210,16 @@ class ModelStatusManager:
             except Exception as e:
                 log.warning("[!] ModelLifecycleWorker R2 setup skipped or failed: %s", e)
 
-            for mid in queue:
+            while True:
+                with self._lock:
+                    queued_mids = [
+                        mid for mid, m in self._models.items()
+                        if m.get("status") == "queued"
+                    ]
+                if not queued_mids:
+                    break
+
+                mid = queued_mids[0]
                 log.info("[*] Starting sequential lifecycle for model '%s'", mid)
 
                 # 1. DOWNLOADING

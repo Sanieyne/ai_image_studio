@@ -118,11 +118,7 @@ class PromptInputBarState extends State<PromptInputBar> {
   /// Programmatically populate the prompt bar with a full VideoTemplate
   void applyVideoTemplate(VideoTemplate template) {
     if (!isModelAvailable(template.model)) {
-      AppToast.show(
-        context,
-        message: 'Template requires "${template.model}" which is not downloaded. Please download it first.',
-        type: AppToastType.info,
-      );
+      _promptDownloadModel(template.model);
       return;
     }
     setState(() {
@@ -526,8 +522,132 @@ class PromptInputBarState extends State<PromptInputBar> {
     } catch (_) {}
   }
 
+  Timer? _modelPollTimer;
+
+  Future<void> _promptDownloadModel(String modelName) async {
+    final modelId = PromptInputBar.modelIds[modelName] ?? modelName;
+    final isCloud = ApiService.cloudBaseUrl.isNotEmpty ||
+        ApiService.baseUrl.contains('cosmic-gen') ||
+        ApiService.baseUrl.contains('/gpu/gateway');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: LuminaColors.surfaceDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: LuminaColors.borderDark),
+        ),
+        title: Row(
+          children: [
+            Icon(
+              isCloud ? Icons.cloud_download_rounded : Icons.download_rounded,
+              color: LuminaColors.primaryEnd,
+            ),
+            const SizedBox(width: 10),
+            Text(
+              isCloud ? 'Download to GPU?' : 'Download Model?',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Model "$modelName" is not yet available on this system.',
+              style: const TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              isCloud
+                  ? 'Would you like to stream and download it from the cloud catalog directly onto your active GPU now?'
+                  : 'Would you like to download this model to your local machine now?',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: LuminaColors.primaryEnd,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: Text(isCloud ? 'Download to GPU' : 'Download'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    if (isCloud) {
+      AppToast.show(
+        context,
+        message: 'Streaming "$modelName" to GPU... Please wait.',
+        type: AppToastType.info,
+      );
+      final service = widget.apiService ?? ApiService();
+      final ok = await service.downloadModelToGpu(modelId);
+      if (!ok) {
+        if (mounted) {
+          AppToast.show(
+            context,
+            message: 'Failed to start download of "$modelName" on GPU.',
+            type: AppToastType.error,
+          );
+        }
+        return;
+      }
+
+      _modelPollTimer?.cancel();
+      _modelPollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+        await _fetchAvailableModels();
+        if (!mounted) {
+          timer.cancel();
+          return;
+        }
+        if (isModelAvailable(modelName)) {
+          timer.cancel();
+          setState(() {
+            _model = modelName;
+            _applyModelDefaults(modelName);
+          });
+          AppToast.show(
+            context,
+            message: 'Model "$modelName" is ready on your GPU!',
+            type: AppToastType.success,
+          );
+        }
+      });
+    } else {
+      AppToast.show(
+        context,
+        message: 'Starting local download of "$modelName"...',
+        type: AppToastType.info,
+      );
+      ModelDownloadService.instance.downloadModel(modelId);
+    }
+  }
+
   @override
   void dispose() {
+    _modelPollTimer?.cancel();
     _downloadSub?.cancel();
     _controller.dispose();
     _negController.dispose();
@@ -1096,11 +1216,7 @@ class PromptInputBarState extends State<PromptInputBar> {
                       isModelSelector: true,
                       onSelected: (v) {
                         if (!isModelAvailable(v)) {
-                          AppToast.show(
-                            context,
-                            message: 'Model "$v" is not downloaded. Please download it before selecting.',
-                            type: AppToastType.info,
-                          );
+                          _promptDownloadModel(v);
                           return;
                         }
                         setState(() {

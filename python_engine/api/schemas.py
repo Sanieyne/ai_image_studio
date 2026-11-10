@@ -70,6 +70,10 @@ class ModelSwitchRequest(BaseModel):
     model_id: str = Field(..., min_length=1)
 
 
+class ModelDownloadRequest(BaseModel):
+    model_id: str = Field(..., min_length=1)
+
+
 class ModelItem(BaseModel):
     id: str
     label: str

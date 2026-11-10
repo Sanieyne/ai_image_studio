@@ -862,6 +862,29 @@ class ApiService {
     return [];
   }
 
+  /// POST /models/download -> stream a model from R2 onto the GPU engine
+  Future<bool> downloadModelToGpu(String modelId) async {
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$baseUrl/models/download'),
+            headers: {
+              ...buildHeaders(),
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'model_id': modelId}),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['success'] == true;
+      }
+    } catch (e) {
+      debugPrint('[ApiService] Failed to initiate GPU model download: $e');
+    }
+    return false;
+  }
+
 
   /// Offline stand-in: delay + prompt-seeded picsum image at bucket size.
   Future<GenerationResult> _mockFallback(GenerationRequest req) async {

@@ -19,6 +19,7 @@ from api.schemas import (
     LoraConfig,
     LoraScaleRequest,
     ModelSwitchRequest,
+    ModelDownloadRequest,
     VideoRequest,
     VideoResponse,
     AnimateRequest,
@@ -353,6 +354,24 @@ def switch_model_endpoint(req: ModelSwitchRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to switch model (previous model still loaded): {e}",
         )
+
+
+@router.post("/models/download")
+def download_model_endpoint(req: ModelDownloadRequest):
+    """Dynamically enqueue and stream a model from R2 onto the running GPU engine."""
+    clean_id = (req.model_id or "").strip()
+    if not clean_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field 'model_id' cannot be empty.",
+        )
+    from generation.model_status import model_status_manager
+    status_item = model_status_manager.enqueue_model(clean_id)
+    return {
+        "success": True,
+        "message": f"Model '{clean_id}' enqueued for streaming onto GPU.",
+        "model": status_item,
+    }
 
 
 

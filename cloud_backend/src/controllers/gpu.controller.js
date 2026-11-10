@@ -359,6 +359,13 @@ export const proxyToGpuGateway = asyncHandler(async (req, res) => {
   const subPath = req.url || '/';
   const targetUrl = `${instance.pythonEngineUrl}${subPath}`;
 
+  if (subPath.includes('/models/download') && req.body && req.body.model_id) {
+    GpuInstance.updateOne(
+      { _id: instance._id },
+      { $addToSet: { modelsRequested: req.body.model_id } }
+    ).catch((err) => console.error('[GpuGateway] Failed to record added model:', err.message));
+  }
+
   try {
     const response = await axios({
       method: req.method,
