@@ -156,6 +156,7 @@ MODEL_CATALOG: Dict[str, dict] = {
             "tokenizer",
             "transformer",
             "video_vae",
+            "Ref2VA/video_vae",
         ],
         "symlinks": [
             (".", "/workspace/models/minimax-h3"),
@@ -361,6 +362,8 @@ def download_single_model(
 
     for item in r2_files:
         rel = item["rel_path"]
+        if canonical == "minimax-h3" and rel.startswith("Ref2VA/video_vae/"):
+            rel = rel[len("Ref2VA/"):]
         expected_size = item["size"]
         local_path = dest_dir / rel
         local_path.parent.mkdir(parents=True, exist_ok=True)
