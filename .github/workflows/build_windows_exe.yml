@@ -205,11 +205,14 @@ jobs:
           $ssh = 'C:\Windows\System32\OpenSSH\ssh.exe'
           $sshOpts = @('-i', $keyPath, '-o', "UserKnownHostsFile=$knownHostsPath", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=30')
 
-          # 1. Fast parallel multi-part upload to Cloudflare R2 (~30-45 seconds)
-          Write-Host "Uploading 3.16 GB Windows release to Cloudflare R2 in parallel chunks..."
+          # 1. Fast parallel multi-part upload to Cloudflare R2 with adaptive retry
+          Write-Host "Uploading 3.16 GB Windows release to Cloudflare R2..."
           python -m pip install --quiet boto3
-          python -c @"
+          $r2Success = $false
+          try {
+            python -c @"
           import os, boto3
+          from botocore.config import Config
           from boto3.s3.transfer import TransferConfig
 
           endpoint = os.environ.get('R2_ENDPOINT')
@@ -217,21 +220,32 @@ jobs:
           secret = os.environ.get('R2_SECRET_ACCESS_KEY')
           bucket = os.environ.get('R2_BUCKET_NAME', 'cosmic-gen')
 
-          s3 = boto3.client('s3', endpoint_url=endpoint, aws_access_key_id=key_id, aws_secret_access_key=secret, region_name='auto')
-          config = TransferConfig(multipart_threshold=25*1024*1024, max_concurrency=10, multipart_chunksize=25*1024*1024, use_threads=True)
+          client_config = Config(retries={'max_attempts': 10, 'mode': 'adaptive'}, connect_timeout=60, read_timeout=60)
+          s3 = boto3.client('s3', endpoint_url=endpoint, aws_access_key_id=key_id, aws_secret_access_key=secret, region_name='auto', config=client_config)
+          config = TransferConfig(multipart_threshold=50*1024*1024, max_concurrency=4, multipart_chunksize=50*1024*1024, use_threads=True)
 
           file_path = 'dist/AI_Image_Studio_Windows_x64_GPU.zip'
           s3.upload_file(file_path, bucket, 'releases/AI_Image_Studio_Windows_x64_GPU.zip', Config=config)
-          s3.upload_file(file_path, bucket, 'releases/latest_release.zip', Config=config)
           print('Cloudflare R2 multi-part upload complete!')
           "@
+            $r2Success = $true
+          } catch {
+            Write-Warning "Cloudflare R2 upload encountered an error: $_. Falling back to direct SCP."
+          }
 
-          # 2. Contabo pulls directly from R2 at full 185+ Mbps line speed (~1.5 minutes)
-          Write-Host "Signaling Contabo VPS to pull release from Cloudflare R2..."
-          $remoteCmd = "python3 -c `"import boto3; from boto3.s3.transfer import TransferConfig; s3 = boto3.client('s3', endpoint_url='$($env:R2_ENDPOINT)', aws_access_key_id='$($env:R2_ACCESS_KEY_ID)', aws_secret_access_key='$($env:R2_SECRET_ACCESS_KEY)', region_name='auto'); config = TransferConfig(multipart_threshold=25*1024*1024, max_concurrency=10, multipart_chunksize=25*1024*1024, use_threads=True); s3.download_file('$($env:R2_BUCKET_NAME)', 'releases/AI_Image_Studio_Windows_x64_GPU.zip', '/var/www/releases/ai_image_studio/AI_Image_Studio_Windows_x64_GPU.zip', Config=config)`" && cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_latest.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_x64_GPU.zip && echo Deploy complete: `$(date)"
-
-          & $ssh @sshOpts "root@$($env:CONTABO_IP)" $remoteCmd
-          if ($LASTEXITCODE -ne 0) { throw "Contabo high-speed pull failed (exit $LASTEXITCODE)" }
+          if ($r2Success) {
+            # 2. Contabo pulls directly from R2 at full 185+ Mbps line speed (~1.5 minutes)
+            Write-Host "Signaling Contabo VPS to pull release from Cloudflare R2..."
+            $remoteCmd = "python3 -c `"import boto3; from boto3.s3.transfer import TransferConfig; s3 = boto3.client('s3', endpoint_url='$($env:R2_ENDPOINT)', aws_access_key_id='$($env:R2_ACCESS_KEY_ID)', aws_secret_access_key='$($env:R2_SECRET_ACCESS_KEY)', region_name='auto'); config = TransferConfig(multipart_threshold=50*1024*1024, max_concurrency=4, multipart_chunksize=50*1024*1024, use_threads=True); s3.download_file('$($env:R2_BUCKET_NAME)', 'releases/AI_Image_Studio_Windows_x64_GPU.zip', '/var/www/releases/ai_image_studio/AI_Image_Studio_Windows_x64_GPU.zip', Config=config)`" && cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_latest.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_x64_GPU.zip && echo Deploy complete: `$(date)"
+            & $ssh @sshOpts "root@$($env:CONTABO_IP)" $remoteCmd
+            if ($LASTEXITCODE -ne 0) { throw "Contabo high-speed pull failed (exit $LASTEXITCODE)" }
+          } else {
+            # Direct SCP fallback
+            Write-Host "Executing fallback SCP upload directly to Contabo..."
+            $scp = 'C:\Windows\System32\OpenSSH\scp.exe'
+            & $scp @sshOpts 'dist\AI_Image_Studio_Windows_x64_GPU.zip' "root@$($env:CONTABO_IP):/var/www/releases/ai_image_studio/"
+            & $ssh @sshOpts "root@$($env:CONTABO_IP)" 'cd /var/www/releases/ai_image_studio && ln -sf AI_Image_Studio_Windows_x64_GPU.zip latest_release.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_latest.zip && ln -sf AI_Image_Studio_Windows_x64_GPU.zip Cosmic-Gen_Windows_x64_GPU.zip'
+          }
 
       # -------------------------------------------------------------
       # 6. Create GitHub Release on Tag (no artifact - build is on Contabo)
