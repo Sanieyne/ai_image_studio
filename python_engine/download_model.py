@@ -33,8 +33,8 @@ MODEL_CATALOG: Dict[str, dict] = {
         "aliases": ["amd/realesrgan-x4plus", "realesrgan"],
         "target_subpath": "realesrgan",
         "symlinks": [
-            ("RealESRGAN_x4plus.pth", "/workspace/models/realesrgan/RealESRGAN_x4plus.pth"),
             ("RealESRGAN_x4plus.pth", "/root/models/realesrgan/RealESRGAN_x4plus.pth"),
+            ("RealESRGAN_x4plus.pth", "/workspace/weights/RealESRGAN_x4plus.pth"),
             ("RealESRGAN_x4plus.pth", "weights/RealESRGAN_x4plus.pth"),
         ],
     },
@@ -199,9 +199,36 @@ def get_r2_client():
     bucket = os.environ.get("R2_BUCKET_NAME", "cosmic-gen")
 
     if not (endpoint and access_key and secret_key):
-        # Check cloud_backend/.env if running in development tree
-        # Check for local backend .env if running on local dev host
+        # In Docker containers (e.g. Vast.ai), inspect /proc/1/environ
+        try:
+            if os.path.exists("/proc/1/environ"):
+                with open("/proc/1/environ", "rb") as f:
+                    for chunk in f.read().split(b"\0"):
+                        try:
+                            line = chunk.decode("utf-8", errors="ignore")
+                            if "=" in line:
+                                k, v = line.split("=", 1)
+                                if k == "R2_ENDPOINT" and not endpoint:
+                                    endpoint = v
+                                    os.environ["R2_ENDPOINT"] = v
+                                elif k == "R2_ACCESS_KEY_ID" and not access_key:
+                                    access_key = v
+                                    os.environ["R2_ACCESS_KEY_ID"] = v
+                                elif k == "R2_SECRET_ACCESS_KEY" and not secret_key:
+                                    secret_key = v
+                                    os.environ["R2_SECRET_ACCESS_KEY"] = v
+                                elif k == "R2_BUCKET_NAME" and not os.environ.get("R2_BUCKET_NAME"):
+                                    bucket = v
+                                    os.environ["R2_BUCKET_NAME"] = v
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    if not (endpoint and access_key and secret_key):
+        # Check /etc/environment, cloud_backend/.env, or cwd .env
         possible_envs = [
+            Path("/etc/environment"),
             Path(__file__).resolve().parent.parent / "cloud_backend" / ".env",
             Path.cwd() / "cloud_backend" / ".env",
             Path.cwd() / ".env",
@@ -217,12 +244,16 @@ def get_r2_client():
                         k, v = k.strip(), v.strip().strip("'\"")
                         if k == "R2_ENDPOINT" and not endpoint:
                             endpoint = v
+                            os.environ["R2_ENDPOINT"] = v
                         elif k == "R2_ACCESS_KEY_ID" and not access_key:
                             access_key = v
+                            os.environ["R2_ACCESS_KEY_ID"] = v
                         elif k == "R2_SECRET_ACCESS_KEY" and not secret_key:
                             secret_key = v
+                            os.environ["R2_SECRET_ACCESS_KEY"] = v
                         elif k == "R2_BUCKET_NAME" and not bucket:
                             bucket = v
+                            os.environ["R2_BUCKET_NAME"] = v
                 if endpoint and access_key and secret_key:
                     break
 
@@ -373,16 +404,19 @@ def download_single_model(
     catalog_info = MODEL_CATALOG.get(canonical, {})
     for src_rel, target_link_str in catalog_info.get("symlinks", []):
         try:
-            target_path = Path(target_link_str)
-            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path = Path(target_link_str).resolve()
             if src_rel == ".":
-                src_path = dest_dir
+                src_path = dest_dir.resolve()
             else:
-                src_path = dest_dir / src_rel
+                src_path = (dest_dir / src_rel).resolve()
+
+            # Skip if source and target are the exact same file/directory
+            if src_path == target_path:
+                continue
 
             if src_path.exists():
                 if target_path.is_symlink() or target_path.exists():
-                    if target_path.is_symlink() and target_path.resolve() == src_path.resolve():
+                    if target_path.is_symlink() and target_path.resolve() == src_path:
                         continue
                     if target_path.is_dir():
                         continue
@@ -391,6 +425,7 @@ def download_single_model(
                     except Exception:
                         pass
                 try:
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
                     os.symlink(str(src_path), str(target_path))
                     log(f"     Linked: {target_path} -> {src_path}")
                 except Exception as e:
@@ -404,14 +439,18 @@ def download_single_model(
 def main():
     parser = argparse.ArgumentParser(description="AI Image Studio Model Downloader (R2-backed)")
     parser.add_argument("models", nargs="*", help="Model IDs to download")
+    parser.add_argument("--models", dest="named_models", default=None, help="Model IDs to download (comma or space separated)")
+    parser.add_argument("--allow-partial", action="store_true", help="Do not exit with code 1 if some models fail")
     parser.add_argument("--dest-dir", default=None, help="Root directory for models")
     args = parser.parse_args()
 
     # Determine model list
     model_ids = []
     if args.models:
-        model_ids = args.models
-    else:
+        model_ids.extend(args.models)
+    if args.named_models:
+        model_ids.extend([m.strip() for m in args.named_models.replace(",", " ").split() if m.strip()])
+    if not model_ids:
         env_models = os.environ.get("AI_STUDIO_SELECTED_MODELS", "")
         if env_models:
             model_ids = [m.strip() for m in env_models.replace(",", " ").split() if m.strip()]
@@ -444,7 +483,7 @@ def main():
             log(f"[ERROR] Failed downloading '{mid}': {e}")
 
     log(f"\n===== DOWNLOAD SUMMARY: {successful}/{len(model_ids)} models ready =====")
-    if successful < len(model_ids):
+    if successful == 0 or (not args.allow_partial and successful < len(model_ids)):
         sys.exit(1)
 
 

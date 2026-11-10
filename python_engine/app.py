@@ -7,6 +7,28 @@ import os
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+# Hydrate environment variables from container PID 1 or /etc/environment if running in Docker / Vast.ai
+for _env_path in ("/proc/1/environ", "/etc/environment"):
+    try:
+        if os.path.exists(_env_path):
+            with open(_env_path, "rb") as _f:
+                _content = _f.read()
+            _chunks = _content.split(b"\0") if b"\0" in _content else _content.split(b"\n")
+            for _chunk in _chunks:
+                try:
+                    _line = _chunk.decode("utf-8", errors="ignore").strip()
+                    if not _line or _line.startswith("#") or "=" not in _line:
+                        continue
+                    _k, _v = _line.split("=", 1)
+                    _k = _k.strip()
+                    _v = _v.strip().strip("'\"")
+                    if _k and _k not in os.environ:
+                        os.environ[_k] = _v
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 # Allow running as `python app.py` or `uvicorn app:app` from python_engine/.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -75,6 +97,19 @@ async def lifespan(app: FastAPI):
         # queued -> downloading -> loading -> ready, one model at a time, off the event loop.
         model_status_manager.initialize_models(model_ids)
         model_status_manager.start_lifecycle_worker(model_ids)
+
+    # Discover any models already downloaded on disk
+    try:
+        from download_model import MODEL_CATALOG, get_default_models_root
+        models_root = get_default_models_root()
+        for mid, cat in MODEL_CATALOG.items():
+            target_sub = cat.get("target_subpath", mid)
+            model_dir = models_root / target_sub
+            if model_dir.exists() and any(model_dir.iterdir()):
+                if not model_status_manager.get_status(mid):
+                    model_status_manager.update_status(mid, "ready", progress_percent=100.0, loaded_in_vram=False)
+    except Exception as e:
+        logging.warning("Error discovering local models on startup: %s", e)
     # Nothing selected: nothing is loaded until a request needs it.
     yield
 

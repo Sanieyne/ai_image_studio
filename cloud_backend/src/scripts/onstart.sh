@@ -13,6 +13,14 @@ mkdir -p /var/log /workspace
 exec > >(tee -a /var/log/ai_studio_onstart.log) 2>&1
 cd /workspace
 
+# Hydrate container environment variables (from Docker PID 1) into current shell & /etc/environment
+if [ -f "/proc/1/environ" ]; then
+  cat /proc/1/environ | tr '\0' '\n' | grep -E '^[A-Za-z0-9_]+=' >> /etc/environment 2>/dev/null || true
+  set -a
+  source <(cat /proc/1/environ | tr '\0' '\n' | grep -E '^[A-Za-z0-9_]+=') 2>/dev/null || true
+  set +a
+fi
+
 export AI_STUDIO_MODE=cloud            # engine: never download from Hugging Face
 export HF_HUB_OFFLINE=1
 export AI_STUDIO_MODELS_DIR=/workspace/models

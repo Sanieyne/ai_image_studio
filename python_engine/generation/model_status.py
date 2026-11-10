@@ -225,7 +225,16 @@ class ModelStatusManager:
                 # 1. DOWNLOADING
                 self.update_status(mid, "downloading", progress_percent=0.0)
 
-                download_ok = True
+                download_ok = False
+                if not s3 or not bucket or not models_root:
+                    try:
+                        from download_model import get_r2_client, get_default_models_root
+                        s3, bucket = get_r2_client()
+                        models_root = get_default_models_root()
+                        log.info("[*] ModelLifecycleWorker connected to R2 bucket '%s'.", bucket)
+                    except Exception as e:
+                        log.warning("[!] Failed to obtain R2 client: %s", e)
+
                 if s3 and bucket and models_root:
                     try:
                         from download_model import download_single_model
@@ -246,8 +255,25 @@ class ModelStatusManager:
                         )
                     except Exception as dl_err:
                         log.warning("[!] Download error for model '%s': %s", mid, dl_err)
-                        # Check if local weights exist anyway
                         download_ok = False
+
+                # Verify files exist on disk
+                from download_model import resolve_canonical_id, MODEL_CATALOG
+                canonical = resolve_canonical_id(mid)
+                cat_info = MODEL_CATALOG.get(canonical, {})
+                target_sub = cat_info.get("target_subpath", canonical)
+                root_path = models_root or Path("/workspace/models")
+                dest_dir = root_path / target_sub
+                has_files = dest_dir.exists() and any(dest_dir.iterdir())
+
+                if not download_ok and not has_files:
+                    log.error("[!] Model '%s' download failed and local files not found in %s", mid, dest_dir)
+                    self.update_status(
+                        mid,
+                        "failed",
+                        error=f"Download failed: Model '{mid}' files could not be retrieved from R2 storage.",
+                    )
+                    continue
 
                 # 2. LOADING
                 self.update_status(mid, "loading", progress_percent=100.0)
@@ -260,9 +286,7 @@ class ModelStatusManager:
                     if os.environ.get("AI_STUDIO_MOCK", "0") == "1":
                         loaded_in_vram = True
                     else:
-                        # Reported through /health, so the backend can tell the user why.
-                        reason = str(load_err) if download_ok else f"download failed; {load_err}"
-                        self.update_status(mid, "failed", error=reason)
+                        self.update_status(mid, "failed", error=str(load_err))
                         continue
 
                 # 3. READY
