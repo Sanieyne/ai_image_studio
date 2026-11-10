@@ -39,7 +39,8 @@ jobs:
       - name: Lowercase Repository Name
         id: repo
         run: |
-          echo "IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/cosmic-ai-engine" | tr '[:upper:]' '[:lower:]' >> $GITHUB_ENV
+          LOWER_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${LOWER_OWNER}/cosmic-ai-engine" >> $GITHUB_ENV
 
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
