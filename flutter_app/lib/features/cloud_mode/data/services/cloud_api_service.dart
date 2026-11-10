@@ -107,12 +107,15 @@ class CloudApiService {
     return _calculateOfflineFallback(modelIds);
   }
 
-  /// Query live Vast.ai marketplace GPU offers for current model selection
+  /// Query live Vast.ai marketplace GPU offers for current model selection or search query
   Future<List<MarketplaceOffer>> fetchGpuOffers({
+    String? search,
+    String? gpuName,
     List<String>? selectedModelIds,
     double? minVramGB,
     double? maxPrice,
-    int limit = 20,
+    int? storageGB,
+    int limit = 50,
     String orderBy = 'fastest',
   }) async {
     try {
@@ -120,6 +123,11 @@ class CloudApiService {
         'limit': limit.toString(),
         'orderBy': orderBy,
       };
+      final q = (search ?? gpuName ?? '').trim();
+      if (q.isNotEmpty) {
+        queryParams['search'] = q;
+        queryParams['gpuName'] = q;
+      }
       if (selectedModelIds != null && selectedModelIds.isNotEmpty) {
         queryParams['selectedModelIds'] = selectedModelIds.join(',');
       }
@@ -128,6 +136,9 @@ class CloudApiService {
       }
       if (maxPrice != null && maxPrice > 0) {
         queryParams['maxPrice'] = maxPrice.toString();
+      }
+      if (storageGB != null && storageGB > 0) {
+        queryParams['storageGB'] = storageGB.toString();
       }
 
       final uri = Uri.parse('$baseUrl/gpu/offers').replace(queryParameters: queryParams);

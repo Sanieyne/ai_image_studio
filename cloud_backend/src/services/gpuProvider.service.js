@@ -70,13 +70,17 @@ class GpuProviderService {
       totalModelSizeGB = requirements.requirements.totalModelSizeGB;
     }
 
+    const isSearchQuery = Boolean((options.searchQuery || gpuName || '').trim());
+    const vramFloor = isSearchQuery ? (minVramGB || 0) : requiredVram;
+    const ramFloor = isSearchQuery ? 8 : requiredRam;
+
     // 2. Fetch live marketplace offers from Vast.ai with hard 400 Mbps floor
     const rawOffers = await vastaiService.searchOffers({
-      minVramGB: requiredVram,
-      minRamGB: requiredRam,
+      minVramGB: vramFloor,
+      minRamGB: ramFloor,
       minDiskGB: requiredDisk,
       minInetDown: effectiveMinInetDown,
-      gpuName,
+      gpuName: options.searchQuery || gpuName || undefined,
       verifiedOnly,
       limit: limit * 2, // Fetch slightly more for client-side filtering
       totalModelSizeGB,
@@ -86,7 +90,7 @@ class GpuProviderService {
     //    Prices are recomputed for the storage size the user picked.
     let filteredOffers = rawOffers
       .filter((o) => (o.inetDown ?? 0) >= MIN_INET_DOWN_FLOOR_MBPS)
-      .filter((o) => (o.vramGB ?? 0) >= requiredVram && (o.ramGB ?? 0) >= requiredRam)
+      .filter((o) => (o.vramGB ?? 0) >= vramFloor && (o.ramGB ?? 0) >= ramFloor)
       .map((o) => pricingService.repriceOffer(o, storageGB, pricingConfig));
     if (maxPricePerHour != null && !isNaN(maxPricePerHour)) {
       filteredOffers = filteredOffers.filter((o) => o.pricePerHour <= Number(maxPricePerHour));
@@ -105,6 +109,9 @@ class GpuProviderService {
       } else if (headroom >= 2) {
         fit = 'tight';
         reason = `Balanced fit with ${headroom}GB VRAM headroom. Ideal for standard single-image generations.`;
+      } else if (headroom < 0) {
+        fit = 'insufficient';
+        reason = `Warning: Selected models recommend at least ${targetVram}GB VRAM; this GPU has ${offer.vramGB}GB VRAM.`;
       }
 
       // Download time for the models actually selected, per request (cached

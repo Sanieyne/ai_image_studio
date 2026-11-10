@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../../theme/app_theme.dart';
 import '../../data/models/cloud_model.dart';
@@ -47,6 +48,10 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
   String _selectedSeries = 'All';
   String _searchQuery = '';
 
+  List<MarketplaceOffer>? _vastSearchResults;
+  bool _isSearchingVast = false;
+  Timer? _searchDebounceTimer;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +63,42 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
       _searchController.text = widget.initialSearchQuery!;
     }
     _loadSeries();
+    if (_browsingTab == 'search' || _searchQuery.isNotEmpty) {
+      _executeVastSearch(_searchQuery);
+    }
+  }
+
+  void _onSearchQueryChanged(String query) {
+    _searchDebounceTimer?.cancel();
+    _searchDebounceTimer = Timer(const Duration(milliseconds: 350), () {
+      _executeVastSearch(query);
+    });
+  }
+
+  Future<void> _executeVastSearch(String query) async {
+    if (!mounted) return;
+    setState(() {
+      _isSearchingVast = true;
+    });
+
+    try {
+      final storageGB = widget.result?.recommendedStorage.sizeGB;
+      final offers = await _cloudApi.fetchGpuOffers(
+        search: query.trim(),
+        storageGB: storageGB,
+        limit: 50,
+      );
+      if (!mounted) return;
+      setState(() {
+        _vastSearchResults = offers;
+        _isSearchingVast = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isSearchingVast = false;
+      });
+    }
   }
 
   Future<void> _loadSeries() async {
@@ -72,6 +113,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
 
   @override
   void dispose() {
+    _searchDebounceTimer?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
@@ -86,8 +128,11 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
     final mr = widget.marketplaceResult;
 
     // Filter displayed offers based on current tab
-    List<MarketplaceOffer> displayedOffers = mr?.allOffers ?? [];
-    if (_browsingTab == 'series') {
+    List<MarketplaceOffer> displayedOffers;
+    if (_browsingTab == 'search') {
+      displayedOffers = _vastSearchResults ?? [];
+    } else if (_browsingTab == 'series') {
+      displayedOffers = mr?.allOffers ?? [];
       if (_selectedSeries != 'All') {
         final allowedModels = _gpuSeriesMap[_selectedSeries] ?? [];
         displayedOffers = displayedOffers.where((offer) {
@@ -101,13 +146,8 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           return true;
         }).toList();
       }
-    } else if (_browsingTab == 'search') {
-      final query = _searchQuery.trim().toLowerCase();
-      if (query.isNotEmpty) {
-        displayedOffers = displayedOffers.where((offer) {
-          return offer.gpuName.toLowerCase().contains(query);
-        }).toList();
-      }
+    } else {
+      displayedOffers = mr?.allOffers ?? [];
     }
 
     // Always guarantee free/low bandwidth offers are prioritized at top
@@ -525,7 +565,9 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                               ? 'Live Available GPU Instances (${displayedOffers.length})'
                               : (_browsingTab == 'series'
                                   ? 'GPUs in $_selectedSeries (${displayedOffers.length})'
-                                  : 'Search Results (${displayedOffers.length})'),
+                                  : (_isSearchingVast
+                                      ? 'Searching Vast.ai API...'
+                                      : 'Vast.ai API Results (${displayedOffers.length})')),
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                         ),
                         const Spacer(),
@@ -546,7 +588,29 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                     const SizedBox(height: 8),
 
                     // Compatible Offers List
-                    if (displayedOffers.isNotEmpty)
+                    if (_browsingTab == 'search' && _isSearchingVast)
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 36),
+                        alignment: Alignment.center,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: LuminaColors.infoBlue),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              _searchQuery.isNotEmpty
+                                  ? 'Querying Vast.ai API for "$_searchQuery"...'
+                                  : 'Fetching live GPUs from Vast.ai API...',
+                              style: TextStyle(fontSize: 12, color: muted),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (displayedOffers.isNotEmpty)
                       ListView.separated(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
@@ -641,6 +705,34 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                           );
                         },
                       )
+                    else if (_browsingTab == 'search')
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
+                        alignment: Alignment.center,
+                        child: Column(
+                          children: [
+                            Icon(Icons.search_off_rounded, size: 36, color: muted),
+                            const SizedBox(height: 8),
+                            Text(
+                              _searchQuery.isNotEmpty
+                                  ? 'No GPUs matching "$_searchQuery" found on Vast.ai'
+                                  : 'No GPU offers available right now on Vast.ai',
+                              style: TextStyle(fontSize: 12.5, color: muted, fontWeight: FontWeight.w600),
+                            ),
+                            if (_searchQuery.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              TextButton(
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                  _executeVastSearch('');
+                                },
+                                child: const Text('Clear search filter', style: TextStyle(fontSize: 12)),
+                              ),
+                            ],
+                          ],
+                        ),
+                      )
                     else if (mr != null)
                       Container(
                         padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
@@ -650,21 +742,9 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                             Icon(Icons.search_off_rounded, size: 36, color: muted),
                             const SizedBox(height: 8),
                             Text(
-                              _browsingTab == 'search'
-                                  ? 'No GPUs matching "$_searchQuery"'
-                                  : 'No available GPUs in $_selectedSeries',
+                              'No available GPUs in $_selectedSeries',
                               style: TextStyle(fontSize: 12.5, color: muted, fontWeight: FontWeight.w600),
                             ),
-                            if (_browsingTab == 'search') ...[
-                              const SizedBox(height: 6),
-                              TextButton(
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                                child: const Text('Clear search filter', style: TextStyle(fontSize: 12)),
-                              ),
-                            ],
                           ],
                         ),
                       )
@@ -811,6 +891,9 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
           setState(() {
             _browsingTab = tabKey;
           });
+          if (tabKey == 'search' && _vastSearchResults == null && !_isSearchingVast) {
+            _executeVastSearch(_searchQuery);
+          }
         },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 6),
@@ -952,6 +1035,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
                   onPressed: () {
                     _searchController.clear();
                     setState(() => _searchQuery = '');
+                    _executeVastSearch('');
                   },
                 )
               : null,
@@ -961,6 +1045,7 @@ class _GpuRecommendationCardState extends State<GpuRecommendationCard> {
         ),
         onChanged: (val) {
           setState(() => _searchQuery = val);
+          _onSearchQueryChanged(val);
         },
       ),
     );

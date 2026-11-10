@@ -43,6 +43,8 @@ export const getOffers = asyncHandler(async (req, res) => {
     maxPrice,
     minInetDown,
     gpuName,
+    search,
+    query,
     verified,
     limit,
     selectedModelIds,
@@ -54,13 +56,16 @@ export const getOffers = asyncHandler(async (req, res) => {
     ? (Array.isArray(selectedModelIds) ? selectedModelIds : selectedModelIds.split(',').map((s) => s.trim()).filter(Boolean))
     : [];
 
+  const searchQuery = (search || query || gpuName || '').trim();
+
   const result = await gpuProviderService.searchAvailableGPUs({
     selectedModelIds: modelIdsList,
     minVramGB: minVramGB ? Number(minVramGB) : 0,
     maxPricePerHour: maxPrice ? Number(maxPrice) : undefined,
     minInetDown: minInetDown ? Math.max(MIN_INET_DOWN_FLOOR_MBPS, Number(minInetDown)) : MIN_INET_DOWN_FLOOR_MBPS,
-    gpuName: gpuName || undefined,
-    verifiedOnly: verified === 'false' ? false : true,
+    gpuName: searchQuery || undefined,
+    searchQuery: searchQuery || undefined,
+    verifiedOnly: verified === 'false' ? false : (searchQuery ? false : true),
     limit: limit ? Math.min(500, Math.max(1, parseInt(limit, 10))) : 250,
     orderBy: orderBy || 'fastest',
     storageGB,

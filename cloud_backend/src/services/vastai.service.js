@@ -36,6 +36,36 @@ export function isConfirmedContractId(id) {
  * Why the engine can't run on this raw Vast.ai offer, or null if it can.
  * (GPU architecture, host driver, and a directly mapped port for the engine.)
  */
+export const ALL_VAST_GPU_MODELS = Object.freeze([
+  'A10', 'A100 PCIE', 'A100 SXM4', 'A16', 'A40', 'B200',
+  'CMP 170HX', 'GB10', 'GB200', 'GTX 1070', 'GTX 1070 Ti', 'GTX 1080',
+  'GTX 1080 Ti', 'GTX 1660 Ti', 'GTX TITAN X', 'H100 NVL', 'H100 PCIE', 'H100 SXM',
+  'H200', 'H200 NVL', 'L4', 'L40S', 'Q RTX 5000', 'Q RTX 6000', 'Q RTX 8000',
+  'RTX 2000Ada', 'RTX 2060', 'RTX 2060S', 'RTX 2070', 'RTX 2070S', 'RTX 2080',
+  'RTX 2080 Ti', 'RTX 3060', 'RTX 3060 Ti', 'RTX 3060 laptop', 'RTX 3070',
+  'RTX 3070 Ti', 'RTX 3080', 'RTX 3080 Ti', 'RTX 3090', 'RTX 3090 Ti',
+  'RTX 4000Ada', 'RTX 4060', 'RTX 4060 Ti', 'RTX 4070', 'RTX 4070 Ti',
+  'RTX 4070 laptop', 'RTX 4070S', 'RTX 4070S Ti', 'RTX 4080', 'RTX 4080 laptop',
+  'RTX 4080S', 'RTX 4090', 'RTX 4090D', 'RTX 4500Ada', 'RTX 5000Ada',
+  'RTX 5060', 'RTX 5060 Ti', 'RTX 5070', 'RTX 5070 Ti', 'RTX 5080', 'RTX 5090',
+  'RTX 5090D', 'RTX 5880Ada', 'RTX 6000Ada', 'RTX 6000D', 'RTX A2000',
+  'RTX A4000', 'RTX A5000', 'RTX A6000', 'RTX PRO 4000', 'RTX PRO 4000 SFF',
+  'RTX PRO 4500', 'RTX PRO 5000', 'RTX PRO 6000 Max-Q', 'RTX PRO 6000 S',
+  'RTX PRO 6000 WS', 'Tesla P100', 'Tesla P40', 'Tesla T4', 'Tesla V100',
+  'Titan RTX', 'Titan V', 'Titan Xp'
+]);
+
+export function resolveVastGpuNames(query) {
+  if (!query || typeof query !== 'string') return null;
+  const q = query.trim().toLowerCase().replace(/[-_]/g, ' ');
+  if (!q) return null;
+  const matched = ALL_VAST_GPU_MODELS.filter((m) => {
+    const norm = m.toLowerCase().replace(/[-_]/g, ' ');
+    return norm.includes(q) || q.includes(norm);
+  });
+  return matched.length > 0 ? matched : null;
+}
+
 export function hostUnsupportedReason(raw = {}) {
   if (raw.has_avx === 0 || raw.has_avx === false) {
     return 'This host CPU lacks AVX instructions required by PyTorch and AI runtimes.';
@@ -193,7 +223,14 @@ class VastaiService {
     body.inet_down = { gte: effectiveMinInetDown };
     if (minInetUp && minInetUp > 0) body.inet_up = { gte: minInetUp };
     if (minReliability && minReliability > 0) body.reliability2 = { gte: minReliability };
-    if (gpuName) body.gpu_name = { eq: gpuName };
+    if (gpuName) {
+      const resolved = resolveVastGpuNames(gpuName);
+      if (resolved && resolved.length === 1) {
+        body.gpu_name = { eq: resolved[0] };
+      } else if (resolved && resolved.length > 1) {
+        body.gpu_name = { in: resolved };
+      }
+    }
     // Only hosts the engine image can run on, with directly mapped ports (the engine listens on 8000).
     body.compute_cap = { gte: MIN_GPU_COMPUTE_CAP };
     body.cuda_max_good = { gte: MIN_HOST_CUDA };
@@ -206,6 +243,13 @@ class VastaiService {
       );
 
       let rawOffers = response.data?.offers || [];
+      if (gpuName) {
+        const q = gpuName.trim().toLowerCase().replace(/[-_]/g, ' ');
+        rawOffers = rawOffers.filter((o) => {
+          const name = (o.gpu_name || '').toLowerCase().replace(/[-_]/g, ' ');
+          return name.includes(q);
+        });
+      }
       // Defense in depth: strictly exclude any offer below 400 Mbps
       rawOffers = rawOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS && !hostUnsupportedReason(o));
 
@@ -215,13 +259,21 @@ class VastaiService {
         return normalized;
       }
 
-      // If strict reliability filter resulted in 0 offers, retry without reliability constraint
-      if (body.reliability2) {
+      // If strict filter resulted in 0 offers, retry without verified or reliability constraint
+      if (body.reliability2 || body.verified) {
         delete body.reliability2;
+        delete body.verified;
         const retryRes = await this._requestWithRetry(() =>
           this.client.post('/bundles/', body)
         );
         let retryOffers = retryRes.data?.offers || [];
+        if (gpuName) {
+          const q = gpuName.trim().toLowerCase().replace(/[-_]/g, ' ');
+          retryOffers = retryOffers.filter((o) => {
+            const name = (o.gpu_name || '').toLowerCase().replace(/[-_]/g, ' ');
+            return name.includes(q);
+          });
+        }
         retryOffers = retryOffers.filter((o) => (o.inet_down || 0) >= MIN_INET_DOWN_FLOOR_MBPS && !hostUnsupportedReason(o));
 
         if (retryOffers.length > 0) {
