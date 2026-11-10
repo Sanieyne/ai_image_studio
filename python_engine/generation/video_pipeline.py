@@ -305,6 +305,28 @@ MINIMAX_SGLANG_URL = os.environ.get("SGLANG_DEPLOYMENT_URL", "")
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 
 
+def _safe_to_device(module, device="cuda"):
+    """Safely move PyTorch module to target device, properly materializing any meta tensors."""
+    if module is None:
+        return module
+    import torch
+    dev = torch.device(device)
+    for p in module.parameters():
+        if p.device.type == "meta":
+            p.data = torch.empty_like(p, device=dev)
+    for b in module.buffers():
+        if b.device.type == "meta":
+            b.data = torch.empty_like(b, device=dev)
+    try:
+        return module.to(dev)
+    except NotImplementedError:
+        try:
+            module.to_empty(device=dev)
+        except Exception:
+            pass
+        return module
+
+
 class MiniMaxH3Engine:
     """MiniMax-H3 Omni-modal Video+Audio Engine supporting T2VA and FL2VA."""
 
@@ -406,7 +428,7 @@ class MiniMaxH3Engine:
                         "token_refiner", "norm_out", "proj_out", "audio_proj_out",
                     ],
                 ),
-                low_cpu_mem_usage=True,
+                low_cpu_mem_usage=False,
             )
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
@@ -438,17 +460,17 @@ class MiniMaxH3Engine:
                 vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
                 offload = dict(onload_device=torch.device("cuda"), offload_device=torch.device("cpu"), use_stream=False)
                 apply_group_offloading(pipe.text_encoder.model, offload_type="leaf_level", **offload)
-                pipe.vae.to("cuda")
-                pipe.audio_vae.to("cuda")
+                _safe_to_device(pipe.vae, "cuda")
+                _safe_to_device(pipe.audio_vae, "cuda")
 
                 if vram_gb >= 24:
                     print(f"[*] GPU has {vram_gb:.1f}GB VRAM >= 24GB: placing Int8 transformer directly in VRAM...")
-                    pipe.transformer.to("cuda")
+                    _safe_to_device(pipe.transformer, "cuda")
                 else:
                     print(f"[*] GPU has {vram_gb:.1f}GB VRAM < 24GB: enabling block-level offload...")
                     pipe.transformer.enable_group_offload(offload_type="block_level", num_blocks_per_group=1, **offload)
             elif device_str == "mps":
-                pipe.to("mps")
+                _safe_to_device(pipe, "mps")
 
             self.pipeline = pipe
             self._load_error = None
@@ -457,7 +479,7 @@ class MiniMaxH3Engine:
         except Exception as e:
             import traceback
             err_trace = traceback.format_exc()
-            self._load_error = f"{e}\n{err_trace}"
+            self._load_error = str(e)
             print(f"[*] MiniMax-H3 initialization error: {e}\n{err_trace}")
             self.pipeline = "FAILED"
 

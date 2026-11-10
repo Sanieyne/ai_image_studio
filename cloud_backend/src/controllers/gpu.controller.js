@@ -225,11 +225,16 @@ export function instanceProgressView(instance, now = new Date()) {
     creditsPerHour: instance.pricing?.totalCreditsPerHour ?? null,
     stopReason: instance.stopReason || null,
   };
-  view.gatewayUrl = '/api/v1/gpu/gateway';
-  // Expose cosmic-gen.com gateway as the primary engine URL to protect raw GPU IP
+  const gatewayFullUrl = `${env.PUBLIC_API_URL || 'https://cosmic-gen.com/ai-api/api/v1'}/gpu/gateway`;
+  view.gatewayUrl = gatewayFullUrl;
+  // Always expose cosmic-gen.com gateway as the engine URL to fully protect raw GPU IP
   if (view.pythonEngineUrl) {
-    view.directEngineUrl = view.pythonEngineUrl;
+    view.pythonEngineUrl = gatewayFullUrl;
   }
+  delete view.publicIp;
+  delete view.sshHost;
+  delete view.sshPort;
+  delete view.directEngineUrl;
   // Internal fields the app has no use for.
   delete view.pendingStopReason;
   delete view.holdsSlot;

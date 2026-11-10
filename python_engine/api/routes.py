@@ -585,9 +585,10 @@ def generate_minimax(req: MiniMaxRequest) -> VideoResponse:
         )
     except Exception as e:
         log.exception("MiniMax generation failed")
+        clean_msg = str(e).split("\n")[0].strip()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"MiniMax-H3 generation failed: {e}",
+            detail=f"MiniMax generation failed: {clean_msg}",
         )
 
     num_frames = int(req.duration_seconds * req.fps)

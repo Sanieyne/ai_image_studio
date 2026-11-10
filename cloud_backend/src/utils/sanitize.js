@@ -41,6 +41,16 @@ export function sanitizeInstanceForClient(instance) {
   delete doc.costPerHour;
   delete doc.creditsPerUsd;
   delete doc._internal;
+  delete doc.publicIp;
+  delete doc.sshHost;
+  delete doc.sshPort;
+  delete doc.directEngineUrl;
+
+  const gatewayUrl = 'https://cosmic-gen.com/ai-api/api/v1/gpu/gateway';
+  doc.gatewayUrl = gatewayUrl;
+  if (doc.pythonEngineUrl) {
+    doc.pythonEngineUrl = gatewayUrl;
+  }
 
   if (doc.pricing) {
     const p = doc.pricing;

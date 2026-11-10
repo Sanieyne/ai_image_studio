@@ -11,6 +11,7 @@ import '../models/generation_result.dart';
 import '../models/lora.dart';
 import '../models/camera_frame_result.dart';
 import '../models/live_cam_models.dart';
+import 'auth_service.dart';
 /// Information about an available model returned by GET /models/available
 class AvailableModelInfo {
   final String id;
@@ -66,6 +67,13 @@ class ApiService {
   static String formatFriendlyError(dynamic error) {
     final str = error.toString();
     final isRemote = !baseUrl.contains('127.0.0.1') && !baseUrl.contains('localhost');
+
+    if (str.contains('Cannot copy out of meta tensor') || str.contains('NotImplementedError')) {
+      return 'The AI engine is initializing model weights. Please click Retry in a few seconds.';
+    }
+    if (str.contains('No active GPU instance found') || str.contains('GPU Engine unreachable')) {
+      return 'No cloud GPU is currently running. Click "Rent GPU" at the top to launch your cloud engine.';
+    }
     if (str.contains('TimeoutException')) {
       if (isRemote) {
         return 'Video generation timed out while waiting for Cloud GPU. The model is processing high-resolution diffusion; you can retry with fewer steps (e.g. 15-20) or wait for model warming.';
@@ -77,12 +85,34 @@ class ApiService {
       return 'No AI model is currently loaded. Please select a model from the left sidebar, or switch to "Rent GPU" for instant cloud generation.';
     }
     if (str.contains('SocketException') || str.contains('Connection refused')) {
-      return 'Could not connect to the local engine. Please verify the engine is running or switch to "Rent GPU".';
+      return 'Could not connect to the engine. Please verify the engine is running or switch to "Rent GPU".';
     }
     if (str.contains('503') || str.contains('Service Unavailable')) {
       return 'The engine is currently busy or initializing. Please retry in a moment, or switch to "Rent GPU".';
     }
+    if (str.contains('File "') || str.contains('Traceback')) {
+      final firstLine = str.split('\n').firstWhere(
+        (l) => !l.contains('File "') && !l.contains('Traceback') && l.trim().isNotEmpty,
+        orElse: () => 'Generation could not be completed. Please try again.',
+      );
+      return firstLine.replaceFirst(RegExp(r'^(Exception: |Error: |RuntimeError: )'), '').trim();
+    }
     return str.replaceFirst(RegExp(r'^(Exception: |Error: )'), '');
+  }
+
+  /// Builds standard request headers, automatically injecting session auth when routing through the Cosmic gateway.
+  static Map<String, String> buildHeaders([Map<String, String>? extra]) {
+    final h = <String, String>{
+      'Content-Type': 'application/json',
+      if (extra != null) ...extra,
+    };
+    if (baseUrl.startsWith('https://cosmic-gen.com') || baseUrl.contains('/gpu/gateway')) {
+      final token = AuthService.instance.accessToken;
+      if (token != null && token.isNotEmpty) {
+        h['Authorization'] = 'Bearer $token';
+      }
+    }
+    return h;
   }
 
   /// Set to true during UI testing without a backend.
@@ -114,10 +144,17 @@ class ApiService {
       for (int attempt = 0; attempt <= retries; attempt++) {
         try {
           final timeout = isRemote ? const Duration(seconds: 8) : const Duration(seconds: 4);
+          final headers = <String, String>{'Connection': 'close'};
+          if (candidate.startsWith('https://cosmic-gen.com') || candidate.contains('/gpu/gateway')) {
+            final token = AuthService.instance.accessToken;
+            if (token != null && token.isNotEmpty) {
+              headers['Authorization'] = 'Bearer $token';
+            }
+          }
           final response = await _client
               .get(
                 Uri.parse('$candidate/health'),
-                headers: const {'Connection': 'close'},
+                headers: headers,
               )
               .timeout(timeout);
           if (response.statusCode == 200) {
@@ -151,7 +188,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/generate'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(request.toJson()),
           )
           .timeout(requestTimeout);
@@ -240,7 +277,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/animate'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(hours: 4));
@@ -348,7 +385,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/wan2_1'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(hours: 4));
@@ -414,7 +451,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/minimax'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(hours: 4));
@@ -456,7 +493,7 @@ class ApiService {
   Future<Map<String, dynamic>?> checkLatestVideoStatus() async {
     try {
       final response = await _client
-          .get(Uri.parse('$baseUrl/video/status'))
+          .get(Uri.parse('$baseUrl/video/status'), headers: buildHeaders())
           .timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
@@ -469,7 +506,7 @@ class ApiService {
   Future<Uint8List?> downloadLatestVideo() async {
     try {
       final response = await _client
-          .get(Uri.parse('$baseUrl/video/latest'))
+          .get(Uri.parse('$baseUrl/video/latest'), headers: buildHeaders())
           .timeout(const Duration(minutes: 5));
       if (response.statusCode == 200) {
         return response.bodyBytes;
@@ -517,7 +554,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/voice'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(minutes: 8));
@@ -597,7 +634,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/tryon'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(minutes: 5));
@@ -660,7 +697,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/enhance'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(body),
           )
           .timeout(const Duration(minutes: 6));
@@ -727,7 +764,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/loras/load'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(config.toJson()),
           )
           .timeout(const Duration(seconds: 30));
@@ -757,7 +794,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/loras/scale'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode(
                 {'adapter_name': adapterName, 'weight': weight}),
           )
@@ -775,7 +812,7 @@ class ApiService {
       final response = await _client
           .post(
             Uri.parse('$baseUrl/models/switch'),
-            headers: {'Content-Type': 'application/json'},
+            headers: buildHeaders(),
             body: jsonEncode({'model_id': modelId}),
           )
           .timeout(const Duration(seconds: 300));
@@ -806,7 +843,7 @@ class ApiService {
   Future<List<AvailableModelInfo>> getAvailableModels() async {
     try {
       final response = await _client
-          .get(Uri.parse('$baseUrl/models/available'))
+          .get(Uri.parse('$baseUrl/models/available'), headers: buildHeaders())
           .timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -1054,7 +1091,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/live-cam/start'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'camera_index': cameraIndex,
           'source_image_path': sourceImagePath,
@@ -1139,7 +1176,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/live-cam/set-source'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'preset_name': presetName,
           'source_image_path': sourceImagePath,
@@ -1167,7 +1204,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/live-cam/process-frame'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'frame_base64': frameBase64,
           'source_image_base64': sourceImageBase64,
@@ -1195,7 +1232,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/live-cam/swap-image'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'target_image_base64': targetImageBase64,
           'source_image_base64': sourceImageBase64,
@@ -1223,7 +1260,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/live-cam/swap-video'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'target_video_base64': targetVideoBase64,
           'source_image_base64': sourceImageBase64,
@@ -1248,7 +1285,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/face/extract'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({'image_base64': imageBase64}),
       ).timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
@@ -1268,7 +1305,7 @@ class ApiService {
     try {
       final response = await _client.post(
         Uri.parse('$baseUrl/api/face/verify'),
-        headers: {'Content-Type': 'application/json'},
+        headers: buildHeaders(),
         body: jsonEncode({
           'image1_base64': image1Base64,
           'image2_base64': image2Base64,

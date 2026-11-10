@@ -395,12 +395,13 @@ class _InstanceProvisioningScreenState
         }
       }
 
-      final engineUrl = details?['pythonEngineUrl']?.toString();
-      if (engineUrl != null && engineUrl.isNotEmpty) {
-        ApiService.cloudBaseUrl = engineUrl;
-        ApiService.baseUrl = engineUrl;
-        DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
-      }
+      final rawEngineUrl = (details?['gatewayUrl'] ?? details?['pythonEngineUrl'])?.toString();
+      final engineUrl = (rawEngineUrl != null && (rawEngineUrl.contains('cosmic-gen.com') || rawEngineUrl.contains('/gpu/gateway')))
+          ? rawEngineUrl
+          : 'https://cosmic-gen.com/ai-api/api/v1/gpu/gateway';
+      ApiService.cloudBaseUrl = engineUrl;
+      ApiService.baseUrl = engineUrl;
+      DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
 
       switch (rawStatus) {
         case 'DOWNLOADING_MODEL':

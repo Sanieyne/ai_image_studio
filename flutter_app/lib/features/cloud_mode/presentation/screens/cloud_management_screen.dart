@@ -182,12 +182,13 @@ class _CloudManagementScreenState extends State<CloudManagementScreen> {
   void _openInstance(Map<String, dynamic> instance) {
     final id = (instance['_id'] ?? instance['id'] ?? '').toString();
     if (id.isEmpty) return;
-    final engineUrl = instance['pythonEngineUrl']?.toString();
-    if (engineUrl != null && engineUrl.isNotEmpty) {
-      ApiService.cloudBaseUrl = engineUrl;
-      ApiService.baseUrl = engineUrl;
-      DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
-    }
+    final rawEngineUrl = (instance['gatewayUrl'] ?? instance['pythonEngineUrl'])?.toString();
+    final engineUrl = (rawEngineUrl != null && (rawEngineUrl.contains('cosmic-gen.com') || rawEngineUrl.contains('/gpu/gateway')))
+        ? rawEngineUrl
+        : 'https://cosmic-gen.com/ai-api/api/v1/gpu/gateway';
+    ApiService.cloudBaseUrl = engineUrl;
+    ApiService.baseUrl = engineUrl;
+    DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
     Navigator.of(context)
         .push(MaterialPageRoute(
           builder: (ctx) => InstanceProvisioningScreen(
