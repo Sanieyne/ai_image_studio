@@ -294,10 +294,10 @@ def get_wan_engine() -> WanAnimateEngine:
 
 MINIMAX_REPO = os.environ.get("MINIMAX_MODEL_PATH")
 if not MINIMAX_REPO:
-    if os.path.exists("/workspace/models/minimax-h3/FL2VA"):
-        MINIMAX_REPO = "/workspace/models/minimax-h3/FL2VA"
-    elif os.path.exists("/workspace/models/minimax-h3"):
+    if os.path.exists("/workspace/models/minimax-h3"):
         MINIMAX_REPO = "/workspace/models/minimax-h3"
+    elif os.path.exists("/root/models/minimax-h3"):
+        MINIMAX_REPO = "/root/models/minimax-h3"
     else:
         MINIMAX_REPO = "MiniMaxAI/MiniMax-H3"
 
@@ -306,17 +306,11 @@ MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
 
 
 def _safe_to_device(module, device="cuda"):
-    """Safely move PyTorch module to target device, properly materializing any meta tensors."""
+    """Safely move PyTorch module to target device."""
     if module is None:
         return module
     import torch
     dev = torch.device(device)
-    for p in module.parameters():
-        if p.device.type == "meta":
-            p.data = torch.empty_like(p, device=dev)
-    for b in module.buffers():
-        if b.device.type == "meta":
-            b.data = torch.empty_like(b, device=dev)
     try:
         return module.to(dev)
     except NotImplementedError:
@@ -428,7 +422,7 @@ class MiniMaxH3Engine:
                         "token_refiner", "norm_out", "proj_out", "audio_proj_out",
                     ],
                 ),
-                low_cpu_mem_usage=False,
+                low_cpu_mem_usage=True,
             )
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
