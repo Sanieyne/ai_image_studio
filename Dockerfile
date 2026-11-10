@@ -12,6 +12,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     AI_STUDIO_HOST=0.0.0.0 \
     AI_STUDIO_PORT=8000
 
+LABEL org.opencontainers.image.source="https://github.com/Sanieyne/ai_image_studio" \
+      org.opencontainers.image.description="AI Image Studio Cloud GPU Engine"
+
 WORKDIR /workspace
 
 # 1. Install OS-level dependencies (media, headless GL, ffmpeg, OpenSSH for Vast.ai)
