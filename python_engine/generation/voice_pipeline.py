@@ -179,24 +179,96 @@ class ChatterboxVoiceEngine:
     def _get_breeze_runtime(self):
         """Lazy load Breeze-TTS-2 model & audio tokenizer."""
         if self._breeze_runtime is None:
+            if self._en_model is not None or self._mtl_model is not None:
+                log.info("[*] Unloading Chatterbox models from VRAM before loading Breeze...")
+                self._en_model = None
+                self._mtl_model = None
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             log.info("[*] Loading Breeze-TTS-2 on %s...", self.device)
             try:
                 import sys
+                import subprocess
                 from pathlib import Path
 
                 # Search paths for breeze-tts package
                 possible_repo_dirs = [
-                    os.getenv("BREEZE_REPO_DIR", "/root/ai_image_studio/breeze-tts"),
-                    os.path.expanduser("~/ai_image_studio/breeze-tts"),
-                    "/root/breeze-tts",
+                    Path(__file__).resolve().parent.parent / "breeze_tts_repo",
+                    Path(os.getenv("BREEZE_REPO_DIR", "/workspace/breeze-tts")),
+                    Path("/workspace/breeze-tts"),
+                    Path("/root/ai_image_studio/breeze-tts"),
+                    Path(os.path.expanduser("~/ai_image_studio/breeze-tts")),
+                    Path("/root/breeze-tts"),
                 ]
-                for d in possible_repo_dirs:
-                    if os.path.exists(d) and d not in sys.path:
-                        sys.path.insert(0, d)
+                repo_dir = next((p for p in possible_repo_dirs if p.exists()), None)
+                if repo_dir is None:
+                    log.info("[*] Auto-cloning breeze-tts repository...")
+                    try:
+                        subprocess.run(
+                            ["git", "clone", "--depth", "1", "https://github.com/breezeblue-ai/breeze-tts.git", "/workspace/breeze-tts"],
+                            check=True,
+                        )
+                        repo_dir = Path("/workspace/breeze-tts")
+                    except Exception as clone_err:
+                        log.warning("[!] Failed auto-cloning breeze-tts: %s", clone_err)
+
+                if repo_dir and str(repo_dir) not in sys.path:
+                    sys.path.insert(0, str(repo_dir))
+
+                # Transformers 5.x RoPE compatibility patch
+                try:
+                    import torch
+                    import transformers.modeling_rope_utils as m
+                    if "default" not in m.ROPE_INIT_FUNCTIONS:
+                        def _compute_default_rope_parameters(config=None, device=None, seq_len=None, layer_type=None):
+                            try:
+                                config = config.per_layer_config[layer_type] if layer_type is not None else config
+                            except (ValueError, AttributeError):
+                                pass
+                            if hasattr(config, "standardize_rope_params"):
+                                config.standardize_rope_params()
+                            rope_dict = getattr(config, "rope_parameters", {})
+                            if layer_type is not None and isinstance(rope_dict, dict) and layer_type in rope_dict:
+                                rope_dict = rope_dict[layer_type]
+                            base = rope_dict.get("rope_theta", getattr(config, "rope_theta", 10000.0))
+                            partial_rotary_factor = rope_dict.get("partial_rotary_factor", 1.0)
+                            head_dim = getattr(config, "head_dim", None) or (config.hidden_size // config.num_attention_heads)
+                            dim = int(head_dim * partial_rotary_factor)
+                            inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.int64).to(device=device, dtype=torch.float) / dim))
+                            return inv_freq, 1.0
+                        m.ROPE_INIT_FUNCTIONS["default"] = _compute_default_rope_parameters
+                except Exception:
+                    pass
+
+                # Transformers 5.x create_causal_mask & sliding window compatibility patch
+                try:
+                    import transformers.masking_utils as _mu
+                    _orig_create_causal_mask = _mu.create_causal_mask
+                    def _compat_create_causal_mask(config, *args, **kwargs):
+                        if "input_embeds" in kwargs and "inputs_embeds" not in kwargs:
+                            kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
+                        kwargs.pop("cache_position", None)
+                        return _orig_create_causal_mask(config, *args, **kwargs)
+                    _mu.create_causal_mask = _compat_create_causal_mask
+
+                    _orig_sliding_mask = getattr(_mu, "create_sliding_window_causal_mask", None)
+                    if _orig_sliding_mask:
+                        def _compat_sliding_mask(config, *args, **kwargs):
+                            if "input_embeds" in kwargs and "inputs_embeds" not in kwargs:
+                                kwargs["inputs_embeds"] = kwargs.pop("input_embeds")
+                            kwargs.pop("cache_position", None)
+                            return _orig_sliding_mask(config, *args, **kwargs)
+                        _mu.create_sliding_window_causal_mask = _compat_sliding_mask
+
+                    from transformers import DynamicCache
+                    DynamicCache.__getitem__ = lambda self, idx: (self.layers[idx].keys, self.layers[idx].values)
+                except Exception:
+                    pass
 
                 from breeze_infer.runtime import (
                     load_runtime,
-                    resolve_device,
                     update_generation_config_for_breeze,
                 )
                 from models.fast_streaming import FastBreezeStreamingRuntime, FastStreamingConfig
@@ -204,6 +276,7 @@ class ChatterboxVoiceEngine:
                 from generation.model_paths import model_dir as _model_dir
 
                 possible_model_dirs = [
+                    Path("/workspace/models/breeze-tts-2"),
                     Path(os.getenv("BREEZE_MODEL_DIR", "/root/models/breeze-tts-2")),
                     *([_model_dir("breeze-tts-2")] if _model_dir("breeze-tts-2") else []),
                     Path(os.path.expanduser("~/models/breeze-tts-2")),
@@ -213,9 +286,9 @@ class ChatterboxVoiceEngine:
                 model_path = next((p for p in possible_model_dirs if p.exists()), Path("BreezeBlue/Breeze-TTS-2"))
                 log.info("[*] Breeze-TTS-2 using checkpoint: %s", model_path)
 
-                device = resolve_device() if self.device.startswith("cuda") else "cpu"
+                device = "cuda:0" if self.device.startswith("cuda") else "cpu"
                 tokenizer, model, audio_tokenizer = load_runtime(
-                    model_path,
+                    Path(model_path),
                     device=device,
                     attn_implementation="eager",
                 )
@@ -295,6 +368,13 @@ class ChatterboxVoiceEngine:
         return buf.getvalue(), runtime.sample_rate, seed
 
     def _get_model(self, language: str = "en", model_name: Optional[str] = None):
+        if self._breeze_runtime is not None:
+            log.info("[*] Unloading Breeze-TTS-2 from VRAM before loading Chatterbox...")
+            self._breeze_runtime = None
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         lang = language.lower().strip() if language else "en"
         use_mtl = (lang not in ("", "en")) or (model_name is not None and "multilingual" in model_name.lower())
         if not use_mtl:
