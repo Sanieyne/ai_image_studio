@@ -27,6 +27,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final bool isSubscribed;
   final String subscriptionPlan;
   final VoidCallback? onSubscribe;
+  final VoidCallback? onGpuClick;
 
   const TopBar({
     super.key,
@@ -47,6 +48,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
     this.isSubscribed = false,
     this.subscriptionPlan = 'Free Tier',
     this.onSubscribe,
+    this.onGpuClick,
   });
 
   final String? deviceName;
@@ -200,7 +202,11 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
                   ],
                   const Spacer(),
                   // Engine and Cloud status chips
-                  _StatusChip(online: engineOnline, deviceName: deviceName),
+                  _StatusChip(
+                    online: engineOnline,
+                    deviceName: deviceName,
+                    onGpuClick: onGpuClick,
+                  ),
                   if (executionMode == StudioExecutionMode.cloud) ...[
                     const SizedBox(width: 8),
                     _CloudStatusChip(online: cloudOnline),
@@ -493,7 +499,8 @@ class _ModePill extends StatelessWidget {
 class _StatusChip extends StatelessWidget {
   final bool online;
   final String? deviceName;
-  const _StatusChip({required this.online, this.deviceName});
+  final VoidCallback? onGpuClick;
+  const _StatusChip({required this.online, this.deviceName, this.onGpuClick});
 
   @override
   Widget build(BuildContext context) {
@@ -527,7 +534,29 @@ class _StatusChip extends StatelessWidget {
             ),
           ],
         );
-        if (online) return chip;
+        if (online) {
+          final clickable = onGpuClick != null;
+          return Tooltip(
+            message: clickable ? 'Open GPU container & manage models' : '',
+            child: InkWell(
+              onTap: onGpuClick,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    chip,
+                    if (clickable) ...[
+                      const SizedBox(width: 4),
+                      Icon(Icons.open_in_new_rounded, size: 13, color: muted.withValues(alpha: 0.7)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
         // Not answering: details and the engine log are one click away.
         return PopupMenuButton<String>(
           key: const ValueKey('engine_status_menu'),

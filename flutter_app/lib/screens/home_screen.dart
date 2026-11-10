@@ -27,6 +27,7 @@ import '../widgets/image_template_gallery.dart';
 import '../features/cloud_mode/data/models/cloud_model.dart';
 import '../features/cloud_mode/data/services/cloud_api_service.dart';
 import '../features/cloud_mode/presentation/screens/cloud_management_screen.dart';
+import '../features/cloud_mode/presentation/screens/instance_provisioning_screen.dart';
 import 'my_library_screen.dart';
 
 /// Lumina studio: DB-backed projects + generation feed.
@@ -698,6 +699,47 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _handleOpenActiveGpu() async {
+    try {
+      final instances = await CloudApiService.instance.fetchMyInstances();
+      final active = instances?.firstWhere(
+        (i) => ['ready', 'running', 'downloading_model', 'provisioning'].contains(i['status']),
+        orElse: () => instances.isNotEmpty ? instances.first : {},
+      );
+
+      if (active != null && active.isNotEmpty) {
+        final id = (active['_id'] ?? active['id'] ?? '').toString();
+        final rawEngineUrl = (active['gatewayUrl'] ?? active['pythonEngineUrl'])?.toString();
+        final engineUrl = (rawEngineUrl != null && (rawEngineUrl.contains('cosmic-gen.com') || rawEngineUrl.contains('/gpu/gateway')))
+            ? rawEngineUrl
+            : 'https://cosmic-gen.com/ai-api/api/v1/gpu/gateway';
+        ApiService.cloudBaseUrl = engineUrl;
+        ApiService.baseUrl = engineUrl;
+        DatabaseService.instance.setSetting('studio_cloud_engine_url', engineUrl);
+
+        if (!mounted) return;
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (ctx) => InstanceProvisioningScreen(
+            instanceId: id,
+            gpuName: active['gpuType']?.toString() ?? _api.activeDeviceName ?? 'Cloud GPU',
+            selectedModelIds: (active['modelsRequested'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+            isDark: widget.isDark,
+            onReturnToStudio: () {
+              Navigator.of(ctx).pop();
+            },
+          ),
+        ));
+        return;
+      }
+    } catch (e) {
+      debugPrint('[HomeScreen] Error opening active GPU: $e');
+    }
+
+    if (mounted) {
+      setState(() => _currentSidebarTab = SidebarTab.cloud);
+    }
+  }
+
   // ── generations feed ──────────────────────────────────────
   Future<void> _loadGenerations() async {
     if (_activeProject == null) return;
@@ -1052,6 +1094,7 @@ class _HomeScreenState extends State<HomeScreen> {
               executionMode: _executionMode,
               onExecutionModeChanged: _setExecutionMode,
               deviceName: _api.activeDeviceName,
+              onGpuClick: _handleOpenActiveGpu,
               isDark: widget.isDark,
               workspaceLabel: _activeProject?.title ?? 'Creative Studio',
               onThemeToggle: widget.onThemeToggle,
