@@ -447,6 +447,8 @@ class MiniMaxH3Engine:
 
             pipe.transformer.requires_grad_(False)
             pipe.text_encoder.requires_grad_(False)
+            if hasattr(pipe, "vae") and pipe.vae is not None:
+                pipe.vae._pipeline = pipe
 
             from generation.device import get_device
             device_str, _ = get_device()
