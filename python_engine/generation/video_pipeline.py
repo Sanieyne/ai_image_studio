@@ -431,6 +431,11 @@ class MiniMaxH3Engine:
                 sys.path.append(self.model_path)
             from video_vae.minimax_h3_video_vae import MiniMaxH3VideoVAE
             vae = MiniMaxH3VideoVAE.from_pretrained(os.path.join(self.model_path, "video_vae"), torch_dtype=torch.bfloat16)
+            if hasattr(vae, "model"):
+                vae.model.decoder_tiling = False
+                vae.model.parallel_tiling = False
+                vae.model.encoder_tiling = False
+                print("[*] MiniMax H3 Video VAE: disabled 256px spatial tiling for full-frame sharpness.")
             audio_vae = AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16)
 
             pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
@@ -596,6 +601,21 @@ class MiniMaxH3Engine:
                         audio=results["audio"][0],
                         audio_sample_rate=results["sampling_rate"],
                     )
+                    tagged_mp4 = os.path.join(session_dir, "tagged_output.mp4")
+                    try:
+                        cmd = [
+                            "ffmpeg", "-y", "-i", out_mp4,
+                            "-c:v", "copy", "-c:a", "copy",
+                            "-movflags", "+faststart",
+                            "-bsf:v", "h264_metadata=video_full_range_flag=1:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+                            tagged_mp4,
+                        ]
+                        res = subprocess.run(cmd, capture_output=True, timeout=30)
+                        if res.returncode == 0 and os.path.isfile(tagged_mp4) and os.path.getsize(tagged_mp4) > 1000:
+                            out_mp4 = tagged_mp4
+                    except Exception as ffmpeg_err:
+                        print(f"[*] ffmpeg faststart/color-range tagging notice: {ffmpeg_err}")
+
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
 
@@ -873,6 +893,21 @@ class Wan2_1Engine:
                 try:
                     out_mp4 = os.path.join(session_dir, "output.mp4")
                     export_to_video(output, out_mp4, fps=fps)
+                    tagged_mp4 = os.path.join(session_dir, "tagged_output.mp4")
+                    try:
+                        cmd = [
+                            "ffmpeg", "-y", "-i", out_mp4,
+                            "-c:v", "copy", "-c:a", "copy",
+                            "-movflags", "+faststart",
+                            "-bsf:v", "h264_metadata=video_full_range_flag=1:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
+                            tagged_mp4,
+                        ]
+                        res = subprocess.run(cmd, capture_output=True, timeout=30)
+                        if res.returncode == 0 and os.path.isfile(tagged_mp4) and os.path.getsize(tagged_mp4) > 1000:
+                            out_mp4 = tagged_mp4
+                    except Exception as ffmpeg_err:
+                        print(f"[*] ffmpeg faststart/color-range tagging notice: {ffmpeg_err}")
+
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
                     outputs_dir = os.environ.get("AI_STUDIO_OUTPUTS_DIR", "/workspace/outputs")
