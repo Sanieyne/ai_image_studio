@@ -50,13 +50,13 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
   validate: { xForwardedForHeader: false, default: true },
   skip: (req) => {
-    // Completely exempt health check
-    if (req.path === '/health' || req.originalUrl?.includes('/health')) {
+    const url = req.originalUrl || req.url || '';
+    // Completely exempt health check and user-rented GPU gateway operations
+    if (req.path === '/health' || url.includes('/health') || url.includes('/gpu/gateway')) {
       return true;
     }
     // Exempt public read endpoints handled by dedicated publicReadLimiter
     if (req.method === 'GET' || req.method === 'OPTIONS') {
-      const url = req.originalUrl || req.url || '';
       return (
         url.includes('/gallery') ||
         url.includes('/gpu/offers') ||
