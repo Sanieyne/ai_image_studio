@@ -218,7 +218,10 @@ class SDXLEngine:
             )
             # Z-Image (6B) takes ~19GB in bfloat16. On <=32GB GPUs, enable_model_cpu_offload
             # is necessary to leave headroom for 1024x1024 attention activations and VAE decode.
-            if total_vram_gb < 40 or os.environ.get("FORCE_CPU_OFFLOAD") == "1":
+            if total_vram_gb <= 16:
+                print(f"[*] Low VRAM ({total_vram_gb:.1f} GB): enabling sequential CPU offload for Z-Image.")
+                self.pipe.enable_sequential_cpu_offload()
+            elif total_vram_gb < 40 or os.environ.get("FORCE_CPU_OFFLOAD") == "1":
                 print(f"[*] VRAM ({total_vram_gb:.1f} GB): enabling model CPU offload for Z-Image.")
                 self.pipe.enable_model_cpu_offload()
             else:
