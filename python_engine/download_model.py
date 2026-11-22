@@ -155,8 +155,7 @@ MODEL_CATALOG: Dict[str, dict] = {
             "text_encoder",
             "tokenizer",
             "transformer",
-            "video_vae",
-            "Ref2VA/video_vae",
+            "vae",
         ],
         "symlinks": [
             (".", "/workspace/models/minimax-h3"),
@@ -362,8 +361,6 @@ def download_single_model(
 
     for item in r2_files:
         rel = item["rel_path"]
-        if canonical == "minimax-h3" and rel.startswith("Ref2VA/video_vae/"):
-            rel = rel[len("Ref2VA/"):]
         expected_size = item["size"]
         local_path = dest_dir / rel
         local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -395,6 +392,15 @@ def download_single_model(
             raise RuntimeError(
                 f"Size mismatch on {rel}: expected {expected_size} bytes, got {local_path.stat().st_size} bytes"
             )
+        if hasattr(os, "posix_fadvise") and hasattr(os, "POSIX_FADV_DONTNEED"):
+            try:
+                fd = os.open(str(local_path), os.O_RDONLY)
+                try:
+                    os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                finally:
+                    os.close(fd)
+            except Exception:
+                pass
         downloaded += 1
 
     if progress_callback:

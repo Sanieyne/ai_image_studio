@@ -62,7 +62,22 @@ last_lines() { tail -n "${2:-5}" "$1" 2>/dev/null | tr '\n' ' ' | cut -c1-600; }
 
 # Fast path: Pre-baked Docker container image detected
 if [ -d "/workspace/python_engine" ] && [ -f "/workspace/python_engine/app.py" ] && [ -f "/workspace/python_engine/self_test.py" ]; then
-  stage "Pre-baked Docker container detected! All dependencies and engine files are already present."
+  stage "Pre-baked Docker container detected! Syncing latest engine code from R2..."
+  python3 - <<'PY' > /var/log/engine_sync.log 2>&1 || true
+import os, boto3, tarfile
+s3 = boto3.client("s3", endpoint_url=os.environ["R2_ENDPOINT"],
+                  aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                  aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"], region_name="auto")
+s3.download_file(os.environ.get("R2_BUCKET_NAME", "cosmic-gen"), "models/engine/python_engine.tar.gz",
+                 "/workspace/python_engine_update.tar.gz")
+PY
+  if [ -f "/workspace/python_engine_update.tar.gz" ]; then
+    tar -xzf /workspace/python_engine_update.tar.gz -C /workspace/python_engine 2>/dev/null || true
+    rm -f /workspace/python_engine_update.tar.gz
+    if [ -d "/workspace/python_engine/python_engine" ] && [ -f "/workspace/python_engine/python_engine/app.py" ]; then
+      cp -rf /workspace/python_engine/python_engine/* /workspace/python_engine/ 2>/dev/null || true
+    fi
+  fi
   cd /workspace/python_engine
 
   if [ -n "${AI_STUDIO_SELECTED_MODELS:-}" ]; then

@@ -358,24 +358,14 @@ class MiniMaxH3Engine:
                 except Exception:
                     pass
 
-            # Symlink vae -> video_vae if needed
             vae_dir = os.path.join(self.model_path, "vae")
             video_vae_dir = os.path.join(self.model_path, "video_vae")
-            if os.path.isdir(video_vae_dir) and not os.path.exists(vae_dir):
+            # Remove any stale vae -> video_vae symlink if present so official vae/ is used
+            if os.path.islink(vae_dir) and not os.path.isfile(os.path.join(vae_dir, "diffusion_pytorch_model.safetensors.index.json")):
                 try:
-                    os.symlink("video_vae", vae_dir)
+                    os.unlink(vae_dir)
                 except Exception:
                     pass
-
-            # Symlink video_vae/diffusion_pytorch_model.safetensors -> source/model.safetensors
-            if os.path.isdir(video_vae_dir):
-                target_vvae = os.path.join(video_vae_dir, "diffusion_pytorch_model.safetensors")
-                src_vvae = os.path.join(video_vae_dir, "source", "model.safetensors")
-                if os.path.isfile(src_vvae) and not os.path.exists(target_vvae):
-                    try:
-                        os.symlink("source/model.safetensors", target_vvae)
-                    except Exception:
-                        pass
 
             # Symlink audio_vae/diffusion_pytorch_model.safetensors -> model.safetensors
             audio_vae_dir = os.path.join(self.model_path, "audio_vae")
@@ -387,6 +377,38 @@ class MiniMaxH3Engine:
                         os.symlink("model.safetensors", target_avae)
                     except Exception:
                         pass
+
+            def _drop_model_page_cache(root_dir: str) -> None:
+                if not (hasattr(os, "posix_fadvise") and hasattr(os, "POSIX_FADV_DONTNEED")):
+                    return
+                for r, _, files in os.walk(root_dir):
+                    for fname in files:
+                        fpath = os.path.join(r, fname)
+                        try:
+                            fd = os.open(fpath, os.O_RDONLY)
+                            try:
+                                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                            finally:
+                                os.close(fd)
+                        except Exception:
+                            pass
+
+            # Free any resident image diffusion pipeline from VRAM before loading MiniMax-H3
+            try:
+                import gc
+                from generation.pipeline import peek_pipeline
+                img_pipe = peek_pipeline()
+                if img_pipe is not None and getattr(img_pipe, "engine", None) is not None and getattr(img_pipe.engine, "pipe", None) is not None:
+                    print("[*] Unloading image pipeline from VRAM to make room for MiniMax-H3...")
+                    img_pipe.engine.pipe = None
+                    img_pipe.engine.current_model_id = None
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+            except Exception as unload_err:
+                print(f"[!] Notice unloading image pipeline: {unload_err}")
+
+            _drop_model_page_cache(self.model_path)
 
             print(f"[*] Loading MiniMax-H3 text_encoder...")
             qwen_path = "/root/models/minimax-qwen-int8"
@@ -409,6 +431,7 @@ class MiniMaxH3Engine:
                     ),
                     low_cpu_mem_usage=True,
                 )
+            _drop_model_page_cache(self.model_path)
 
             print(f"[*] Loading and quantizing MiniMaxH3Transformer3DModel to Int8...")
             transformer = MiniMaxH3Transformer3DModel.from_pretrained(
@@ -424,18 +447,24 @@ class MiniMaxH3Engine:
                 ),
                 low_cpu_mem_usage=True,
             )
+            _drop_model_page_cache(self.model_path)
 
             print(f"[*] Initializing MiniMax-H3 pipeline from {self.model_path}...")
-            import sys
-            if self.model_path not in sys.path:
-                sys.path.append(self.model_path)
-            from video_vae.minimax_h3_video_vae import MiniMaxH3VideoVAE
-            vae = MiniMaxH3VideoVAE.from_pretrained(os.path.join(self.model_path, "video_vae"), torch_dtype=torch.bfloat16)
-            if hasattr(vae, "model"):
-                vae.model.decoder_tiling = False
-                vae.model.parallel_tiling = False
-                vae.model.encoder_tiling = False
-                print("[*] MiniMax H3 Video VAE: disabled 256px spatial tiling for full-frame sharpness.")
+            if os.path.isdir(vae_dir) and os.path.isfile(os.path.join(vae_dir, "config.json")):
+                print(f"[*] Loading official AutoencoderKLMiniMaxH3 from {vae_dir}...")
+                vae = AutoencoderKLMiniMaxH3.from_pretrained(
+                    self.model_path,
+                    subfolder="vae",
+                    torch_dtype=torch.bfloat16,
+                    low_cpu_mem_usage=True,
+                )
+            else:
+                import sys
+                if self.model_path not in sys.path:
+                    sys.path.append(self.model_path)
+                from video_vae.minimax_h3_video_vae import MiniMaxH3VideoVAE
+                vae = MiniMaxH3VideoVAE.from_pretrained(video_vae_dir, torch_dtype=torch.bfloat16)
+            _drop_model_page_cache(self.model_path)
             audio_vae = AutoencoderKLMiniMaxH3Audio.from_pretrained(self.model_path, subfolder="audio_vae", torch_dtype=torch.bfloat16)
 
             pipe = MiniMaxH3Blocks().init_pipeline(self.model_path)
@@ -454,6 +483,36 @@ class MiniMaxH3Engine:
             pipe.text_encoder.requires_grad_(False)
             if hasattr(pipe, "vae") and pipe.vae is not None:
                 pipe.vae._pipeline = pipe
+                orig_vae_decode = pipe.vae.decode
+
+                def _vae_decode_with_offload(*args, **kwargs):
+                    import gc
+                    trans = getattr(pipe, "transformer", None)
+                    was_on_cuda = False
+                    if trans is not None:
+                        try:
+                            first_p = next(trans.parameters())
+                            if first_p.device.type == "cuda":
+                                was_on_cuda = True
+                                print("[*] Offloading transformer to CPU to free VRAM for VAE decoding...")
+                                trans.to("cpu")
+                                gc.collect()
+                                torch.cuda.empty_cache()
+                        except Exception as off_err:
+                            print(f"[!] Warning during transformer offload: {off_err}")
+                    try:
+                        return orig_vae_decode(*args, **kwargs)
+                    finally:
+                        if was_on_cuda and trans is not None:
+                            try:
+                                print("[*] Restoring transformer to CUDA...")
+                                gc.collect()
+                                torch.cuda.empty_cache()
+                                trans.to("cuda")
+                            except Exception as rest_err:
+                                print(f"[!] Warning restoring transformer to CUDA: {rest_err}")
+
+                pipe.vae.decode = _vae_decode_with_offload
 
             from generation.device import get_device
             device_str, _ = get_device()
@@ -601,20 +660,6 @@ class MiniMaxH3Engine:
                         audio=results["audio"][0],
                         audio_sample_rate=results["sampling_rate"],
                     )
-                    tagged_mp4 = os.path.join(session_dir, "tagged_output.mp4")
-                    try:
-                        cmd = [
-                            "ffmpeg", "-y", "-i", out_mp4,
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-movflags", "+faststart",
-                            "-bsf:v", "h264_metadata=video_full_range_flag=1:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
-                            tagged_mp4,
-                        ]
-                        res = subprocess.run(cmd, capture_output=True, timeout=30)
-                        if res.returncode == 0 and os.path.isfile(tagged_mp4) and os.path.getsize(tagged_mp4) > 1000:
-                            out_mp4 = tagged_mp4
-                    except Exception as ffmpeg_err:
-                        print(f"[*] ffmpeg faststart/color-range tagging notice: {ffmpeg_err}")
 
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
@@ -893,20 +938,6 @@ class Wan2_1Engine:
                 try:
                     out_mp4 = os.path.join(session_dir, "output.mp4")
                     export_to_video(output, out_mp4, fps=fps)
-                    tagged_mp4 = os.path.join(session_dir, "tagged_output.mp4")
-                    try:
-                        cmd = [
-                            "ffmpeg", "-y", "-i", out_mp4,
-                            "-c:v", "copy", "-c:a", "copy",
-                            "-movflags", "+faststart",
-                            "-bsf:v", "h264_metadata=video_full_range_flag=1:colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1",
-                            tagged_mp4,
-                        ]
-                        res = subprocess.run(cmd, capture_output=True, timeout=30)
-                        if res.returncode == 0 and os.path.isfile(tagged_mp4) and os.path.getsize(tagged_mp4) > 1000:
-                            out_mp4 = tagged_mp4
-                    except Exception as ffmpeg_err:
-                        print(f"[*] ffmpeg faststart/color-range tagging notice: {ffmpeg_err}")
 
                     with open(out_mp4, "rb") as f:
                         mp4_bytes = f.read()
